@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Reports</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+    <!-- Navigation -->
+    <div class="max-w-7xl mx-auto px-4">
+        <div class="flex justify-between h-16">
+            <div class="flex items-center space-x-6">
+                <h1 class="text-xl font-bold">Upload Reports</h1>
+                <a href="{{ url_for('main.dashboard') }}" 
+                   class="text-blue-600 hover:text-blue-800 transition-colors flex items-center">
+                    <span class="mr-1">←</span> Back to Dashboard
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-8">Upload Reports</h1>
+        
+        <div class="bg-white rounded-lg shadow p-6">
+            <form method="POST" enctype="multipart/form-data" class="space-y-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Select Group</label>
+                    <select name="group_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                        <option value="">Choose a group...</option>
+                        {% for group in groups %}
+                        <option value="{{ group.id }}">{{ group.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Select Term</label>
+                    <select name="teaching_period_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                        <option value="">Choose a term...</option>
+                        {% for term in periods %}
+                        <option value="{{ term.id }}">{{ term.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Upload CSV File</label>
+                    <input type="file" name="file" accept=".csv,.xlsx,.xls" required 
+                           class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4
+                                  file:rounded-full file:border-0 file:text-sm file:font-semibold
+                                  file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
+                </div>
+
+                <!-- Flash Messages -->
+                {% with messages = get_flashed_messages() %}
+                    {% if messages %}
+                        {% for message in messages %}
+                        <div class="p-4 mb-4 text-sm text-red-700 bg-red-100 rounded-lg">
+                            {{ message }}
+                        </div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <div class="flex justify-end">
+                    <button type="submit" 
+                            class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors">
+                        Upload Reports
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- CSV Format Help -->
+        <div class="mt-8 bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-bold mb-4">CSV Format Guide</h2>
+            <p class="text-sm text-gray-600 mb-4">Your CSV should include the following columns:</p>
+            <ul class="list-disc list-inside text-sm text-gray-600 space-y-2">
+                <li>student_name (required)</li>
+                <li>age (required)</li>
+                <li>forehand (YES/NEARLY/NOT YET)</li>
+                <li>backhand (YES/NEARLY/NOT YET)</li>
+                <li>movement (YES/NEARLY/NOT YET)</li>
+                <li>overall_rating (1-5)</li>
+                <li>next_group_recommendation</li>
+                <li>notes (optional)</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

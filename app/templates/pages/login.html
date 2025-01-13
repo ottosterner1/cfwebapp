@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Login{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto">
+    <div class="card">
+        <h1>Login</h1>
+        <form method="POST" action="{{ url_for('main.login') }}" class="space-y-4">
+            <div>
+                <input type="text" name="username" placeholder="Username" class="form-input">
+            </div>
+            <div>
+                <input type="password" name="password" placeholder="Password" class="form-input">
+            </div>
+            <button type="submit" class="btn btn-primary w-full">Login</button>
+        </form>
+        
+        <div class="mt-4 text-center">
+            <a href="{{ url_for('main.create_user') }}" class="btn btn-primary">Create New User</a>
+        </div>
+    </div>
+</div>
+{% endblock %}

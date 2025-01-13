@@ -1,0 +1,5 @@
+student_name,date_of_birth,contact_email,coach_email,group_name,day_of_week,start_time,end_time
+Sophie Taylor,12-Nov-2023,sophie.parent@example.com,ottosterner1@gmail.com,Red 1,Monday,11:00,12:00
+Lucas Smith,05-Nov-2013,lucas.parent@example.com,ottosterner1@gmail.com,Orange 1,Tuesday,15:00,16:00
+Olivia Brown,30-Sep-2015,olivia.parent@example.com,ottosterner1@gmail.com,Red 2,Monday,14:00,15:00
+Noah Williams,18-Apr-2014,noah.parent@example.com,ottosterner1@gmail.com,Orange 1,Tuesday,15:00,16:00

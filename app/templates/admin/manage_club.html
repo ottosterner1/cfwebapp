@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto p-6">
+    <div class="bg-white shadow-lg rounded-lg p-8">
+        <h1 class="text-2xl font-bold mb-6">Manage Tennis Club</h1>
+        
+        <!-- Club Logo Section -->
+        <div class="mb-8">
+            <h2 class="text-lg font-semibold mb-4">Club Logo</h2>
+            <div class="flex items-center space-x-4">
+                {% if club.logo_url %}
+                <div class="relative h-24 w-24">
+                    <!-- Loading placeholder -->
+                    <div class="absolute inset-0 bg-gray-100 animate-pulse" id="logo-loading"></div>
+                    <img src="{{ club.logo_presigned_url }}" 
+                         alt="{{ club.name }} logo" 
+                         class="h-24 w-auto"
+                         onload="this.previousElementSibling.style.display='none'"
+                         onerror="handleImageError(this)">
+                </div>
+                {% else %}
+                <div class="h-24 w-24 bg-gray-100 flex items-center justify-center rounded">
+                    <span class="text-gray-400">No logo</span>
+                </div>
+                {% endif %}
+                
+                <form action="{{ url_for('club_management.upload_logo', club_id=club.id) }}" 
+                    method="POST" 
+                    enctype="multipart/form-data"
+                    class="flex-1">
+                    <div class="flex items-center space-x-2">
+                        <input type="file" 
+                                name="logo" 
+                                accept="image/png,image/jpeg,image/gif"
+                                class="flex-1">
+                        <button type="submit" 
+                                class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                            Upload Logo
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <form method="POST">
+            <div class="mb-4">
+                <label for="name" class="block text-gray-700 mb-2">Club Name</label>
+                <input type="text" 
+                       id="name" 
+                       name="name" 
+                       value="{{ club.name }}"
+                       class="w-full p-2 border rounded"
+                       required>
+            </div>
+
+            <div class="mb-6">
+                <label for="subdomain" class="block text-gray-700 mb-2">Subdomain</label>
+                <input type="text" 
+                       id="subdomain" 
+                       name="subdomain" 
+                       value="{{ club.subdomain }}"
+                       class="w-full p-2 border rounded"
+                       required>
+            </div>
+
+            <div class="flex justify-end">
+                <button type="submit" 
+                        class="bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600 transition-colors">
+                    Update Club Details
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    async function handleImageError(img) {
+        try {
+            // Add leading slash to URL
+            const response = await fetch(`/api/clubs/${img.dataset.clubId}/logo-url`);
+            if (response.ok) {
+                const data = await response.json();
+                if (data.url) {
+                    img.src = data.url;
+                    img.style.display = 'block';
+                } else {
+                    console.error('No URL in response');
+                    img.style.display = 'none';
+                }
+            } else {
+                console.error('Error response:', response.status);
+                img.style.display = 'none';
+            }
+        } catch (error) {
+            console.error('Error refreshing logo URL:', error);
+            img.style.display = 'none';
+        }
+    }
+
+    // Refresh URL periodically before it expires
+    setInterval(async () => {
+        const img = document.querySelector(`img[alt="{{ club.name }} logo"]`);
+        if (img) {
+            await handleImageError(img);
+        }
+    }, 40 * 60 * 1000); // Refresh every 40 minutes
+</script>
+{% endblock %}

@@ -1,0 +1,23 @@
+<!-- templates/admin/edit_programme_player.html -->
+{% extends "base.html" %}
+{% block content %}
+<div id="react-root" class="w-full">
+    <!-- React app will render here -->
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if config['DEBUG'] %}
+    <script type="module">
+        import RefreshRuntime from 'http://localhost:5173/@react-refresh'
+        RefreshRuntime.injectIntoGlobalHook(window)
+        window.$RefreshReg$ = () => {}
+        window.$RefreshSig$ = () => (type) => type
+        window.__vite_plugin_react_preamble_installed__ = true
+    </script>
+    <script type="module" src="http://localhost:5173/@vite/client"></script>
+    <script type="module" src="http://localhost:5173/src/entry/edit_programme_player.tsx"></script>
+{% else %}
+    <script type="module" src="{{ url_for('static', filename='dist/assets/edit_programme_player-[hash].js') }}"></script>
+{% endif %}
+{% endblock %}

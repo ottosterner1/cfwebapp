@@ -1,0 +1,22 @@
+/* components.css */
+@layer components {
+    .btn {
+        @apply px-4 py-2 rounded-md font-medium transition-all duration-200 ease-in-out;
+    }
+
+    .btn-primary {
+        @apply bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg transform hover:-translate-y-0.5;
+    }
+
+    .card {
+        @apply bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow duration-300;
+    }
+
+    .nav-link {
+        @apply text-gray-500 hover:text-blue-600 transition-colors duration-200;
+    }
+
+    .section-title {
+        @apply text-3xl font-extrabold text-gray-900 mb-8 text-center;
+    }
+}

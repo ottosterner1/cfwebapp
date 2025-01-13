@@ -1,0 +1,5 @@
+student_name,age,tennis_club_id,forehand,backhand,movement,overall_rating,next_group_recommendation,notes
+John Smith,6,1,YES,NEARLY,YES,4,RED 2,"Strong forehand, developing backhand well"
+Emma Wilson,5,1,NEARLY,NOT YET,YES,3,RED 1,"Good movement, needs work on racket skills"
+Sarah Johnson,7,1,YES,YES,NEARLY,4,RED 2,"Excellent racket skills, working on movement patterns"
+Michael Brown,6,1,NEARLY,NEARLY,YES,3,RED 1,"Good athleticism, developing technical skills"

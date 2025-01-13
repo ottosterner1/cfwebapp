@@ -1,0 +1,34 @@
+{# Path: app/templates/pages/lta_accreditation.html #}
+{% extends "base.html" %}
+
+{% block title %}LTA Accreditation - Tennis Automation{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="md:flex md:items-center md:justify-between mb-6">
+        <div class="flex-1 min-w-0">
+            <h2 class="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
+                LTA Accreditation Status
+            </h2>
+        </div>
+    </div>
+
+    <div id="root">
+        <!-- React LTA Accreditation will render here -->
+    </div>
+</div>
+
+{% if config['DEBUG'] %}
+    <script type="module">
+        import RefreshRuntime from 'http://localhost:5173/@react-refresh'
+        RefreshRuntime.injectIntoGlobalHook(window)
+        window.$RefreshReg$ = () => {}
+        window.$RefreshSig$ = () => (type) => type
+        window.__vite_plugin_react_preamble_installed__ = true
+    </script>
+    <script type="module" src="http://localhost:5173/@vite/client"></script>
+    <script type="module" src="http://localhost:5173/src/entry/lta_accreditation.tsx"></script>
+{% else %}
+    <script type="module" src="{{ url_for('static', filename='dist/assets/lta_accreditation-[hash].js') }}"></script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,34 @@
+{% macro form_field(name, label, value="", type="text") %}
+<div>
+    <label class="block text-sm font-medium text-gray-700">{{ label }}</label>
+    <input type="{{ type }}" 
+           name="{{ name }}" 
+           value="{{ value if value }}"
+           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+</div>
+{% endmacro %}
+
+{% macro form_date(name, label, value) %}
+<div>
+    <label class="block text-sm font-medium text-gray-700">{{ label }}</label>
+    <input type="date" 
+           name="{{ name }}" 
+           value="{{ value.strftime('%Y-%m-%d') if value else '' }}"
+           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+</div>
+{% endmacro %}
+
+{% macro form_select(name, label, options, selected=None) %}
+<div>
+    <label class="block text-sm font-medium text-gray-700">{{ label }}</label>
+    <select name="{{ name }}" 
+            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+        {% for option in options %}
+        <option value="{{ option.name }}" 
+                {% if selected and selected == option %}selected{% endif %}>
+            {{ option.value }}
+        </option>
+        {% endfor %}
+    </select>
+</div>
+{% endmacro %}

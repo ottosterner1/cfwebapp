@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-4xl mx-auto p-6">
+    <div class="bg-white shadow-lg rounded-lg p-8">
+        <h1 class="text-2xl font-bold mb-6">Create New Tennis Club</h1>
+        
+        <form method="POST" class="space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Club Name</label>
+                    <input type="text" name="club_name" required 
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Subdomain</label>
+                    <input type="text" name="subdomain" required
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Admin Email</label>
+                    <input type="email" name="admin_email" required
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Admin Name</label>
+                    <input type="text" name="admin_name" required
+                           class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+            </div>
+
+            <button type="submit" class="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700">
+                Create Tennis Club
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

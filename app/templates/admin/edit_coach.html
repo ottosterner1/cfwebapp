@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% from "components/forms.html" import form_field, form_date, form_select %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div class="bg-white shadow rounded-lg">
+        <div class="px-6 py-4 border-b border-gray-200">
+            <h1 class="text-xl font-semibold text-gray-900">Edit Coach - {{ coach.name }}</h1>
+        </div>
+        
+        <form method="POST" class="p-6 space-y-6">
+            <!-- Basic Information -->
+            <div class="space-y-4">
+                <h2 class="text-lg font-medium text-gray-900">Basic Information</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {{ form_field("coach_number", "Coach Number", details.coach_number if details else "") }}
+                    {{ form_select("qualification", "Qualification", coach_qualifications, details.qualification if details else None) }}
+                    {{ form_date("date_of_birth", "Date of Birth", details.date_of_birth if details else None) }}
+                    {{ form_field("contact_number", "Contact Number", details.contact_number if details else "") }}
+                </div>
+            </div>
+
+            <!-- Emergency Contact -->
+            <div class="space-y-4">
+                <h2 class="text-lg font-medium text-gray-900">Emergency Contact</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {{ form_field("emergency_contact_name", "Name", details.emergency_contact_name if details else "") }}
+                    {{ form_field("emergency_contact_number", "Contact Number", details.emergency_contact_number if details else "") }}
+                </div>
+            </div>
+
+            <!-- Address -->
+            <div class="space-y-4">
+                <h2 class="text-lg font-medium text-gray-900">Address</h2>
+                <div class="grid grid-cols-1 gap-4">
+                    {{ form_field("address_line1", "Address Line 1", details.address_line1 if details else "") }}
+                    {{ form_field("address_line2", "Address Line 2", details.address_line2 if details else "") }}
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {{ form_field("city", "City", details.city if details else "") }}
+                        {{ form_field("postcode", "Postcode", details.postcode if details else "") }}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Role and Accreditations -->
+            <div class="space-y-4">
+                <h2 class="text-lg font-medium text-gray-900">Role and Accreditations</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {{ form_select("coach_role", "Role", coach_roles, details.coach_role if details else None) }}
+                    {{ form_field("utr_number", "UTR Number", details.utr_number if details else "") }}
+                    {{ form_date("accreditation_expiry", "Accreditation Expiry", details.accreditation_expiry if details else None) }}
+                </div>
+            </div>
+
+            <!-- DBS Information -->
+            <div class="space-y-4">
+                <h2 class="text-lg font-medium text-gray-900">DBS Information</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {{ form_field("dbs_number", "DBS Number", details.dbs_number if details else "") }}
+                    {{ form_field("dbs_update_service_id", "Update Service ID", details.dbs_update_service_id if details else "") }}
+                    {{ form_date("dbs_expiry", "DBS Expiry", details.dbs_expiry if details else None) }}
+                </div>
+            </div>
+
+            <!-- First Aid -->
+            <div class="space-y-4">
+                <h2 class="text-lg font-medium text-gray-900">First Aid</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {{ form_date("first_aid_expiry", "First Aid Expiry", details.first_aid_expiry if details else None) }}
+                    {{ form_date("safeguarding_expiry", "Safeguarding Expiry", details.safeguarding_expiry if details else None) }}
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-3 pt-5">
+                <a href="{{ url_for('club_management.manage_coaches', club_id=club.id) }}" 
+                   class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">
+                    Cancel
+                </a>
+                <button type="submit" 
+                        class="px-4 py-2 bg-indigo-600 border border-transparent rounded-md text-sm font-medium text-white hover:bg-indigo-700">
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
