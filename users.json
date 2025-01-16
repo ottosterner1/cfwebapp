@@ -1,0 +1,95 @@
+{
+    "Users": [
+        {
+            "Username": "bruno",
+            "Attributes": [
+                {
+                    "Name": "email",
+                    "Value": "ottosterner1@icloud.com"
+                },
+                {
+                    "Name": "email_verified",
+                    "Value": "true"
+                },
+                {
+                    "Name": "name",
+                    "Value": "Bruno Sterner"
+                },
+                {
+                    "Name": "given_name",
+                    "Value": "Bruno"
+                },
+                {
+                    "Name": "sub",
+                    "Value": "30ac193c-3041-70bb-f2e9-e23fdef2fa3c"
+                }
+            ],
+            "UserCreateDate": "2024-11-24T23:35:50.563000+00:00",
+            "UserLastModifiedDate": "2024-11-24T23:36:07.515000+00:00",
+            "Enabled": true,
+            "UserStatus": "CONFIRMED"
+        },
+        {
+            "Username": "sterno",
+            "Attributes": [
+                {
+                    "Name": "email",
+                    "Value": "ottosterner1@gmail.com"
+                },
+                {
+                    "Name": "email_verified",
+                    "Value": "true"
+                },
+                {
+                    "Name": "name",
+                    "Value": "Otto Sterner"
+                },
+                {
+                    "Name": "given_name",
+                    "Value": "Otto"
+                },
+                {
+                    "Name": "sub",
+                    "Value": "705c294c-d0a1-707d-f0a7-c2e7eae6d22f"
+                }
+            ],
+            "UserCreateDate": "2024-11-24T23:09:39.380000+00:00",
+            "UserLastModifiedDate": "2024-11-24T23:09:55.291000+00:00",
+            "Enabled": true,
+            "UserStatus": "CONFIRMED"
+        },
+        {
+            "Username": "google_111026333719150762893",
+            "Attributes": [
+                {
+                    "Name": "email",
+                    "Value": "ottosterner1@gmail.com"
+                },
+                {
+                    "Name": "email_verified",
+                    "Value": "false"
+                },
+                {
+                    "Name": "name",
+                    "Value": "Otto Sterner"
+                },
+                {
+                    "Name": "given_name",
+                    "Value": "Otto"
+                },
+                {
+                    "Name": "sub",
+                    "Value": "e0ecc96c-d001-706b-c52b-9195fd5d9a2b"
+                },
+                {
+                    "Name": "identities",
+                    "Value": "[{\"dateCreated\":\"1732486491637\",\"userId\":\"111026333719150762893\",\"providerName\":\"Google\",\"providerType\":\"Google\",\"issuer\":null,\"primary\":\"true\"}]"
+                }
+            ],
+            "UserCreateDate": "2024-11-24T22:14:51.714000+00:00",
+            "UserLastModifiedDate": "2024-12-19T23:07:59.190000+00:00",
+            "Enabled": true,
+            "UserStatus": "EXTERNAL_PROVIDER"
+        }
+    ]
+}
