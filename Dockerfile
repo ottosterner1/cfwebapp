@@ -24,5 +24,5 @@ COPY . .
 
 EXPOSE 8000
 
-# Command to run Flask
-CMD ["flask", "run", "--host=0.0.0.0"]
+# Change the CMD to use gunicorn for production
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "wsgi:app"]

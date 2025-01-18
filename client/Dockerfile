@@ -1,18 +1,20 @@
-# Frontend Dockerfile (./client/Dockerfile)
-FROM node:18-alpine
+# Build stage
+FROM node:18-alpine as build
 
 WORKDIR /app
 
 # Copy package files
-COPY client/package*.json ./
+COPY package*.json ./
 
 # Install dependencies
 RUN npm install
 
 # Copy the rest of the frontend application
-COPY client/ .
+COPY . .
 
-# Start dev server
-CMD ["npm", "run", "dev", "--", "--host"]
+# Build for production
+RUN npm run build
 
-EXPOSE 5173
+# Copy the build files to the Flask static directory
+FROM scratch as static
+COPY --from=build /app/dist /static/dist

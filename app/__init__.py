@@ -54,8 +54,8 @@ def create_app(config_class=Config):
         )
     
     app = Flask(__name__, 
-                static_folder='static/dist',  # Point to React build
-                static_url_path='')
+                static_folder='static', 
+                static_url_path='/static')  
     
     # Determine environment and configure the app
     env = os.getenv('FLASK_ENV', 'production')
@@ -87,7 +87,7 @@ def create_app(config_class=Config):
     def not_found_error(error):
         if request.path.startswith('/api/'):
             return jsonify({"error": "Resource not found"}), 404
-        return send_from_directory(app.static_folder, 'index.html')
+        return send_from_directory(os.path.join(app.static_folder, 'dist'), 'index.html')
 
     @app.errorhandler(500)
     def internal_error(error):
@@ -116,9 +116,23 @@ def create_app(config_class=Config):
     def serve(path):
         if path.startswith('api/'):
             return not_found_error(None)
-        if path != "" and os.path.exists(os.path.join(app.static_folder, path)):
+        
+        # First try to serve from the dist directory (React build)
+        dist_path = os.path.join(app.static_folder, 'dist', path)
+        if path != "" and os.path.exists(dist_path):
+            return send_from_directory(os.path.join(app.static_folder, 'dist'), path)
+            
+        # Then try to serve from the regular static directory (CSS, etc)
+        static_path = os.path.join(app.static_folder, path)
+        if os.path.exists(static_path):
             return send_from_directory(app.static_folder, path)
-        return send_from_directory(app.static_folder, 'index.html')
+            
+        # Default to serving index.html for React routing
+        return send_from_directory(os.path.join(app.static_folder, 'dist'), 'index.html')
+    
+    @app.route('/api/health')
+    def health_check():
+        return jsonify({"status": "healthy"}), 200
     
     # Add a route to test CORS (development only)
     if app.debug:
