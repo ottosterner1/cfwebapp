@@ -65,6 +65,9 @@ def create_app(config_class=Config):
         config_obj = config_class
     
     app.config.from_object(config_obj)
+
+    # Add this to trust proxy headers
+    app.config['PREFERRED_URL_SCHEME'] = 'https'
     
     # Print debug information (only in development)
     if app.debug:
