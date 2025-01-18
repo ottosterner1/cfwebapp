@@ -24,5 +24,4 @@ COPY . .
 
 EXPOSE 8000
 
-# Change the CMD to use gunicorn for production
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "wsgi:app"]
+CMD gunicorn wsgi:app --bind 0.0.0.0:$PORT
