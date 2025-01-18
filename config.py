@@ -56,6 +56,7 @@ class Config:
 
     def __init__(self):
         db_url = urlparse(self.DATABASE_URL)
+        print(f"Raw DATABASE_URL: {self.DATABASE_URL}") 
         print(f"Using PostgreSQL database at {db_url.hostname}")
         print(f"Cognito Domain: {self.COGNITO_DOMAIN}")
 
