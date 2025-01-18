@@ -1,4 +1,3 @@
-# Build stage
 FROM node:18-alpine as build
 
 WORKDIR /app
@@ -15,6 +14,10 @@ COPY . .
 # Build for production
 RUN npm run build
 
-# Copy the build files to the Flask static directory
-FROM scratch as static
-COPY --from=build /app/dist /static/dist
+# Use the Python backend image as the final stage
+FROM python:3.11-slim
+
+# Copy only the built files to the correct location
+COPY --from=build /app/dist /app/static/dist
+
+CMD ["gunicorn", "wsgi:app", "--bind", "0.0.0.0:8000"]

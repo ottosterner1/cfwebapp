@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-# Install system dependencies required for building Python packages
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     gcc \
@@ -10,17 +10,15 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy requirements first to leverage Docker cache
+# Copy requirements first
 COPY requirements.txt .
+RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# Upgrade pip
-RUN pip install --upgrade pip
-
-# Install Python packages
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy the rest of the application
+# Copy the backend application
 COPY . .
+
+# Create directory for static files
+RUN mkdir -p app/static/dist
 
 EXPOSE 8000
 
