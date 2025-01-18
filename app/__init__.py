@@ -66,8 +66,22 @@ def create_app(config_class=Config):
     
     app.config.from_object(config_obj)
 
-    # Add this to trust proxy headers
+    # Configure proxy settings for HTTPS
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=1,      # Number of proxy servers
+        x_proto=1,    # SSL termination proxy
+        x_host=1,     # Host header rewriting
+        x_prefix=1    # X-Forwarded-Prefix header
+    )
     app.config['PREFERRED_URL_SCHEME'] = 'https'
+
+    # If you're using Railway.app, you might also want to ensure your callback URL is set correctly
+    if not app.debug:
+        os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = 'false'
+        if 'railway.app' in request.host_url:
+            app.config['SERVER_NAME'] = request.host
     
     # Print debug information (only in development)
     if app.debug:

@@ -89,7 +89,7 @@ def login():
         # Construct the hosted UI URL
         cognito_domain = current_app.config['COGNITO_DOMAIN']
         client_id = current_app.config['AWS_COGNITO_CLIENT_ID']
-        redirect_uri = url_for('main.auth_callback', _external=True)
+        redirect_uri = url_for('main.auth_callback', _external=True, _scheme='https')
         
         hosted_ui_url = (
             f"https://{cognito_domain}/login"
