@@ -22,4 +22,4 @@ RUN mkdir -p app/static/dist
 
 EXPOSE 8000
 
-CMD gunicorn wsgi:app --bind 0.0.0.0:$PORT
+CMD gunicorn wsgi:app --bind 0.0.0.0:${PORT:-8000}

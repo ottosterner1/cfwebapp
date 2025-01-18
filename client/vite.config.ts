@@ -19,7 +19,7 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: '../app/static/dist',
+    outDir: 'dist',
     emptyOutDir: true,
     manifest: true,
     rollupOptions: {
