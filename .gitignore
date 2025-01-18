@@ -1,3 +1,45 @@
+# Database
+*.backup
+*.sql
+tennis_coaching_db.backup
+
+# Environment variables
 .env
-__pycache__
-dist
+
+# Instance/Config files with sensitive data
+user-pool-config.json
+client_secrets.json
+users.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+instance/
+
+# Node/React
+node_modules/
+npm-debug.log
+.npm
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Build files
+/app/static/dist/
+*.tsbuildinfo
+tsconfig.node.tsbuildinfo
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Docker
+postgres_data/
