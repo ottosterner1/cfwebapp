@@ -100,7 +100,6 @@ def login():
             f"&state={state}"
         )
         
-        print(f"Redirecting to Cognito hosted UI: {hosted_ui_url}")
         return redirect(hosted_ui_url)
         
     except Exception as e:
