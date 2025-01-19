@@ -1,6 +1,6 @@
-# Docker Compose (./docker-compose.yml)
 services:
   db:
+    # This part stays exactly the same
     image: postgres:17
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -19,38 +19,28 @@ services:
 
   backend:
     build: .
-    command: flask run --host=0.0.0.0
     environment:
-      # Flask Configuration
+      # Keep all your existing environment variables
       FLASK_APP: ${FLASK_APP}
       FLASK_ENV: ${FLASK_ENV}
       FLASK_RUN_PORT: ${FLASK_RUN_PORT}
       FLASK_RUN_HOST: ${FLASK_RUN_HOST}
       FLASK_DEBUG: ${FLASK_DEBUG}
-      
-      # Database Configuration
       DATABASE_URL: ${DATABASE_URL}
-      
-      # AWS Credentials
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      
-      # AWS Cognito Configuration
       AWS_COGNITO_REGION: ${AWS_COGNITO_REGION}
       AWS_COGNITO_USER_POOL_ID: ${AWS_COGNITO_USER_POOL_ID}
       AWS_COGNITO_CLIENT_ID: ${AWS_COGNITO_CLIENT_ID}
       AWS_COGNITO_CLIENT_SECRET: ${AWS_COGNITO_CLIENT_SECRET}
       COGNITO_DOMAIN: ${COGNITO_DOMAIN}
-      
-      # AWS S3 Configuration
       AWS_S3_BUCKET: ${AWS_S3_BUCKET}
       AWS_S3_REGION: ${AWS_S3_REGION}
-      
-      # AWS SES Configuration
       AWS_SES_REGION: ${AWS_SES_REGION}
       AWS_SES_SENDER: ${AWS_SES_SENDER}
     volumes:
-      - .:/app 
+      - .:/app
+      - ./app/static/dist:/app/app/static/dist  # Add this line to persist built frontend files
     depends_on:
       db:
         condition: service_healthy
@@ -58,16 +48,14 @@ services:
       - "8000:8000"
 
   frontend:
-    build: 
-      context: .
-      dockerfile: client/Dockerfile
-    environment:
-      VITE_API_URL: "http://localhost:8000"
+    build:
+      context: ./client  # Changed this line
+      dockerfile: Dockerfile
     volumes:
-      - ./client:/app  
-      - /app/node_modules 
-    ports:
-      - "5173:5173"
+      - ./client:/app
+      - /app/node_modules
+      - ./app/static/dist:/app/dist  # Add this line to copy build files to backend
+    command: npm run build  # Changed this line to build instead of serve
     depends_on:
       - backend
 

@@ -20,6 +20,9 @@ COPY . .
 # Create directory for static files
 RUN mkdir -p app/static/dist
 
+# Add this line to ensure wsgi.py is in the Python path
+ENV PYTHONPATH=/app
+
 EXPOSE 8000
 
-CMD ["sh", "-c", "gunicorn wsgi:app --bind 0.0.0.0:${PORT:-8000}"]
+CMD ["gunicorn", "--chdir", "/app", "wsgi:app", "--bind", "0.0.0.0:8000"]
