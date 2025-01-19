@@ -1,16 +1,16 @@
-"""Initial migration for PostgreSQL
+"""Initial migration
 
-Revision ID: 502403ac628d
+Revision ID: 9188b1be8d54
 Revises: 
-Create Date: 2024-12-11 21:45:15.257239
+Create Date: 2025-01-18 23:23:50.287346
 
 """
 from alembic import op
 import sqlalchemy as sa
-
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = '502403ac628d'
+revision = '9188b1be8d54'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -22,6 +22,7 @@ def upgrade():
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('name', sa.String(length=100), nullable=False),
     sa.Column('subdomain', sa.String(length=50), nullable=False),
+    sa.Column('logo_url', sa.String(length=255), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
@@ -43,6 +44,8 @@ def upgrade():
     sa.Column('name', sa.String(length=50), nullable=False),
     sa.Column('start_date', sa.DateTime(timezone=True), nullable=False),
     sa.Column('end_date', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('next_period_start_date', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('bookings_open_date', sa.DateTime(timezone=True), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
     sa.Column('tennis_club_id', sa.Integer(), nullable=False),
     sa.ForeignKeyConstraint(['tennis_club_id'], ['tennis_club.id'], ),
@@ -109,20 +112,79 @@ def upgrade():
     sa.UniqueConstraint('coach_number'),
     sa.UniqueConstraint('user_id')
     )
+    op.create_table('coach_invitation',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('email', sa.String(length=120), nullable=False),
+    sa.Column('token', sa.String(length=100), nullable=False),
+    sa.Column('tennis_club_id', sa.Integer(), nullable=False),
+    sa.Column('invited_by_id', sa.Integer(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
+    sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('used', sa.Boolean(), nullable=True),
+    sa.ForeignKeyConstraint(['invited_by_id'], ['user.id'], ),
+    sa.ForeignKeyConstraint(['tennis_club_id'], ['tennis_club.id'], ),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('token')
+    )
+    op.create_table('report_template',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(length=100), nullable=False),
+    sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('tennis_club_id', sa.Integer(), nullable=False),
+    sa.Column('is_active', sa.Boolean(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
+    sa.Column('created_by_id', sa.Integer(), nullable=False),
+    sa.ForeignKeyConstraint(['created_by_id'], ['user.id'], ),
+    sa.ForeignKeyConstraint(['tennis_club_id'], ['tennis_club.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('tennis_group_times',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('group_id', sa.Integer(), nullable=False),
+    sa.Column('day_of_week', sa.Enum('MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY', name='dayofweek'), nullable=False),
+    sa.Column('start_time', sa.Time(), nullable=False),
+    sa.Column('end_time', sa.Time(), nullable=False),
+    sa.Column('capacity', sa.Integer(), nullable=True),
+    sa.Column('tennis_club_id', sa.Integer(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
+    sa.ForeignKeyConstraint(['group_id'], ['tennis_group.id'], ),
+    sa.ForeignKeyConstraint(['tennis_club_id'], ['tennis_club.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('group_template',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('group_id', sa.Integer(), nullable=False),
+    sa.Column('template_id', sa.Integer(), nullable=False),
+    sa.Column('is_active', sa.Boolean(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
+    sa.ForeignKeyConstraint(['group_id'], ['tennis_group.id'], ),
+    sa.ForeignKeyConstraint(['template_id'], ['report_template.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
     op.create_table('programme_players',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('student_id', sa.Integer(), nullable=False),
     sa.Column('coach_id', sa.Integer(), nullable=False),
     sa.Column('group_id', sa.Integer(), nullable=False),
+    sa.Column('group_time_id', sa.Integer(), nullable=True),
     sa.Column('teaching_period_id', sa.Integer(), nullable=False),
     sa.Column('tennis_club_id', sa.Integer(), nullable=False),
     sa.Column('report_submitted', sa.Boolean(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
     sa.ForeignKeyConstraint(['coach_id'], ['user.id'], ),
     sa.ForeignKeyConstraint(['group_id'], ['tennis_group.id'], ),
+    sa.ForeignKeyConstraint(['group_time_id'], ['tennis_group_times.id'], ),
     sa.ForeignKeyConstraint(['student_id'], ['student.id'], ),
     sa.ForeignKeyConstraint(['teaching_period_id'], ['teaching_period.id'], ),
     sa.ForeignKeyConstraint(['tennis_club_id'], ['tennis_club.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('template_section',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('template_id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(length=100), nullable=False),
+    sa.Column('order', sa.Integer(), nullable=False),
+    sa.ForeignKeyConstraint(['template_id'], ['report_template.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('report',
@@ -130,21 +192,39 @@ def upgrade():
     sa.Column('student_id', sa.Integer(), nullable=False),
     sa.Column('coach_id', sa.Integer(), nullable=False),
     sa.Column('group_id', sa.Integer(), nullable=False),
+    sa.Column('recommended_group_id', sa.Integer(), nullable=True),
     sa.Column('teaching_period_id', sa.Integer(), nullable=False),
     sa.Column('programme_player_id', sa.Integer(), nullable=False),
+    sa.Column('template_id', sa.Integer(), nullable=False),
+    sa.Column('content', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
     sa.Column('date', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
-    sa.Column('forehand', sa.String(length=20), nullable=True),
-    sa.Column('backhand', sa.String(length=20), nullable=True),
-    sa.Column('movement', sa.String(length=20), nullable=True),
-    sa.Column('overall_rating', sa.Integer(), nullable=True),
-    sa.Column('next_group_recommendation', sa.String(length=50), nullable=True),
-    sa.Column('notes', sa.Text(), nullable=True),
+    sa.Column('email_sent', sa.Boolean(), nullable=True),
+    sa.Column('email_sent_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('email_recipients', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('email_history', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('last_email_status', sa.String(length=50), nullable=True),
+    sa.Column('email_message_id', sa.String(length=100), nullable=True),
+    sa.Column('email_attempts', sa.Integer(), nullable=True),
     sa.ForeignKeyConstraint(['coach_id'], ['user.id'], ),
     sa.ForeignKeyConstraint(['group_id'], ['tennis_group.id'], ),
     sa.ForeignKeyConstraint(['programme_player_id'], ['programme_players.id'], ),
+    sa.ForeignKeyConstraint(['recommended_group_id'], ['tennis_group.id'], ),
     sa.ForeignKeyConstraint(['student_id'], ['student.id'], ),
     sa.ForeignKeyConstraint(['teaching_period_id'], ['teaching_period.id'], ),
+    sa.ForeignKeyConstraint(['template_id'], ['report_template.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_table('template_field',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('section_id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(length=100), nullable=False),
+    sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('field_type', sa.Enum('TEXT', 'TEXTAREA', 'RATING', 'SELECT', 'PROGRESS', name='fieldtype'), nullable=False),
+    sa.Column('is_required', sa.Boolean(), nullable=True),
+    sa.Column('order', sa.Integer(), nullable=False),
+    sa.Column('options', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.ForeignKeyConstraint(['section_id'], ['template_section.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
     # ### end Alembic commands ###
@@ -152,8 +232,14 @@ def upgrade():
 
 def downgrade():
     # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_table('template_field')
     op.drop_table('report')
+    op.drop_table('template_section')
     op.drop_table('programme_players')
+    op.drop_table('group_template')
+    op.drop_table('tennis_group_times')
+    op.drop_table('report_template')
+    op.drop_table('coach_invitation')
     op.drop_table('coach_details')
     with op.batch_alter_table('user', schema=None) as batch_op:
         batch_op.drop_index('idx_user_email_lower')

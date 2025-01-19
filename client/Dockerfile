@@ -8,7 +8,7 @@ COPY client/ ./
 # Install dependencies
 RUN npm install
 
-# Build for production - will output to /app/dist
+# Build for production
 RUN npm run build
 
 # Use the Python backend image as the final stage
@@ -34,7 +34,9 @@ COPY . .
 # Create the static/dist directory
 RUN mkdir -p /app/app/static/dist
 
-# Copy the built frontend files to the correct location
-COPY --from=build /app/dist/* /app/app/static/dist/
+# Copy the built frontend files to the correct location - Note the change here
+COPY --from=build /app/dist/. /app/app/static/dist/
+
+EXPOSE 8000
 
 CMD ["gunicorn", "wsgi:app", "--bind", "0.0.0.0:8000"]

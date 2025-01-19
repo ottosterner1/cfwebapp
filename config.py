@@ -12,6 +12,8 @@ class Config:
     # Convert Heroku-style postgres:// to postgresql://
     if DATABASE_URL.startswith('postgres://'):
         DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://')
+
+    print(f"DATABASE_URL: {DATABASE_URL}")
     
     SQLALCHEMY_DATABASE_URI = DATABASE_URL
     SQLALCHEMY_TRACK_MODIFICATIONS = False
