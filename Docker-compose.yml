@@ -1,22 +1,4 @@
 services:
-  db:
-    # This part stays exactly the same
-    image: postgres:17
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./tennis_coaching_db.backup:/tennis_coaching_db.backup
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    ports:
-      - "5432:5432"
-
   backend:
     build: .
     environment:
@@ -26,7 +8,7 @@ services:
       FLASK_RUN_PORT: ${FLASK_RUN_PORT}
       FLASK_RUN_HOST: ${FLASK_RUN_HOST}
       FLASK_DEBUG: ${FLASK_DEBUG}
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: ${DATABASE_URL}  # This will now point to your external database
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_COGNITO_REGION: ${AWS_COGNITO_REGION}
@@ -38,26 +20,22 @@ services:
       AWS_S3_REGION: ${AWS_S3_REGION}
       AWS_SES_REGION: ${AWS_SES_REGION}
       AWS_SES_SENDER: ${AWS_SES_SENDER}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - .:/app
-      - ./app/static/dist:/app/app/static/dist  # Add this line to persist built frontend files
-    depends_on:
-      db:
-        condition: service_healthy
+      - ./app/static/dist:/app/app/static/dist
     ports:
       - "8000:8000"
 
   frontend:
     build:
-      context: ./client  # Changed this line
+      context: ./client
       dockerfile: Dockerfile
     volumes:
       - ./client:/app
       - /app/node_modules
-      - ./app/static/dist:/app/dist  # Add this line to copy build files to backend
-    command: npm run build  # Changed this line to build instead of serve
+      - ./app/static/dist:/app/dist
+    command: npm run build
     depends_on:
       - backend
-
-volumes:
-  postgres_data:

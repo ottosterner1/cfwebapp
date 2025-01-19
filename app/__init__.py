@@ -6,6 +6,21 @@ from app.extensions import db, migrate, login_manager, cors
 from app.auth import init_oauth
 import sentry_sdk
 from sentry_sdk.integrations.flask import FlaskIntegration
+import json
+
+def get_vite_asset(app, entry_point):
+    try:
+        manifest_path = os.path.join(app.static_folder, 'dist', '.vite', 'manifest.json')
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+            
+        # Find the entry point in the manifest
+        if entry_point in manifest:
+            return manifest[entry_point]['file']
+        return None
+    except Exception as e:
+        print(f"Error reading Vite manifest: {e}")
+        return None
 
 def register_extensions(app):
     """Register Flask extensions."""
@@ -110,6 +125,12 @@ def create_app(config_class=Config):
         if request.path.startswith('/api/'):
             return jsonify({"error": "Internal server error"}), 500
         return "Internal server error", 500
+    
+    @app.context_processor
+    def utility_processor():
+        def get_asset_path(entry_point):
+            return get_vite_asset(app, entry_point)
+        return dict(get_asset_path=get_asset_path)
     
     # Add security headers in production
     if not app.debug:
