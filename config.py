@@ -67,8 +67,8 @@ class Config:
         'http://localhost:5173',
         'http://127.0.0.1:5173',
         'http://localhost:8000',
-        'http://127.0.0.1:8000'
-        'https://cfwebapp-production.up.railway.app'
+        'http://127.0.0.1:8000',
+        'https://cfwebapp-production.up.railway.app',
         'https://courtflow.co.uk'
     ]
     CORS_SUPPORTS_CREDENTIALS = True
@@ -100,7 +100,7 @@ class ProductionConfig(Config):
     # Update CORS for your production domain
     CORS_ORIGINS = [
         'https://courtflow.co.uk',
-        'https://*.railway.app' 
+        'https://cfwebapp-production.up.railway.app' 
     ]
     
     # Set secure headers
