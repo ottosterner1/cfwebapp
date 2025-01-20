@@ -14,7 +14,6 @@ def get_vite_asset(app, entry_point):
         with open(manifest_path) as f:
             manifest = json.load(f)
             
-        # Find the entry point in the manifest
         if entry_point in manifest:
             return manifest[entry_point]['file']
         return None
@@ -29,12 +28,18 @@ def register_extensions(app):
     login_manager.init_app(app)
     init_oauth(app)
     
+    # Updated CORS configuration
+    cors_origins = app.config.get('CORS_ORIGINS', [])
+    if not app.debug:
+        cors_origins.append('https://cfwebapp-production.up.railway.app')
+    
     cors.init_app(app, resources={
         r"/api/*": {
-            "origins": app.config['CORS_ORIGINS'],
+            "origins": cors_origins,
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
-            "supports_credentials": True
+            "supports_credentials": True,
+            "expose_headers": ["Content-Type", "Authorization"]
         }
     })
 
@@ -81,6 +86,16 @@ def create_app(config_class=Config):
     
     app.config.from_object(config_obj)
 
+    # Session and cookie configuration
+    if not app.debug:
+        app.config.update(
+            SESSION_COOKIE_SECURE=True,
+            SESSION_COOKIE_HTTPONLY=True,
+            SESSION_COOKIE_SAMESITE='Lax',
+            REMEMBER_COOKIE_SECURE=True,
+            REMEMBER_COOKIE_HTTPONLY=True
+        )
+
     # Configure proxy settings for HTTPS
     from werkzeug.middleware.proxy_fix import ProxyFix
     app.wsgi_app = ProxyFix(
@@ -96,12 +111,12 @@ def create_app(config_class=Config):
         app.config['PREFERRED_URL_SCHEME'] = 'https'
         os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = 'false'
     
-    # Print debug information (only in development)
+    # Print debug information
     if app.debug:
         print(f"Flask Debug Mode: {app.debug}")
         print(f"CORS origins configured for: {app.config.get('CORS_ORIGINS', 'default origins')}")
     
-    # Ensure instance folder exists
+    # Ensure directories exist
     try:
         os.makedirs(app.instance_path, exist_ok=True)
         os.makedirs(os.path.join(app.static_folder, 'dist'), exist_ok=True)
@@ -113,7 +128,7 @@ def create_app(config_class=Config):
     register_blueprints(app)
     configure_login_manager(app)
     
-    # Set up error handlers
+    # Error handlers
     @app.errorhandler(404)
     def not_found_error(error):
         if request.path.startswith('/api/'):
@@ -133,7 +148,7 @@ def create_app(config_class=Config):
             return get_vite_asset(app, entry_point)
         return dict(get_asset_path=get_asset_path)
     
-    # Add security headers in production
+    # Security headers and CORS for production
     if not app.debug:
         @app.after_request
         def add_security_headers(response):
@@ -141,42 +156,44 @@ def create_app(config_class=Config):
                 'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
                 'X-Content-Type-Options': 'nosniff',
                 'X-Frame-Options': 'SAMEORIGIN',
-                'X-XSS-Protection': '1; mode=block'
+                'X-XSS-Protection': '1; mode=block',
+                'Access-Control-Allow-Credentials': 'true'
             }
+            
+            # Add CORS headers for preflight requests
+            if request.method == 'OPTIONS':
+                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+                response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+            
             for header, value in headers.items():
                 response.headers[header] = value
             return response
 
-
     @app.route('/favicon.ico')
     def favicon():
-        return '', 204 
+        return '', 204
 
-    # Improved static file serving and React app handling
+    # Static file and React app handling
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve(path):
-        # API routes should 404 if not found
         if path.startswith('api/'):
             return not_found_error(None)
         
-        # Try to serve from dist directory first
         dist_dir = os.path.join(app.static_folder, 'dist')
         if path and os.path.exists(os.path.join(dist_dir, path)):
             return send_from_directory(dist_dir, path)
         
-        # Then try regular static directory
         if path and os.path.exists(os.path.join(app.static_folder, path)):
             return send_from_directory(app.static_folder, path)
         
-        # Default to index.html for client-side routing
         return send_from_directory(dist_dir, 'index.html')
     
     @app.route('/api/health')
     def health_check():
         return jsonify({"status": "healthy"}), 200
     
-    # Development-only routes
+    # Development routes
     if app.debug:
         @app.route('/api/test-cors', methods=['GET'])
         def test_cors():

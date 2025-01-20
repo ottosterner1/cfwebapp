@@ -1,6 +1,8 @@
 services:
   backend:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
     environment:
       FLASK_APP: ${FLASK_APP}
       FLASK_ENV: ${FLASK_ENV}
@@ -30,7 +32,7 @@ services:
   frontend:
     build:
       context: ./client
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     volumes:
       - ./client:/app
       - /app/node_modules
