@@ -37,9 +37,10 @@ def register_extensions(app):
         r"/api/*": {
             "origins": cors_origins,
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
+            "allow_headers": ["Content-Type", "Authorization", "Cookie", "X-CSRF-TOKEN"],
+            "expose_headers": ["Content-Type", "Authorization", "Set-Cookie"],
             "supports_credentials": True,
-            "expose_headers": ["Content-Type", "Authorization"]
+            "allow_credentials": True
         }
     })
 
@@ -148,7 +149,6 @@ def create_app(config_class=Config):
             return get_vite_asset(app, entry_point)
         return dict(get_asset_path=get_asset_path)
     
-    # Security headers and CORS for production
     if not app.debug:
         @app.after_request
         def add_security_headers(response):
@@ -163,7 +163,14 @@ def create_app(config_class=Config):
             # Add CORS headers for preflight requests
             if request.method == 'OPTIONS':
                 response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-                response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+                response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Cookie, X-CSRF-TOKEN'
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+                if request.headers.get('Origin') in app.config['CORS_ORIGINS']:
+                    response.headers['Access-Control-Allow-Origin'] = request.headers['Origin']
+            
+            # Handle non-OPTIONS requests
+            if request.headers.get('Origin') in app.config['CORS_ORIGINS']:
+                response.headers['Access-Control-Allow-Origin'] = request.headers['Origin']
             
             for header, value in headers.items():
                 response.headers[header] = value
