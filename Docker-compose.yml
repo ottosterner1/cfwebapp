@@ -2,13 +2,12 @@ services:
   backend:
     build: .
     environment:
-      # Keep all your existing environment variables
       FLASK_APP: ${FLASK_APP}
       FLASK_ENV: ${FLASK_ENV}
       FLASK_RUN_PORT: ${FLASK_RUN_PORT}
       FLASK_RUN_HOST: ${FLASK_RUN_HOST}
       FLASK_DEBUG: ${FLASK_DEBUG}
-      DATABASE_URL: ${DATABASE_URL}  # This will now point to your external database
+      DATABASE_URL: ${DATABASE_URL}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_COGNITO_REGION: ${AWS_COGNITO_REGION}
@@ -24,7 +23,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - .:/app
-      - ./app/static/dist:/app/app/static/dist
+      - dist_volume:/app/app/static/dist
     ports:
       - "8000:8000"
 
@@ -35,7 +34,14 @@ services:
     volumes:
       - ./client:/app
       - /app/node_modules
-      - ./app/static/dist:/app/dist
-    command: npm run build
-    depends_on:
-      - backend
+      - dist_volume:/app/dist
+    entrypoint: >
+      /bin/sh -c "
+        npm run build &&
+        mkdir -p /app/app/static/dist &&
+        cp -r /app/dist/* /app/app/static/dist/ &&
+        tail -f /dev/null
+      "
+
+volumes:
+  dist_volume:

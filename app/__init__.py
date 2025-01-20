@@ -104,8 +104,9 @@ def create_app(config_class=Config):
     # Ensure instance folder exists
     try:
         os.makedirs(app.instance_path, exist_ok=True)
+        os.makedirs(os.path.join(app.static_folder, 'dist'), exist_ok=True)
     except Exception as e:
-        print(f"Error creating instance path: {e}")
+        print(f"Error creating directories: {e}")
     
     # Initialize extensions and register blueprints
     register_extensions(app)
@@ -145,32 +146,37 @@ def create_app(config_class=Config):
             for header, value in headers.items():
                 response.headers[header] = value
             return response
-    
-    # Serve React app in production
+
+
+    @app.route('/favicon.ico')
+    def favicon():
+        return '', 204 
+
+    # Improved static file serving and React app handling
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve(path):
+        # API routes should 404 if not found
         if path.startswith('api/'):
             return not_found_error(None)
         
-        # First try to serve from the dist directory (React build)
-        dist_path = os.path.join(app.static_folder, 'dist', path)
-        if path != "" and os.path.exists(dist_path):
-            return send_from_directory(os.path.join(app.static_folder, 'dist'), path)
-            
-        # Then try to serve from the regular static directory (CSS, etc)
-        static_path = os.path.join(app.static_folder, path)
-        if os.path.exists(static_path):
+        # Try to serve from dist directory first
+        dist_dir = os.path.join(app.static_folder, 'dist')
+        if path and os.path.exists(os.path.join(dist_dir, path)):
+            return send_from_directory(dist_dir, path)
+        
+        # Then try regular static directory
+        if path and os.path.exists(os.path.join(app.static_folder, path)):
             return send_from_directory(app.static_folder, path)
-            
-        # Default to serving index.html for React routing
-        return send_from_directory(os.path.join(app.static_folder, 'dist'), 'index.html')
+        
+        # Default to index.html for client-side routing
+        return send_from_directory(dist_dir, 'index.html')
     
     @app.route('/api/health')
     def health_check():
         return jsonify({"status": "healthy"}), 200
     
-    # Add a route to test CORS (development only)
+    # Development-only routes
     if app.debug:
         @app.route('/api/test-cors', methods=['GET'])
         def test_cors():
