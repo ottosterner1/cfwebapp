@@ -11,7 +11,13 @@ const NavApp = () => {
   React.useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
-        const response = await fetch('/api/current-user');
+        const response = await fetch('/api/current-user', {
+          credentials: 'include', 
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        });
         if (response.ok) {
           const userData = await response.json();
           setCurrentUser(userData);

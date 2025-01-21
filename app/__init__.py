@@ -93,6 +93,7 @@ def create_app(config_class=Config):
             SESSION_COOKIE_SECURE=True,
             SESSION_COOKIE_HTTPONLY=True,
             SESSION_COOKIE_SAMESITE='Lax',
+            SESSION_COOKIE_DOMAIN='cfwebapp-production.up.railway.app',
             REMEMBER_COOKIE_SECURE=True,
             REMEMBER_COOKIE_HTTPONLY=True
         )
@@ -106,6 +107,18 @@ def create_app(config_class=Config):
         x_host=1,
         x_prefix=1
     )
+
+    # Add database connection retry logic
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+        'pool_pre_ping': True,
+        'pool_recycle': 300,
+        'pool_timeout': 900,
+        'pool_size': 10,
+        'max_overflow': 5,
+        'connect_args': {
+            'connect_timeout': 10
+        }
+    }
     
     # Force HTTPS in production
     if not app.debug:

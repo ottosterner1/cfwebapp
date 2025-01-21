@@ -30,16 +30,22 @@ def get_tennis_club_from_request():
 def club_access_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        print(f"User authenticated: {current_user.is_authenticated}")
+        print(f"Request host: {request.host}")
+        print(f"Request headers: {dict(request.headers)}")
+        
         if not current_user.is_authenticated:
+            print("User not authenticated")
             abort(403)
         
-        # Special handling for localhost development
-        if request.host.startswith(('localhost', '127.0.0.1')):
+        # Special handling for Railway.app
+        if 'railway.app' in request.host:
             return f(*args, **kwargs)
             
-        # Production subdomain check
+        # Rest of your existing code...
         subdomain = get_tennis_club_from_request()
         if not subdomain or current_user.tennis_club.subdomain != subdomain:
+            print(f"Subdomain mismatch: {subdomain} vs {current_user.tennis_club.subdomain}")
             abort(403)
             
         return f(*args, **kwargs)
