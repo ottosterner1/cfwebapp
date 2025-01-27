@@ -82,162 +82,120 @@ def signup():
 
 @main.route('/login')
 def login():
-    try:
-        state = secrets.token_urlsafe(32)
-        session['oauth_state'] = state
-        
-        # Construct the hosted UI URL
-        cognito_domain = current_app.config['COGNITO_DOMAIN']
-        client_id = current_app.config['AWS_COGNITO_CLIENT_ID']
-        redirect_uri = url_for('main.auth_callback', _external=True, _scheme='https')
-        
-        hosted_ui_url = (
-            f"https://{cognito_domain}/login"
-            f"?client_id={client_id}"
-            f"&response_type=code"
-            f"&scope=openid+email+profile"
-            f"&redirect_uri={redirect_uri}"
-            f"&state={state}"
-        )
-        
-        return redirect(hosted_ui_url)
-        
-    except Exception as e:
-        print(f"Login error: {str(e)}")
-        print(traceback.format_exc())
-        return f"Login error: {str(e)}", 500
+    current_app.logger.info("=== Login Route Hit ===")
+    state = secrets.token_urlsafe(32)
+    
+    response = make_response(redirect(
+        f"https://{current_app.config['COGNITO_DOMAIN']}/login"
+        f"?client_id={current_app.config['AWS_COGNITO_CLIENT_ID']}"
+        f"&response_type=code&scope=openid+email+profile"
+        f"&redirect_uri={url_for('main.auth_callback', _external=True, _scheme='https')}"
+        f"&state={state}"
+    ))
+    
+    response.set_cookie('oauth_state', state, secure=True, httponly=True, domain='cfwebapp.local')
+    return response
 
 @main.route('/auth/callback')
 def auth_callback():
-    print("Callback reached")
+
+    state_in_request = request.args.get('state')
+    state_in_cookie = request.cookies.get('oauth_state')
+    code = request.args.get('code')
+    
+    if not state_in_cookie or state_in_cookie != state_in_request:
+        current_app.logger.error(f"State mismatch: cookie={state_in_cookie}, request={state_in_request}")
+        return redirect(url_for('main.login'))
+
     try:
-        # Validate state
-        state = session.pop('oauth_state', None)
-        nonce = session.pop('oauth_nonce', None)
-        state_in_request = request.args.get('state')
-        code = request.args.get('code')
+        import requests
+        from base64 import b64encode
+
+        # Create basic auth header
+        client_id = current_app.config['AWS_COGNITO_CLIENT_ID']
+        client_secret = current_app.config['AWS_COGNITO_CLIENT_SECRET']
+        auth_string = f"{client_id}:{client_secret}"
+        auth_bytes = auth_string.encode('utf-8')
+        auth_header = b64encode(auth_bytes).decode('utf-8')
+
+        # Exchange the code for tokens
+        token_endpoint = f"https://{current_app.config['COGNITO_DOMAIN']}/oauth2/token"
+        redirect_uri = url_for('main.auth_callback', _external=True)
         
-        print(f"State validation: Session state: {state}, Request state: {state_in_request}")
-        print(f"Session contents: {session}")
+        current_app.logger.info(f"Token endpoint: {token_endpoint}")
+        current_app.logger.info(f"Redirect URI: {redirect_uri}")
         
-        if not state or state != state_in_request:
-            print("State mismatch or missing")
-            print(f"Full request args: {request.args}")
-            flash('Invalid state parameter')
-            return redirect(url_for('main.login'))
+        headers = {
+            'Authorization': f'Basic {auth_header}',
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+        data = {
+            'grant_type': 'authorization_code',
+            'code': code,
+            'redirect_uri': redirect_uri
+        }
 
-        try:
-            import requests
-            from base64 import b64encode
+        token_response = requests.post(token_endpoint, headers=headers, data=data)
+        
+        if token_response.status_code != 200:
+            current_app.logger.error(f"Token exchange failed: {token_response.text}")
+            raise Exception("Failed to exchange code for tokens")
 
-            # Create basic auth header
-            client_id = current_app.config['AWS_COGNITO_CLIENT_ID']
-            client_secret = current_app.config['AWS_COGNITO_CLIENT_SECRET']
-            auth_string = f"{client_id}:{client_secret}"
-            auth_bytes = auth_string.encode('utf-8')
-            auth_header = b64encode(auth_bytes).decode('utf-8')
+        token_data = token_response.json()
 
-            # Exchange the code for tokens
-            token_endpoint = f"https://{current_app.config['COGNITO_DOMAIN']}/oauth2/token"
-            headers = {
-                'Authorization': f'Basic {auth_header}',
-                'Content-Type': 'application/x-www-form-urlencoded'
+        # Get user info using the access token
+        userinfo_endpoint = f"https://{current_app.config['COGNITO_DOMAIN']}/oauth2/userInfo"
+        userinfo_headers = {
+            'Authorization': f"Bearer {token_data['access_token']}"
+        }
+        userinfo_response = requests.get(userinfo_endpoint, headers=userinfo_headers)
+        
+        if userinfo_response.status_code != 200:
+            current_app.logger.error(f"Userinfo failed: {userinfo_response.text}")
+            raise Exception("Failed to get user info")
+
+        userinfo = userinfo_response.json()
+
+        # Extract user information
+        email = userinfo.get('email')
+        name = userinfo.get('name')
+        provider_id = userinfo.get('sub')
+
+        if not email:
+           current_app.logger.error("No email provided in user info")
+           flash('Email not provided')
+           return redirect(url_for('main.login'))
+
+        current_app.logger.info(f"Looking up user with email: {email}")
+        user = User.query.filter_by(email=email).first()
+        current_app.logger.info(f"Found user: {user}")
+
+        if user and user.tennis_club_id:
+            login_user(user, remember=True)  # Add remember=True
+            response = redirect(url_for('main.home'))
+            # Set secure cookie with proper domain
+            response.set_cookie(
+                'session',
+                session.get('_id'),
+                secure=True,
+                httponly=True,
+                samesite='Lax',
+                domain='cfwebapp.local'  # Match your local domain
+            )
+            return response
+        else:
+            current_app.logger.info("User needs onboarding")
+            session['temp_user_info'] = {
+                'email': email,
+                'name': name,
+                'provider_id': provider_id,
             }
-            data = {
-                'grant_type': 'authorization_code',
-                'code': code,
-                'redirect_uri': url_for('main.auth_callback', _external=True)
-            }
-
-            token_response = requests.post(token_endpoint, headers=headers, data=data)
-            
-            if token_response.status_code != 200:
-                print(f"Token exchange failed: {token_response.text}")
-                raise Exception("Failed to exchange code for tokens")
-
-            token_data = token_response.json()
-
-            # Get user info using the access token
-            userinfo_endpoint = f"https://{current_app.config['COGNITO_DOMAIN']}/oauth2/userInfo"
-            userinfo_headers = {
-                'Authorization': f"Bearer {token_data['access_token']}"
-            }
-            userinfo_response = requests.get(userinfo_endpoint, headers=userinfo_headers)
-            
-            if userinfo_response.status_code != 200:
-                print(f"Userinfo failed: {userinfo_response.text}")
-                raise Exception("Failed to get user info")
-
-            userinfo = userinfo_response.json()
-            print("User info received:", userinfo)
-
-            # Extract user information
-            email = userinfo.get('email')
-            name = userinfo.get('name')
-            provider_id = userinfo.get('sub')
-
-            if not email:
-                print("No email provided in user info")
-                flash('Email not provided')
-                return redirect(url_for('main.login'))
-
-            # Handle pending invitation
-            if 'pending_invitation' in session:
-                invitation_data = session.pop('pending_invitation')
-                invitation = CoachInvitation.query.filter_by(
-                    token=invitation_data['token'],
-                    used=False
-                ).first()
-                
-                if invitation and not invitation.is_expired:
-                    # Create or update user
-                    user = User.query.filter_by(email=email).first()
-                    if not user:
-                        user = User(
-                            email=email,
-                            username=f"coach_{email.split('@')[0]}",
-                            name=name,
-                            role=UserRole.COACH,
-                            tennis_club_id=invitation.tennis_club_id,
-                            auth_provider='google',
-                            auth_provider_id=provider_id,
-                            is_active=True
-                        )
-                        db.session.add(user)
-                    else:
-                        user.tennis_club_id = invitation.tennis_club_id
-                        user.role = UserRole.COACH
-                        
-                    invitation.used = True
-                    db.session.commit()
-                    login_user(user)
-                    flash('Welcome to your tennis club!', 'success')
-                    return redirect(url_for('main.home'))
-
-            # Regular login flow
-            user = User.query.filter_by(email=email).first()
-            if user and user.tennis_club_id:
-                login_user(user)
-                flash('Successfully logged in!')
-                return redirect(url_for('main.home'))
-            else:
-                session['temp_user_info'] = {
-                    'email': email,
-                    'name': name,
-                    'provider_id': provider_id,
-                }
-                return redirect(url_for('club_management.onboard_club'))
-
-        except Exception as e:
-            print(f"OAuth exchange error: {str(e)}")
-            print(traceback.format_exc())
-            flash('Authentication failed')
-            return redirect(url_for('main.login'))
+            return redirect(url_for('club_management.onboard_club'))
 
     except Exception as e:
-        print(f"Auth callback error: {str(e)}")
-        print(traceback.format_exc())
-        flash('Authentication error')
+        current_app.logger.error(f"Auth callback error: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        flash('Authentication failed')
         return redirect(url_for('main.login'))
 
 @main.route('/logout')
@@ -314,6 +272,11 @@ def dashboard():
 @login_required
 @verify_club_access()
 def current_user_info():
+    current_app.logger.error("=== Debug Current User ===")
+    current_app.logger.error(f"Is authenticated: {current_user.is_authenticated}")
+    current_app.logger.error(f"Current user: {current_user}")
+    current_app.logger.error(f"Session: {session}")
+    
     return jsonify({
         'id': current_user.id,
         'name': current_user.name,

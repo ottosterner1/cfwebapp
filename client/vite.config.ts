@@ -1,4 +1,3 @@
-// vite.config.ts
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
@@ -7,22 +6,20 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    strictPort: true,
-    cors: true,
-    origin: 'http://localhost:5173',
+    host: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'https://cfwebapp.local',
         changeOrigin: true,
         secure: false
       }
     }
   },
   build: {
+    manifest: true,
     outDir: 'dist',
     emptyOutDir: true,
-    copyPublicDir: true,
-    manifest: true,
+    assetsDir: 'assets',
     rollupOptions: {
       input: {
         dashboard: path.resolve(__dirname, 'src/entry/dashboard.tsx'),
@@ -36,17 +33,7 @@ export default defineConfig({
         programme_management: path.resolve(__dirname, 'src/entry/programme_management.tsx'),
         edit_programme_player: path.resolve(__dirname, 'src/entry/edit_programme_player.tsx'),
         add_programme_player: path.resolve(__dirname, 'src/entry/add_programme_player.tsx'),
-      },
-      output: {
-        entryFileNames: 'assets/[name]-[hash].js',
-        chunkFileNames: 'assets/[name]-[hash].js',
-        assetFileNames: 'assets/[name]-[hash].[ext]'
       }
     }
-  },
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
-  },
+  }
 })

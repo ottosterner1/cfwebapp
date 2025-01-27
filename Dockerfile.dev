@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     gcc \
     python3-dev \
     libpq-dev \
+    openssl \ 
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -14,15 +15,22 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# Copy the backend application
-COPY . .
+# Development specific packages
+RUN pip install watchdog[watchmedo]
 
-# Create directory for static files
-RUN mkdir -p app/static/dist
-
-# Add this line to ensure wsgi.py is in the Python path
+# Set environment variables for development
 ENV PYTHONPATH=/app
+ENV FLASK_ENV=development
+ENV FLASK_DEBUG=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-EXPOSE 8000
+# Expose port 443 for HTTPS
+EXPOSE 443
 
-CMD ["gunicorn", "--chdir", "/app", "wsgi:app", "--bind", "0.0.0.0:8000"]
+# Use Gunicorn with SSL in development to match production
+CMD ["gunicorn", "--chdir", "/app", "wsgi:app", \
+     "--bind", "0.0.0.0:443", \
+     "--certfile", "/app/certs/cert.pem", \
+     "--keyfile", "/app/certs/key.pem", \
+     "--reload"] 

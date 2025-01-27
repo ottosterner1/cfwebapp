@@ -69,7 +69,8 @@ class Config:
         'http://localhost:8000',
         'http://127.0.0.1:8000',
         'https://cfwebapp-production.up.railway.app',
-        'https://courtflow.co.uk'
+        'https://courtflow.co.uk',
+        'https://cfwebapp.local'
     ]
     CORS_SUPPORTS_CREDENTIALS = True
 
@@ -84,8 +85,32 @@ class Config:
 
 class DevelopmentConfig(Config):
     DEBUG = True
-    # Allow CORS in development
     CORS_ENABLED = True
+    
+    # Remove server name restriction
+    SERVER_NAME = None
+    
+    # Cookie settings for cross-domain support
+    SESSION_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'None'
+    REMEMBER_COOKIE_SECURE = True
+    REMEMBER_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_DOMAIN = None
+    WTF_CSRF_CHECK_DEFAULT = False
+    WTF_CSRF_ENABLED = False
+    
+    # Update CORS origins to include the local HTTPS domain
+    CORS_ORIGINS = [
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:8000',
+        'http://127.0.0.1:8000',
+        'https://cfwebapp.local',  # Add this
+        'https://cfwebapp-production.up.railway.app',
+        'https://courtflow.co.uk'
+    ]
+    CORS_SUPPORTS_CREDENTIALS = True
 
 
 class ProductionConfig(Config):

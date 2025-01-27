@@ -10,6 +10,7 @@ tennis_coaching_db.backup
 user-pool-config.json
 client_secrets.json
 users.json
+certs/
 
 # Python
 __pycache__/

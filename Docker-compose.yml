@@ -6,8 +6,6 @@ services:
     environment:
       FLASK_APP: ${FLASK_APP}
       FLASK_ENV: ${FLASK_ENV}
-      FLASK_RUN_PORT: ${FLASK_RUN_PORT}
-      FLASK_RUN_HOST: ${FLASK_RUN_HOST}
       FLASK_DEBUG: ${FLASK_DEBUG}
       DATABASE_URL: ${DATABASE_URL}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
@@ -21,29 +19,50 @@ services:
       AWS_S3_REGION: ${AWS_S3_REGION}
       AWS_SES_REGION: ${AWS_SES_REGION}
       AWS_SES_SENDER: ${AWS_SES_SENDER}
+      SERVER_NAME: "cfwebapp.local"
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "cfwebapp.local:host-gateway"
     volumes:
       - .:/app
-      - dist_volume:/app/app/static/dist
+      - dist-volume:/app/app/static/dist
+      - ./certs:/app/certs
     ports:
-      - "8000:8000"
+      - "443:443"
+    networks:
+      app_net:
+        aliases:
+          - cfwebapp.local
 
   frontend:
     build:
       context: ./client
       dockerfile: Dockerfile.dev
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=https://cfwebapp.local
     volumes:
       - ./client:/app
+      - dist-volume:/app/app/static/dist
       - /app/node_modules
-      - dist_volume:/app/dist
-    entrypoint: >
-      /bin/sh -c "
-        npm run build &&
+    ports:
+      - "5173:5173"
+    command: >
+      sh -c "
         mkdir -p /app/app/static/dist &&
+        chmod -R 755 /app/app/static/dist &&
+        npm run build &&
         cp -r /app/dist/* /app/app/static/dist/ &&
-        tail -f /dev/null
+        cp -r /app/dist/.vite/* /app/app/static/dist/ &&
+        npm run dev -- --host
       "
+    networks:
+      app_net:
+    extra_hosts:
+      - "cfwebapp.local:host-gateway"
 
 volumes:
-  dist_volume:
+  dist-volume:
+
+networks:
+  app_net:
+    driver: bridge

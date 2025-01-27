@@ -1,4 +1,5 @@
 # app/__init__.py
+from datetime import timedelta
 from flask import Flask, send_from_directory, jsonify, request
 from config import Config
 import os
@@ -7,20 +8,36 @@ from app.auth import init_oauth
 import sentry_sdk
 from sentry_sdk.integrations.flask import FlaskIntegration
 import json
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('gunicorn.error')
 
 def get_vite_asset(app, entry_point):
     try:
-        manifest_path = os.path.join(app.static_folder, 'dist', '.vite', 'manifest.json')
-        with open(manifest_path) as f:
-            manifest = json.load(f)
+        # Check both possible manifest locations
+        manifest_locations = [
+            os.path.join(app.static_folder, 'dist', 'manifest.json'),
+            os.path.join(app.static_folder, 'dist', '.vite', 'manifest.json')
+        ]
+        
+        manifest = None
+        for manifest_path in manifest_locations:
+            if os.path.exists(manifest_path):
+                with open(manifest_path) as f:
+                    manifest = json.load(f)
+                    break
+                    
+        if not manifest:
+            app.logger.warning("No manifest file found")
+            return ''
             
         if entry_point in manifest:
             return manifest[entry_point]['file']
-        return None
+        return ''
     except Exception as e:
-        print(f"Error reading Vite manifest: {e}")
-        return None
-
+        app.logger.error(f"Error reading Vite manifest: {e}")
+        return ''
 def register_extensions(app):
     """Register Flask extensions."""
     db.init_app(app)
@@ -77,6 +94,8 @@ def create_app(config_class=Config):
     app = Flask(__name__, 
                 static_folder='static', 
                 static_url_path='/static')  
+    app.logger.handlers = logger.handlers
+    app.logger.setLevel(logger.level)
     
     # Determine environment and configure the app
     env = os.getenv('FLASK_ENV', 'production')
@@ -87,16 +106,19 @@ def create_app(config_class=Config):
     
     app.config.from_object(config_obj)
 
-    # Session and cookie configuration
-    if not app.debug:
-        app.config.update(
-            SESSION_COOKIE_SECURE=True,
-            SESSION_COOKIE_HTTPONLY=True,
-            SESSION_COOKIE_SAMESITE='Lax',
-            SESSION_COOKIE_DOMAIN='cfwebapp-production.up.railway.app',
-            REMEMBER_COOKIE_SECURE=True,
-            REMEMBER_COOKIE_HTTPONLY=True
-        )
+    # Remove server name restriction
+    app.config['SERVER_NAME'] = None
+
+    # Update session configuration for all environments
+    app.config.update(
+        SESSION_COOKIE_SECURE=True,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE='None',  # Changed to None to support cross-domain
+        REMEMBER_COOKIE_SECURE=True,
+        REMEMBER_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_DOMAIN=None,  # Allow cookies to work across domains
+        PERMANENT_SESSION_LIFETIME=timedelta(days=1)
+    )
 
     # Configure proxy settings for HTTPS
     from werkzeug.middleware.proxy_fix import ProxyFix
@@ -108,7 +130,7 @@ def create_app(config_class=Config):
         x_prefix=1
     )
 
-    # Add database connection retry logic
+    # Database connection settings
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
         'pool_pre_ping': True,
         'pool_recycle': 300,
@@ -155,45 +177,61 @@ def create_app(config_class=Config):
         if request.path.startswith('/api/'):
             return jsonify({"error": "Internal server error"}), 500
         return "Internal server error", 500
-    
+
     @app.context_processor
     def utility_processor():
         def get_asset_path(entry_point):
             return get_vite_asset(app, entry_point)
         return dict(get_asset_path=get_asset_path)
-    
-    if not app.debug:
-        @app.after_request
-        def add_security_headers(response):
-            headers = {
-                'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
-                'X-Content-Type-Options': 'nosniff',
-                'X-Frame-Options': 'SAMEORIGIN',
-                'X-XSS-Protection': '1; mode=block',
-                'Access-Control-Allow-Credentials': 'true'
-            }
+
+    # Universal CORS and security headers
+    @app.after_request
+    def after_request(response):
+        # Get the origin from the request
+        origin = request.headers.get('Origin')
+        allowed_origins = app.config.get('CORS_ORIGINS', [])
+        
+        if origin in allowed_origins:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Cookie, X-CSRF-TOKEN'
+            response.headers['Access-Control-Expose-Headers'] = 'Content-Type, Authorization, Set-Cookie'
             
-            # Add CORS headers for preflight requests
-            if request.method == 'OPTIONS':
-                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-                response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Cookie, X-CSRF-TOKEN'
-                response.headers['Access-Control-Allow-Credentials'] = 'true'
-                if request.headers.get('Origin') in app.config['CORS_ORIGINS']:
-                    response.headers['Access-Control-Allow-Origin'] = request.headers['Origin']
-            
-            # Handle non-OPTIONS requests
-            if request.headers.get('Origin') in app.config['CORS_ORIGINS']:
-                response.headers['Access-Control-Allow-Origin'] = request.headers['Origin']
-            
-            for header, value in headers.items():
-                response.headers[header] = value
-            return response
+        # Security headers
+        response.headers.update({
+            'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+            'X-Content-Type-Options': 'nosniff',
+            'X-Frame-Options': 'SAMEORIGIN',
+            'X-XSS-Protection': '1; mode=block'
+        })
+        
+        return response
 
     @app.route('/favicon.ico')
     def favicon():
         return '', 204
 
-    # Static file and React app handling
+    @app.route('/static/dist/<path:filename>')
+    def serve_dist(filename):
+        try:
+            dist_dir = os.path.join(app.static_folder, 'dist')
+            app.logger.info(f"Serving file from dist: {filename}")
+            app.logger.info(f"Dist directory: {dist_dir}")
+            app.logger.info(f"Full path: {os.path.join(dist_dir, filename)}")
+            
+            if os.path.exists(os.path.join(dist_dir, filename)):
+                return send_from_directory(dist_dir, filename)
+            elif os.path.exists(os.path.join(dist_dir, '.vite', filename)):
+                return send_from_directory(os.path.join(dist_dir, '.vite'), filename)
+            else:
+                app.logger.error(f"File not found: {filename}")
+                return "File not found", 404
+        except Exception as e:
+            app.logger.error(f"Error serving static file: {str(e)}")
+            return str(e), 500
+
+    # Then modify your catchall route to better handle dist files
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve(path):
@@ -201,6 +239,10 @@ def create_app(config_class=Config):
             return not_found_error(None)
         
         dist_dir = os.path.join(app.static_folder, 'dist')
+        if path.startswith('static/dist/'):
+            filename = path.replace('static/dist/', '', 1)
+            return serve_dist(filename)
+        
         if path and os.path.exists(os.path.join(dist_dir, path)):
             return send_from_directory(dist_dir, path)
         
