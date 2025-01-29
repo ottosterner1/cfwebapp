@@ -114,9 +114,9 @@ def create_app(config_class=Config):
         SESSION_COOKIE_SECURE=True,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE='Lax',
-        SESSION_COOKIE_DOMAIN='cfwebapp.local',
+        SESSION_COOKIE_DOMAIN=None,
         PERMANENT_SESSION_LIFETIME=timedelta(days=1),
-        REMEMBER_COOKIE_DOMAIN='cfwebapp.local',
+        REMEMBER_COOKIE_DOMAIN=None,
         REMEMBER_COOKIE_SECURE=True,
         REMEMBER_COOKIE_HTTPONLY=True,
         REMEMBER_COOKIE_SAMESITE='Lax'
