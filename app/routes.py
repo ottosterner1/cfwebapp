@@ -95,7 +95,7 @@ def login():
         f"&state={state}"
     ))
     
-    response.set_cookie('oauth_state', state, secure=True, httponly=True, domain='cfwebapp.local')
+    response.set_cookie('oauth_state', state, secure=True, httponly=True, samesite='Lax')
     return response
 
 @main.route('/auth/callback')
