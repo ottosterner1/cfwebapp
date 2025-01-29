@@ -1,7 +1,9 @@
+from base64 import b64encode
 import os
 import traceback
 from flask import Blueprint, render_template, request, redirect, url_for, flash, session, current_app, jsonify
 from flask_login import login_user, login_required, logout_user, current_user
+import requests
 from werkzeug.security import check_password_hash, generate_password_hash
 from app.models import (
     User, TennisGroup, TeachingPeriod, Student, Report, UserRole, 
@@ -98,18 +100,19 @@ def login():
 
 @main.route('/auth/callback')
 def auth_callback():
-
-    state_in_request = request.args.get('state')
-    state_in_cookie = request.cookies.get('oauth_state')
-    code = request.args.get('code')
-    
-    if not state_in_cookie or state_in_cookie != state_in_request:
-        current_app.logger.error(f"State mismatch: cookie={state_in_cookie}, request={state_in_request}")
-        return redirect(url_for('main.login'))
-
     try:
-        import requests
-        from base64 import b64encode
+        # Validate state parameter
+        state_in_request = request.args.get('state')
+        state_in_cookie = request.cookies.get('oauth_state')
+        code = request.args.get('code')
+        
+        if not state_in_cookie or state_in_cookie != state_in_request:
+            current_app.logger.error(f"State mismatch: cookie={state_in_cookie}, request={state_in_request}")
+            return redirect(url_for('main.login'))
+
+        if not code:
+            current_app.logger.error("No authorization code received")
+            return redirect(url_for('main.login'))
 
         # Create basic auth header
         client_id = current_app.config['AWS_COGNITO_CLIENT_ID']
@@ -120,68 +123,73 @@ def auth_callback():
 
         # Exchange the code for tokens
         token_endpoint = f"https://{current_app.config['COGNITO_DOMAIN']}/oauth2/token"
-        redirect_uri = url_for('main.auth_callback', _external=True)
+        redirect_uri = url_for('main.auth_callback', _external=True, _scheme='https')
         
         current_app.logger.info(f"Token endpoint: {token_endpoint}")
         current_app.logger.info(f"Redirect URI: {redirect_uri}")
         
-        headers = {
-            'Authorization': f'Basic {auth_header}',
-            'Content-Type': 'application/x-www-form-urlencoded'
-        }
-        data = {
-            'grant_type': 'authorization_code',
-            'code': code,
-            'redirect_uri': redirect_uri
-        }
-
-        token_response = requests.post(token_endpoint, headers=headers, data=data)
+        token_response = requests.post(
+            token_endpoint,
+            headers={
+                'Authorization': f'Basic {auth_header}',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            data={
+                'grant_type': 'authorization_code',
+                'code': code,
+                'redirect_uri': redirect_uri
+            }
+        )
         
         if token_response.status_code != 200:
             current_app.logger.error(f"Token exchange failed: {token_response.text}")
-            raise Exception("Failed to exchange code for tokens")
+            return redirect(url_for('main.login'))
 
         token_data = token_response.json()
 
         # Get user info using the access token
         userinfo_endpoint = f"https://{current_app.config['COGNITO_DOMAIN']}/oauth2/userInfo"
-        userinfo_headers = {
-            'Authorization': f"Bearer {token_data['access_token']}"
-        }
-        userinfo_response = requests.get(userinfo_endpoint, headers=userinfo_headers)
+        userinfo_response = requests.get(
+            userinfo_endpoint,
+            headers={'Authorization': f"Bearer {token_data['access_token']}"}
+        )
         
         if userinfo_response.status_code != 200:
             current_app.logger.error(f"Userinfo failed: {userinfo_response.text}")
-            raise Exception("Failed to get user info")
+            return redirect(url_for('main.login'))
 
         userinfo = userinfo_response.json()
-
-        # Extract user information
         email = userinfo.get('email')
         name = userinfo.get('name')
         provider_id = userinfo.get('sub')
 
         if not email:
-           current_app.logger.error("No email provided in user info")
-           flash('Email not provided')
-           return redirect(url_for('main.login'))
+            current_app.logger.error("No email provided in user info")
+            return redirect(url_for('main.login'))
 
         current_app.logger.info(f"Looking up user with email: {email}")
         user = User.query.filter_by(email=email).first()
         current_app.logger.info(f"Found user: {user}")
 
         if user and user.tennis_club_id:
-            login_user(user, remember=True)  # Add remember=True
+            login_user(user, remember=True)
             response = redirect(url_for('main.home'))
-            # Set secure cookie with proper domain
-            response.set_cookie(
-                'session',
-                session.get('_id'),
-                secure=True,
-                httponly=True,
-                samesite='Lax',
-                domain='cfwebapp.local'  # Match your local domain
-            )
+            
+            # Set session cookie
+            session.permanent = True
+            session['user_id'] = user.id
+            
+            # Set response headers
+            response.headers.update({
+                'Access-Control-Allow-Credentials': 'true',
+                'Access-Control-Allow-Origin': request.headers.get('Origin', 'https://cfwebapp.local'),
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cookie, X-Requested-With',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            })
+            
             return response
         else:
             current_app.logger.info("User needs onboarding")
@@ -192,9 +200,23 @@ def auth_callback():
             }
             return redirect(url_for('club_management.onboard_club'))
 
+    except requests.exceptions.RequestException as e:
+        current_app.logger.error(f"Network error during authentication: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return redirect(url_for('main.login'))
     except Exception as e:
         current_app.logger.error(f"Auth callback error: {str(e)}")
         current_app.logger.error(traceback.format_exc())
+        
+        # Add detailed error information
+        error_context = {
+            'token_response_status': getattr(token_response, 'status_code', None) if 'token_response' in locals() else None,
+            'token_response_text': getattr(token_response, 'text', None) if 'token_response' in locals() else None,
+            'userinfo_response_status': getattr(userinfo_response, 'status_code', None) if 'userinfo_response' in locals() else None,
+            'userinfo_response_text': getattr(userinfo_response, 'text', None) if 'userinfo_response' in locals() else None
+        }
+        current_app.logger.error(f"Error context: {error_context}")
+        
         flash('Authentication failed')
         return redirect(url_for('main.login'))
 
@@ -273,11 +295,18 @@ def dashboard():
 @verify_club_access()
 def current_user_info():
     current_app.logger.error("=== Debug Current User ===")
+    current_app.logger.error(f"Request Method: {request.method}")
+    current_app.logger.error(f"Request Headers: {dict(request.headers)}")
+    current_app.logger.error(f"Request Cookies: {dict(request.cookies)}")
     current_app.logger.error(f"Is authenticated: {current_user.is_authenticated}")
     current_app.logger.error(f"Current user: {current_user}")
     current_app.logger.error(f"Session: {session}")
+    current_app.logger.error(f"Session ID: {session.get('_id')}")
     
-    return jsonify({
+    if not current_user.is_authenticated:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    response = jsonify({
         'id': current_user.id,
         'name': current_user.name,
         'tennis_club': {
@@ -287,6 +316,25 @@ def current_user_info():
         'is_admin': current_user.is_admin,
         'is_super_admin': current_user.is_super_admin
     })
+
+    response.headers.update({
+        'Access-Control-Allow-Origin': request.headers.get('Origin', 'https://cfwebapp.local'),
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cookie, X-Requested-With'
+    })
+    
+    return response
+
+# Add OPTIONS handler for the same route
+@main.route('/api/current-user', methods=['OPTIONS'])
+def current_user_options():
+    response = jsonify({'status': 'ok'})
+    response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Cookie'
+    return response
 
 @main.route('/api/dashboard/stats')
 @login_required

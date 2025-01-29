@@ -1,5 +1,5 @@
 from functools import wraps
-from flask import request, current_app
+from flask import jsonify, request, current_app
 from flask_login import current_user
 
 def get_club_from_request():
@@ -12,16 +12,19 @@ def get_club_from_request():
     return host.split('.')[0]
 
 def verify_club_access():
-    """Middleware to verify user has access to requested club"""
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            subdomain = get_club_from_request()
-            if not subdomain:
-                return f(*args, **kwargs)
+            # Add detailed logging
+            current_app.logger.info(f"=== verify_club_access check ===")
+            current_app.logger.info(f"Is authenticated: {current_user.is_authenticated}")
+            current_app.logger.info(f"Current user: {current_user}")
+            
+            if not current_user.is_authenticated:
+                return jsonify({'error': 'Not authenticated'}), 401
                 
-            if not current_user.tennis_club.subdomain == subdomain:
-                return "Unauthorized", 403
+            if not current_user.tennis_club_id:
+                return jsonify({'error': 'No club access'}), 403
                 
             return f(*args, **kwargs)
         return decorated_function

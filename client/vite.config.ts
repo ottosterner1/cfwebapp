@@ -11,7 +11,18 @@ export default defineConfig({
       '/api': {
         target: 'https://cfwebapp.local',
         changeOrigin: true,
-        secure: false
+        secure: false,
+        configure: (proxy, _options) => {
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            // Forward cookies
+            if (req.headers.cookie) {
+              proxyReq.setHeader('cookie', req.headers.cookie);
+            }
+          });
+        },
+        headers: {
+          'X-Forwarded-Proto': 'https'
+        }
       }
     }
   },

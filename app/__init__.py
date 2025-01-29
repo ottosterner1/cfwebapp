@@ -113,11 +113,13 @@ def create_app(config_class=Config):
     app.config.update(
         SESSION_COOKIE_SECURE=True,
         SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SAMESITE='None',  # Changed to None to support cross-domain
+        SESSION_COOKIE_SAMESITE='Lax',
+        SESSION_COOKIE_DOMAIN='cfwebapp.local',
+        PERMANENT_SESSION_LIFETIME=timedelta(days=1),
+        REMEMBER_COOKIE_DOMAIN='cfwebapp.local',
         REMEMBER_COOKIE_SECURE=True,
         REMEMBER_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_DOMAIN=None,  # Allow cookies to work across domains
-        PERMANENT_SESSION_LIFETIME=timedelta(days=1)
+        REMEMBER_COOKIE_SAMESITE='Lax'
     )
 
     # Configure proxy settings for HTTPS
