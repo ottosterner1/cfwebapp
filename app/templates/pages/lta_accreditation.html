@@ -29,6 +29,6 @@
     <script type="module" src="http://localhost:5173/@vite/client"></script>
     <script type="module" src="http://localhost:5173/src/entry/lta_accreditation.tsx"></script>
 {% else %}
-    <script type="module" src="{{ url_for('static', filename='dist/assets/lta_accreditation-[hash].js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='dist/' + get_asset_path('src/entry/lta_accreditation.tsx')) }}"></script>
 {% endif %}
 {% endblock %}

@@ -19,6 +19,6 @@
     <script type="module" src="http://localhost:5173/@vite/client"></script>
     <script type="module" src="http://localhost:5173/src/entry/profile.tsx"></script>
 {% else %}
-    <script type="module" src="{{ url_for('static', filename='dist/assets/profile-[hash].js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='dist/' + get_asset_path('src/entry/profile.tsx')) }}"></script>
 {% endif %}
 {% endblock %}
