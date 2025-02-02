@@ -233,25 +233,58 @@ def create_app(config_class=Config):
             app.logger.error(f"Error serving static file: {str(e)}")
             return str(e), 500
 
-    # Then modify your catchall route to better handle dist files
     @app.route('/', defaults={'path': ''})
     @app.route('/<path:path>')
     def serve(path):
-        if path.startswith('api/'):
-            return not_found_error(None)
-        
         dist_dir = os.path.join(app.static_folder, 'dist')
-        if path.startswith('static/dist/'):
-            filename = path.replace('static/dist/', '', 1)
-            return serve_dist(filename)
+        app.logger.info(f"Request path: {path}")
+        app.logger.info(f"Static folder: {app.static_folder}")
+        app.logger.info(f"Dist directory: {dist_dir}")
         
-        if path and os.path.exists(os.path.join(dist_dir, path)):
-            return send_from_directory(dist_dir, path)
+        # Log directory contents
+        if os.path.exists(dist_dir):
+            app.logger.info(f"Dist directory contents: {os.listdir(dist_dir)}")
+        else:
+            app.logger.error(f"Dist directory does not exist: {dist_dir}")
+            # Try to create it
+            try:
+                os.makedirs(dist_dir, exist_ok=True)
+                app.logger.info("Created dist directory")
+            except Exception as e:
+                app.logger.error(f"Error creating dist directory: {e}")
         
-        if path and os.path.exists(os.path.join(app.static_folder, path)):
-            return send_from_directory(app.static_folder, path)
+        # Log parent directory contents
+        app.logger.info(f"Static folder contents: {os.listdir(app.static_folder)}")
         
-        return send_from_directory(dist_dir, 'index.html')
+        try:
+            if path and os.path.exists(os.path.join(dist_dir, path)):
+                app.logger.info(f"Serving file directly: {path}")
+                return send_from_directory(dist_dir, path)
+            
+            index_path = os.path.join(dist_dir, 'index.html')
+            if os.path.exists(index_path):
+                app.logger.info("Serving index.html")
+                return send_from_directory(dist_dir, 'index.html')
+            else:
+                app.logger.error(f"index.html not found at: {index_path}")
+                return "index.html not found", 404
+                
+        except Exception as e:
+            app.logger.error(f"Error serving file: {str(e)}")
+            return str(e), 500
+    
+    @app.route('/debug')
+    def debug_info():
+        dist_dir = os.path.join(app.static_folder, 'dist')
+        debug_info = {
+            'static_folder': app.static_folder,
+            'dist_dir': dist_dir,
+            'dist_exists': os.path.exists(dist_dir),
+            'static_contents': os.listdir(app.static_folder) if os.path.exists(app.static_folder) else 'not found',
+            'dist_contents': os.listdir(dist_dir) if os.path.exists(dist_dir) else 'not found',
+            'env': dict(os.environ)
+        }
+        return jsonify(debug_info)
     
     @app.route('/api/health')
     def health_check():
