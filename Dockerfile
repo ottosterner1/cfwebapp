@@ -6,6 +6,8 @@ WORKDIR /frontend
 COPY client/ .
 RUN npm install
 RUN npm run build
+# Add verification step
+RUN echo "Frontend build contents:" && ls -la dist/
 
 # Build backend and combine
 FROM python:3.11-slim
@@ -27,8 +29,14 @@ RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 # Copy the backend application
 COPY . .
 
+# Create static/dist directory
+RUN mkdir -p /app/app/static/dist
+
 # Copy the built frontend files
-COPY --from=frontend-build /frontend/dist /app/app/static/dist
+COPY --from=frontend-build /frontend/dist /app/app/static/dist/
+
+# Verify the files were copied correctly
+RUN echo "Static dist contents:" && ls -la /app/app/static/dist/
 
 # Add this line to ensure wsgi.py is in the Python path
 ENV PYTHONPATH=/app
