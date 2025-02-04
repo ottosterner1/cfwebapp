@@ -18,6 +18,6 @@
     <script type="module" src="http://localhost:5173/@vite/client"></script>
     <script type="module" src="http://localhost:5173/src/entry/view_report.tsx"></script>
 {% else %}
-    <script type="module" src="{{ url_for('static', filename='dist/assets/view_report-[hash].js') }}"></script>
+<script type="module" src="{{ url_for('static', filename='dist/' + get_asset_path('src/entry/view_report.tsx')) }}"></script>
 {% endif %}
 {% endblock %}
