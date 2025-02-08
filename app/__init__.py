@@ -92,7 +92,7 @@ def create_app(config_class=Config):
         )
     
     app = Flask(__name__, 
-                static_folder='app/static', 
+                static_folder='static', 
                 static_url_path='/static')  
     app.logger.handlers = logger.handlers
     app.logger.setLevel(logger.level)
@@ -283,6 +283,20 @@ def create_app(config_class=Config):
             'static_contents': os.listdir(app.static_folder) if os.path.exists(app.static_folder) else 'not found',
             'dist_contents': os.listdir(dist_dir) if os.path.exists(dist_dir) else 'not found',
             'env': dict(os.environ)
+        }
+        return jsonify(debug_info)
+    
+    @app.route('/debug/static')
+    def debug_static_files():
+        static_dir = app.static_folder
+        dist_dir = os.path.join(static_dir, 'dist')
+        debug_info = {
+            'static_folder_abs': os.path.abspath(static_dir),
+            'dist_dir_abs': os.path.abspath(dist_dir),
+            'static_exists': os.path.exists(static_dir),
+            'dist_exists': os.path.exists(dist_dir),
+            'static_contents': os.listdir(static_dir) if os.path.exists(static_dir) else [],
+            'dist_contents': os.listdir(dist_dir) if os.path.exists(dist_dir) else []
         }
         return jsonify(debug_info)
     

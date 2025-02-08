@@ -1,8 +1,16 @@
 import os
+from datetime import timedelta
 from urllib.parse import urlparse
 
 class Config:
+    # Base Security
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-key-change-this'
+    
+    # Session Configuration
+    PERMANENT_SESSION_LIFETIME = timedelta(days=1)
+    SESSION_TYPE = 'filesystem'
+    SESSION_FILE_DIR = '/tmp/flask_session'
+    SESSION_FILE_THRESHOLD = 500
     
     # Database Configuration
     DATABASE_URL = os.environ.get('DATABASE_URL')
@@ -62,18 +70,6 @@ class Config:
         print(f"Using PostgreSQL database at {db_url.hostname}")
         print(f"Cognito Domain: {self.COGNITO_DOMAIN}")
 
-    # CORS Configuration
-    CORS_ORIGINS = [
-        'http://localhost:5173',
-        'http://127.0.0.1:5173',
-        'http://localhost:8000',
-        'http://127.0.0.1:8000',
-        'https://cfwebapp-production.up.railway.app',
-        'https://courtflow.co.uk',
-        'https://cfwebapp.local'
-    ]
-    CORS_SUPPORTS_CREDENTIALS = True
-
     # AWS SES Configuration
     AWS_SES_REGION = os.environ.get('AWS_SES_REGION', 'eu-west-2')
     AWS_SES_ACCESS_KEY = os.environ.get('AWS_SES_ACCESS_KEY')
@@ -83,24 +79,19 @@ class Config:
     # Club invitation configuration
     INVITATION_EXPIRY_HOURS = 48 
 
+
 class DevelopmentConfig(Config):
     DEBUG = True
     CORS_ENABLED = True
     
-    # Remove server name restriction
-    SERVER_NAME = None
-    
-    # Cookie settings for cross-domain support
+    # Session and Cookie Settings
     SESSION_COOKIE_SECURE = True
     SESSION_COOKIE_HTTPONLY = True
-    SESSION_COOKIE_SAMESITE = 'None'
-    REMEMBER_COOKIE_SECURE = True
-    REMEMBER_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Strict'
     SESSION_COOKIE_DOMAIN = None
-    WTF_CSRF_CHECK_DEFAULT = False
-    WTF_CSRF_ENABLED = False
+    SESSION_COOKIE_NAME = 'session'
     
-    # Update CORS origins to include the local HTTPS domain
+    # CORS Configuration
     CORS_ORIGINS = [
         'http://localhost:5173',
         'http://127.0.0.1:5173',
@@ -111,33 +102,38 @@ class DevelopmentConfig(Config):
         'https://courtflow.co.uk'
     ]
     CORS_SUPPORTS_CREDENTIALS = True
+    
+    # CSRF Settings
+    WTF_CSRF_CHECK_DEFAULT = False
+    WTF_CSRF_ENABLED = False
 
 
 class ProductionConfig(Config):
     DEBUG = False
     
-    # Security settings
+    # Session and Cookie Settings
     SESSION_COOKIE_SECURE = True
     SESSION_COOKIE_HTTPONLY = True
-    SESSION_COOKIE_SAMESITE = 'None'  # Changed from Lax to None
-    REMEMBER_COOKIE_SECURE = True
-    REMEMBER_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Strict'
+    SESSION_COOKIE_DOMAIN = None
+    SESSION_COOKIE_NAME = 'session'
     
-    # Update CORS for your production domain
+    # CORS Configuration
     CORS_ORIGINS = [
         'https://courtflow.co.uk',
         'https://cfwebapp-production.up.railway.app'
     ]
     CORS_SUPPORTS_CREDENTIALS = True
-    
-    # Add cookie domain
-    SESSION_COOKIE_DOMAIN = 'cfwebapp-production.up.railway.app'
 
 
 class TestingConfig(Config):
     TESTING = True
     
-    # Override the database URL validation for testing
+    # Session Configuration for Testing
+    SESSION_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Strict'
+    
     def __init__(self):
         # Use a test PostgreSQL database
         self.DATABASE_URL = os.environ.get('TEST_DATABASE_URL', 'postgresql://localhost/tennis_test')

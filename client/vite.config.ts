@@ -33,6 +33,7 @@ export default defineConfig({
     assetsDir: 'assets',
     rollupOptions: {
       input: {
+        main: path.resolve(__dirname, 'index.html'),  
         dashboard: path.resolve(__dirname, 'src/entry/dashboard.tsx'),
         navigation: path.resolve(__dirname, 'src/entry/navigation.tsx'),
         profile: path.resolve(__dirname, 'src/entry/profile.tsx'),

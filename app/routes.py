@@ -86,28 +86,36 @@ def signup():
 def login():
     current_app.logger.info("=== Login Route Hit ===")
     state = secrets.token_urlsafe(32)
+    current_app.logger.info(f"Generated state: {state}")
     
-    response = make_response(redirect(
+    # Store state in session instead of cookie
+    session['oauth_state'] = state
+    
+    redirect_uri = url_for('main.auth_callback', _external=True, _scheme='https')
+    current_app.logger.info(f"Redirect URI: {redirect_uri}")
+    
+    # Create and return response without setting cookie
+    return redirect(
         f"https://{current_app.config['COGNITO_DOMAIN']}/login"
         f"?client_id={current_app.config['AWS_COGNITO_CLIENT_ID']}"
         f"&response_type=code&scope=openid+email+profile"
-        f"&redirect_uri={url_for('main.auth_callback', _external=True, _scheme='https')}"
+        f"&redirect_uri={redirect_uri}"
         f"&state={state}"
-    ))
-    
-    response.set_cookie('oauth_state', state, secure=True, httponly=True, samesite='Lax')
-    return response
+    )
 
 @main.route('/auth/callback')
 def auth_callback():
     try:
-        # Validate state parameter
         state_in_request = request.args.get('state')
-        state_in_cookie = request.cookies.get('oauth_state')
+        state_in_session = session.get('oauth_state')
         code = request.args.get('code')
         
-        if not state_in_cookie or state_in_cookie != state_in_request:
-            current_app.logger.error(f"State mismatch: cookie={state_in_cookie}, request={state_in_request}")
+        current_app.logger.info(f"Callback received - Request state: {state_in_request}")
+        current_app.logger.info(f"Callback received - Session state: {state_in_session}")
+        
+        if not state_in_session or state_in_session != state_in_request:
+            current_app.logger.error(f"State mismatch: session={state_in_session}, request={state_in_request}")
+            session.clear()  # Clear the session on mismatch
             return redirect(url_for('main.login'))
 
         if not code:
@@ -175,9 +183,13 @@ def auth_callback():
             login_user(user, remember=True)
             response = redirect(url_for('main.home'))
             
-            # Set session cookie
+            # Set session data
             session.permanent = True
             session['user_id'] = user.id
+            session.modified = True  # Ensure session is saved
+            
+            # Clean up oauth state
+            session.pop('oauth_state', None)
             
             # Set response headers
             response.headers.update({
@@ -198,6 +210,7 @@ def auth_callback():
                 'name': name,
                 'provider_id': provider_id,
             }
+            session.modified = True  # Ensure session is saved
             return redirect(url_for('club_management.onboard_club'))
 
     except requests.exceptions.RequestException as e:
@@ -208,7 +221,6 @@ def auth_callback():
         current_app.logger.error(f"Auth callback error: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         
-        # Add detailed error information
         error_context = {
             'token_response_status': getattr(token_response, 'status_code', None) if 'token_response' in locals() else None,
             'token_response_text': getattr(token_response, 'text', None) if 'token_response' in locals() else None,
@@ -219,29 +231,34 @@ def auth_callback():
         
         flash('Authentication failed')
         return redirect(url_for('main.login'))
-
+    
 @main.route('/logout')
 @login_required
 def logout():
-    # Clear Flask-Login session first
+    # Clear Flask-Login session
     logout_user()
     
-    # Clear any custom session data
+    # Clear all session data
     session.clear()
     
     # Build the Cognito logout URL
     cognito_domain = current_app.config['COGNITO_DOMAIN']
     client_id = current_app.config['AWS_COGNITO_CLIENT_ID']
-    logout_uri = url_for('main.index', _external=True)  # Redirect to index page, not home
+    logout_uri = url_for('main.index', _external=True)
     
-    logout_url = (
+    # Create response
+    response = make_response(redirect(
         f"https://{cognito_domain}/logout?"
         f"client_id={client_id}&"
-        f"logout_uri={logout_uri}"  # This should go to index, not home
-    )
+        f"logout_uri={logout_uri}"
+    ))
     
-    print(f"Redirecting to logout URL: {logout_url}")
-    return redirect(logout_url)
+    # Clear all cookies
+    response.delete_cookie('oauth_state')
+    response.delete_cookie('session')
+    response.delete_cookie('remember_token')
+    
+    return response
 
 def serialize_period(period):
     """Helper function to serialize teaching period"""
