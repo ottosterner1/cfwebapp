@@ -860,7 +860,6 @@ def accept_invitation(token):
 @admin_required
 def manage_players(club_id):
     club = TennisClub.query.get_or_404(club_id)
-    print(f"MANAGE PLAYERS ROUTE CALLED for club {club_id}")
     
     # Get all teaching periods
     periods = TeachingPeriod.query.filter_by(
@@ -940,7 +939,6 @@ def bulk_upload_players():
         try:
             df = pd.read_csv(file, encoding='utf-8')
             df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
-            current_app.logger.info(f"CSV loaded successfully. Columns: {df.columns.tolist()}")
         except Exception as e:
             current_app.logger.error(f"Error reading CSV: {str(e)}")
             return jsonify({'error': f'Error reading CSV file: {str(e)}'}), 400
@@ -1119,8 +1117,6 @@ def add_player_page(club_id):
 @admin_required
 def edit_player_page(club_id, player_id):
     """Serve the React edit player page"""
-    # Use current_app.logger for logging
-    current_app.logger.info(f"current_user.tennis_club_id: {current_user.tennis_club_id}, club.id: {club_id}")
 
     club = TennisClub.query.get_or_404(club_id)
     if current_user.tennis_club_id != club.id:
@@ -1129,7 +1125,6 @@ def edit_player_page(club_id, player_id):
         return redirect(url_for('main.home'))
 
     player = ProgrammePlayers.query.get_or_404(player_id)
-    current_app.logger.info(f"Player tennis_club_id: {player.tennis_club_id}")
 
     if player.tennis_club_id != club.id:
         current_app.logger.warning(f"Mismatch: Player belongs to {player.tennis_club_id}, not {club.id}.")
@@ -1144,7 +1139,6 @@ def edit_player_page(club_id, player_id):
 @admin_required
 def player_api(player_id):
     """API endpoint for managing a single player"""
-    current_app.logger.info(f"Accessing player API for player_id: {player_id}")
     player = ProgrammePlayers.query.get_or_404(player_id)
     
     if current_user.tennis_club_id != player.tennis_club_id:
@@ -1162,13 +1156,11 @@ def player_api(player_id):
             'group_time_id': player.group_time_id,  # Add group time ID to response
             'teaching_period_id': player.teaching_period_id
         }
-        current_app.logger.info(f"Returning player data: {response_data}")
         return jsonify(response_data)
 
     elif request.method == 'PUT':
         try:
             data = request.get_json()
-            current_app.logger.info(f"Updating player with data: {data}")
             
             if not data:
                 return jsonify({'error': 'No data provided'}), 400
@@ -1235,7 +1227,6 @@ def create_player():
             return jsonify({'error': 'No data provided'}), 400
 
         club_id = current_user.tennis_club_id
-        current_app.logger.info(f"Creating new player with data: {data}")
 
         # Validate data
         required_fields = ['student_name', 'contact_email', 'coach_id', 'group_id', 'group_time_id', 'teaching_period_id']
@@ -1325,20 +1316,11 @@ def create_player():
 @admin_required
 def get_coaches():
     """API endpoint for getting all coaches in the club"""
-    current_app.logger.info("Accessing coaches API")
-    
-    # Add debug logging for the query conditions
-    current_app.logger.info(f"Querying coaches for club_id: {current_user.tennis_club_id}")
     
     coaches = User.query.filter(
         User.tennis_club_id == current_user.tennis_club_id,
         User.role.in_([UserRole.COACH, UserRole.ADMIN])  # Include both coaches and admins
     ).order_by(User.name).all()
-    
-    # Debug log the found coaches
-    current_app.logger.info(f"Found {len(coaches)} coaches")
-    for coach in coaches:
-        current_app.logger.info(f"Coach: id={coach.id}, name={coach.name}, role={coach.role}")
     
     response_data = [{
         'id': coach.id,
@@ -1346,7 +1328,6 @@ def get_coaches():
         'email': coach.email
     } for coach in coaches]
     
-    current_app.logger.info(f"Returning coaches: {response_data}")
     return jsonify(response_data)
 
 @club_management.route('/api/groups')
@@ -1370,7 +1351,6 @@ def get_groups():
 def get_group_times(group_id):
     """API endpoint for getting all time slots for a specific group"""
     try:
-        current_app.logger.info(f"Fetching times for group_id: {group_id}")
         
         # Verify group belongs to user's club
         group = TennisGroup.query.filter_by(
@@ -1405,8 +1385,7 @@ def get_group_times(group_id):
             'start_time': time.start_time.strftime('%H:%M'),
             'end_time': time.end_time.strftime('%H:%M')
         } for time in times]
-        
-        current_app.logger.info(f"Returning {len(response_data)} time slots")
+
         return jsonify(response_data)
         
     except Exception as e:
@@ -1435,7 +1414,6 @@ def get_teaching_periods():
 @admin_required
 def upload_logo(club_id):
     """Handle club logo upload"""
-    current_app.logger.info(f"Starting logo upload for club {club_id}")
     
     if 'logo' not in request.files:
         current_app.logger.warning("No logo file in request")
@@ -1450,7 +1428,6 @@ def upload_logo(club_id):
         
     if file and allowed_file(file.filename):
         try:
-            current_app.logger.info(f"Attempting to upload file: {file.filename}")
             
             # Get club before upload
             club = TennisClub.query.get_or_404(club_id)
@@ -1466,7 +1443,6 @@ def upload_logo(club_id):
                 flash('Server configuration error', 'error')
                 return redirect(url_for('club_management.manage_club', club_id=club_id))
 
-            current_app.logger.info(f"Using bucket: {bucket_name}")
             
             # Store the old logo URL if it exists
             old_logo_url = club.logo_url
@@ -1475,7 +1451,6 @@ def upload_logo(club_id):
             file_url = upload_file_to_s3(file, bucket_name, club.subdomain)
             
             if file_url:
-                current_app.logger.info(f"File uploaded successfully to: {file_url}")
                 
                 # Delete old logo from S3 if it exists
                 if old_logo_url:
@@ -1491,14 +1466,12 @@ def upload_logo(club_id):
                             Bucket=bucket_name,
                             Key=old_key
                         )
-                        current_app.logger.info(f"Deleted old logo: {old_key}")
                     except Exception as e:
                         current_app.logger.error(f"Error deleting old logo: {str(e)}")
                 
                 # Update database with new logo URL
                 club.logo_url = file_url
                 db.session.commit()
-                current_app.logger.info(f"Database updated with new logo URL for club {club_id}")
                 
                 flash('Logo uploaded successfully', 'success')
             else:

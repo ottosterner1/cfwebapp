@@ -33,6 +33,7 @@ from app.config.clubs import get_club_from_email, TENNIS_CLUBS
 from flask_cors import CORS, cross_origin
 from sqlalchemy import func, distinct, and_, or_
 from app.services.email_service import EmailService
+import shutil
 
 main = Blueprint('main', __name__)
 
@@ -193,7 +194,6 @@ def auth_callback():
             
             return response
         else:
-            current_app.logger.info("User needs onboarding")
             session['temp_user_info'] = {
                 'email': email,
                 'name': name,
@@ -649,7 +649,6 @@ def programme_players():
                 
                 if latest_period:
                     selected_period_id = latest_period.id
-                    current_app.logger.info(f"Selected latest period with players: {latest_period.name} (ID: {latest_period.id})")
         
         # Base query - get all programme players for the club
         query = ProgrammePlayers.query.filter_by(
@@ -1009,7 +1008,6 @@ def download_all_reports(period_id):
             id=period_id,
             tennis_club_id=current_user.tennis_club_id
         ).first_or_404()
-        current_app.logger.info(f"Found period: {period.name}")
         
         # Get the club name and set up directories
         club_name = current_user.tennis_club.name
@@ -1022,8 +1020,6 @@ def download_all_reports(period_id):
         
         # Clear existing reports directory if it exists
         if os.path.exists(period_dir):
-            current_app.logger.info(f"Clearing existing reports directory: {period_dir}")
-            import shutil
             shutil.rmtree(period_dir)
         
         # Create fresh directory
@@ -1031,7 +1027,6 @@ def download_all_reports(period_id):
         
         # Choose generator based on club name
         if 'wilton' in club_name.lower():
-            current_app.logger.info("Using Wilton generator")
             from app.utils.wilton_report_generator import EnhancedWiltonReportGenerator
             
             config_path = os.path.join(base_dir, 'app', 'utils', 'wilton_group_config.json')
@@ -1073,7 +1068,6 @@ def download_all_reports(period_id):
                         try:
                             zf.write(file_path, rel_path)
                             pdf_count += 1
-                            current_app.logger.info(f"Added file to ZIP: {rel_path}")
                         except Exception as e:
                             current_app.logger.error(f"Error adding file to ZIP {file_path}: {str(e)}")
                             
@@ -1088,7 +1082,6 @@ def download_all_reports(period_id):
         formatted_term = period.name.lower().replace(' ', '_')
         filename = f"reports_{formatted_club_name}_{formatted_term}.zip"
         
-        current_app.logger.info(f"Sending ZIP file with {pdf_count} PDFs: {filename}")
         
         response = send_file(
             memory_file,
@@ -1098,7 +1091,6 @@ def download_all_reports(period_id):
         )
         
         response.headers['Access-Control-Allow-Origin'] = '*'
-        current_app.logger.info("Successfully prepared response")
         return response
         
     except Exception as e:

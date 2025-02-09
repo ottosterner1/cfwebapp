@@ -246,12 +246,10 @@ def create_app(config_class=Config):
         
         try:
             if path and os.path.exists(os.path.join(dist_dir, path)):
-                app.logger.info(f"Serving file directly: {path}")
                 return send_from_directory(dist_dir, path)
             
             index_path = os.path.join(dist_dir, 'index.html')
             if os.path.exists(index_path):
-                app.logger.info("Serving index.html")
                 return send_from_directory(dist_dir, 'index.html')
             else:
                 app.logger.error(f"index.html not found at: {index_path}")
