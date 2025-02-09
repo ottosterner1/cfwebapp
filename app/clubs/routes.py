@@ -866,11 +866,9 @@ def manage_players(club_id):
     periods = TeachingPeriod.query.filter_by(
         tennis_club_id=club.id
     ).order_by(TeachingPeriod.start_date.desc()).all()
-    current_app.logger.info(f"Found {len(periods)} total teaching periods for club {club.id}")
 
     # Get selected period from query params
     selected_period_id = request.args.get('period', type=int)
-    current_app.logger.info(f"Initial selected_period_id from query params: {selected_period_id}")
 
     # If no period selected, find the latest period that has players
     if not selected_period_id and periods:
@@ -880,7 +878,6 @@ def manage_players(club_id):
             .distinct()
             .all())
         period_ids = [p[0] for p in period_ids_with_players]
-        current_app.logger.info(f"Found periods with players: {period_ids}")
         
         if period_ids:
             # Get the latest period that has players
@@ -894,16 +891,10 @@ def manage_players(club_id):
             
             if latest_period:
                 selected_period_id = latest_period.id
-                current_app.logger.info(
-                    f"Selected latest period with players: {latest_period.name} "
-                    f"(ID: {latest_period.id}, start_date: {latest_period.start_date})"
-                )
             else:
                 current_app.logger.info("No teaching periods found with players")
         else:
             current_app.logger.info("No periods found with any players assigned")
-
-    current_app.logger.info(f"Final selected_period_id: {selected_period_id}")
     
     # Get players for selected period
     players = []
@@ -930,7 +921,6 @@ def manage_players(club_id):
 def bulk_upload_players():
     """API endpoint for bulk uploading players via CSV"""
     try:
-        current_app.logger.info("Bulk upload endpoint called")
         
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400

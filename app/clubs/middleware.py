@@ -15,10 +15,6 @@ def verify_club_access():
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            # Add detailed logging
-            current_app.logger.info(f"=== verify_club_access check ===")
-            current_app.logger.info(f"Is authenticated: {current_user.is_authenticated}")
-            current_app.logger.info(f"Current user: {current_user}")
             
             if not current_user.is_authenticated:
                 return jsonify({'error': 'Not authenticated'}), 401

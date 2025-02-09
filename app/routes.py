@@ -84,15 +84,12 @@ def signup():
 
 @main.route('/login')
 def login():
-    current_app.logger.info("=== Login Route Hit ===")
     state = secrets.token_urlsafe(32)
-    current_app.logger.info(f"Generated state: {state}")
     
     # Store state in session instead of cookie
     session['oauth_state'] = state
     
     redirect_uri = url_for('main.auth_callback', _external=True, _scheme='https')
-    current_app.logger.info(f"Redirect URI: {redirect_uri}")
     
     # Create and return response without setting cookie
     return redirect(
@@ -109,9 +106,6 @@ def auth_callback():
         state_in_request = request.args.get('state')
         state_in_session = session.get('oauth_state')
         code = request.args.get('code')
-        
-        current_app.logger.info(f"Callback received - Request state: {state_in_request}")
-        current_app.logger.info(f"Callback received - Session state: {state_in_session}")
         
         if not state_in_session or state_in_session != state_in_request:
             current_app.logger.error(f"State mismatch: session={state_in_session}, request={state_in_request}")
@@ -132,9 +126,6 @@ def auth_callback():
         # Exchange the code for tokens
         token_endpoint = f"https://{current_app.config['COGNITO_DOMAIN']}/oauth2/token"
         redirect_uri = url_for('main.auth_callback', _external=True, _scheme='https')
-        
-        current_app.logger.info(f"Token endpoint: {token_endpoint}")
-        current_app.logger.info(f"Redirect URI: {redirect_uri}")
         
         token_response = requests.post(
             token_endpoint,
@@ -175,9 +166,7 @@ def auth_callback():
             current_app.logger.error("No email provided in user info")
             return redirect(url_for('main.login'))
 
-        current_app.logger.info(f"Looking up user with email: {email}")
         user = User.query.filter_by(email=email).first()
-        current_app.logger.info(f"Found user: {user}")
 
         if user and user.tennis_club_id:
             login_user(user, remember=True)
@@ -311,14 +300,6 @@ def dashboard():
 @login_required
 @verify_club_access()
 def current_user_info():
-    current_app.logger.error("=== Debug Current User ===")
-    current_app.logger.error(f"Request Method: {request.method}")
-    current_app.logger.error(f"Request Headers: {dict(request.headers)}")
-    current_app.logger.error(f"Request Cookies: {dict(request.cookies)}")
-    current_app.logger.error(f"Is authenticated: {current_user.is_authenticated}")
-    current_app.logger.error(f"Current user: {current_user}")
-    current_app.logger.error(f"Session: {session}")
-    current_app.logger.error(f"Session ID: {session.get('_id')}")
     
     if not current_user.is_authenticated:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -651,8 +632,6 @@ def programme_players():
         tennis_club_id = current_user.tennis_club_id
         selected_period_id = request.args.get('period', type=int)
         
-        current_app.logger.info(f"Initial selected_period_id: {selected_period_id}")
-        
         # If no period selected, find the latest period that has players
         if not selected_period_id:
             period_ids_with_players = (db.session.query(ProgrammePlayers.teaching_period_id)
@@ -660,8 +639,7 @@ def programme_players():
                 .distinct()
                 .all())
             period_ids = [p[0] for p in period_ids_with_players]
-            
-            current_app.logger.info(f"Period IDs with players: {period_ids}")
+
             
             if period_ids:
                 latest_period = (TeachingPeriod.query
@@ -672,8 +650,6 @@ def programme_players():
                 if latest_period:
                     selected_period_id = latest_period.id
                     current_app.logger.info(f"Selected latest period with players: {latest_period.name} (ID: {latest_period.id})")
-        
-        current_app.logger.info(f"Final selected_period_id: {selected_period_id}")
         
         # Base query - get all programme players for the club
         query = ProgrammePlayers.query.filter_by(
@@ -735,8 +711,6 @@ def programme_players():
             ProgrammePlayers.group_id,
             Student.name
         ).all()
-        
-        current_app.logger.info(f"Found {len(players)} players for period {selected_period_id}")
         
         return jsonify([{
             'id': player.id,
@@ -1028,7 +1002,6 @@ def report_operations(report_id):
 @admin_required
 def download_all_reports(period_id):
     """Download all reports for a teaching period"""
-    current_app.logger.info(f"Starting download_all_reports for period_id: {period_id}")
     
     try:
         # Verify period belongs to user's club
@@ -1055,7 +1028,6 @@ def download_all_reports(period_id):
         
         # Create fresh directory
         os.makedirs(instance_dir, exist_ok=True)
-        current_app.logger.info(f"Created fresh instance directory")
         
         # Choose generator based on club name
         if 'wilton' in club_name.lower():
@@ -1073,7 +1045,6 @@ def download_all_reports(period_id):
             result = batch_generate_reports(period_id)
             reports_dir = result.get('output_directory')
             
-        current_app.logger.info(f"Reports directory: {reports_dir}")
             
         if result.get('success', 0) == 0:
             current_app.logger.error(f"No reports generated. Details: {result.get('error_details', [])}")
@@ -1091,12 +1062,8 @@ def download_all_reports(period_id):
         memory_file = BytesIO()
         with zipfile.ZipFile(memory_file, 'w') as zf:
             pdf_count = 0
-            current_app.logger.info(f"Walking directory: {reports_dir}")
             
             for root, dirs, files in os.walk(reports_dir):
-                current_app.logger.info(f"Scanning directory: {root}")
-                current_app.logger.info(f"Found directories: {dirs}")
-                current_app.logger.info(f"Found files: {files}")
                 
                 for file in files:
                     if file.endswith('.pdf'):

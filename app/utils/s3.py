@@ -12,10 +12,6 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in {'png', 'jpg', 'jpeg', 'gif'}
 
 def upload_file_to_s3(file, bucket_name, subdomain):
-    current_app.logger.info("Starting S3 upload")
-    current_app.logger.info(f"File: {file.filename}")
-    current_app.logger.info(f"Bucket: {bucket_name}")
-    current_app.logger.info(f"Subdomain: {subdomain}")
     
     try:
         s3_client = boto3.client(
@@ -28,7 +24,6 @@ def upload_file_to_s3(file, bucket_name, subdomain):
         # Test S3 connection
         try:
             s3_client.head_bucket(Bucket=bucket_name)
-            current_app.logger.info("Successfully connected to S3 bucket")
         except Exception as e:
             current_app.logger.error(f"Error connecting to bucket: {str(e)}")
             raise
@@ -37,8 +32,7 @@ def upload_file_to_s3(file, bucket_name, subdomain):
         ext = file.filename.rsplit('.', 1)[1].lower()
         unique_filename = f"logo_{str(uuid.uuid4())}.{ext}"
         object_key = f"clubs/{subdomain}/{unique_filename}"  # Single path construction
-        
-        current_app.logger.info(f"Generated object key: {object_key}")
+
         
         # Store file position
         file.seek(0)
@@ -56,7 +50,6 @@ def upload_file_to_s3(file, bucket_name, subdomain):
         # Test if file exists
         try:
             s3_client.head_object(Bucket=bucket_name, Key=object_key)
-            current_app.logger.info("File successfully uploaded and verified in S3")
         except Exception as e:
             current_app.logger.error(f"File upload verification failed: {str(e)}")
             raise

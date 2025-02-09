@@ -195,15 +195,27 @@ class TennisGroup(db.Model):
 
     # Relationships
     tennis_club = db.relationship('TennisClub', back_populates='groups')
-    reports = db.relationship('Report', foreign_keys='Report.group_id',back_populates='tennis_group')
-    recommended_in_reports = db.relationship('Report',foreign_keys='Report.recommended_group_id',backref='recommended_group')
+    reports = db.relationship('Report', foreign_keys='Report.group_id', back_populates='tennis_group')
+    recommended_in_reports = db.relationship('Report', foreign_keys='Report.recommended_group_id', backref='recommended_group')
     programme_players = db.relationship('ProgrammePlayers', back_populates='tennis_group', lazy='dynamic')
-    template_associations = db.relationship('GroupTemplate', back_populates='group', cascade='all, delete-orphan')
-    templates = db.relationship('ReportTemplate', secondary='group_template', back_populates='groups', overlaps="template_associations,groups")
-    group_times = db.relationship('TennisGroupTimes', 
-                            back_populates='tennis_group', 
-                            cascade='all, delete-orphan',
-                            lazy='joined')
+    template_associations = db.relationship(
+        'GroupTemplate', 
+        back_populates='group', 
+        cascade='all, delete-orphan',
+        overlaps="templates,groups"  # Updated this
+    )
+    templates = db.relationship(
+        'ReportTemplate', 
+        secondary='group_template', 
+        back_populates='groups',
+        overlaps="template_associations"  # Updated this
+    )
+    group_times = db.relationship(
+        'TennisGroupTimes', 
+        back_populates='tennis_group', 
+        cascade='all, delete-orphan',
+        lazy='joined'
+    )
 
 class TeachingPeriod(db.Model):
     __tablename__ = 'teaching_period'
@@ -471,13 +483,18 @@ class ReportTemplate(db.Model):
     created_by = db.relationship('User', backref='created_templates')
     sections = db.relationship('TemplateSection', back_populates='template', cascade='all, delete-orphan')
     reports = db.relationship('Report', back_populates='template')
-    group_associations = db.relationship('GroupTemplate', 
-                                      back_populates='template', 
-                                      cascade='all, delete-orphan')
-    groups = db.relationship('TennisGroup', 
-                           secondary='group_template', 
-                           back_populates='templates',
-                           overlaps="group_associations,templates")
+    group_associations = db.relationship(
+        'GroupTemplate', 
+        back_populates='template', 
+        cascade='all, delete-orphan',
+        overlaps="groups,template_associations" 
+    )
+    groups = db.relationship(
+        'TennisGroup', 
+        secondary='group_template', 
+        back_populates='templates',
+        overlaps="group_associations"  
+    )
 
 class TemplateSection(db.Model):
     __tablename__ = 'template_section'

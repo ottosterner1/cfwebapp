@@ -56,8 +56,7 @@ def register_extensions(app):
             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization", "Cookie", "X-CSRF-TOKEN"],
             "expose_headers": ["Content-Type", "Authorization", "Set-Cookie"],
-            "supports_credentials": True,
-            "allow_credentials": True
+            "supports_credentials": True
         }
     })
 
@@ -218,9 +217,6 @@ def create_app(config_class=Config):
     def serve_dist(filename):
         try:
             dist_dir = os.path.join(app.static_folder, 'dist')
-            app.logger.info(f"Serving file from dist: {filename}")
-            app.logger.info(f"Dist directory: {dist_dir}")
-            app.logger.info(f"Full path: {os.path.join(dist_dir, filename)}")
             
             if os.path.exists(os.path.join(dist_dir, filename)):
                 return send_from_directory(dist_dir, filename)
@@ -237,24 +233,16 @@ def create_app(config_class=Config):
     @app.route('/<path:path>')
     def serve(path):
         dist_dir = os.path.join(app.static_folder, 'dist')
-        app.logger.info(f"Request path: {path}")
-        app.logger.info(f"Static folder: {app.static_folder}")
-        app.logger.info(f"Dist directory: {dist_dir}")
         
         # Log directory contents
-        if os.path.exists(dist_dir):
-            app.logger.info(f"Dist directory contents: {os.listdir(dist_dir)}")
-        else:
+        if not os.path.exists(dist_dir):
             app.logger.error(f"Dist directory does not exist: {dist_dir}")
             # Try to create it
             try:
                 os.makedirs(dist_dir, exist_ok=True)
-                app.logger.info("Created dist directory")
             except Exception as e:
                 app.logger.error(f"Error creating dist directory: {e}")
         
-        # Log parent directory contents
-        app.logger.info(f"Static folder contents: {os.listdir(app.static_folder)}")
         
         try:
             if path and os.path.exists(os.path.join(dist_dir, path)):
