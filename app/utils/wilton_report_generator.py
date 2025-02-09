@@ -6,6 +6,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from io import BytesIO
 import os
+import traceback
 import json
 import random
 from random import uniform
@@ -17,7 +18,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 class EnhancedWiltonReportGenerator:
     def __init__(self, config_path):
         """Initialize the report generator with configuration."""
-        print(f"Loading config from: {config_path}")
+
         if not os.path.exists(config_path):
             raise FileNotFoundError(
                 f"Config file not found at: {config_path}\n"
@@ -175,7 +176,6 @@ class EnhancedWiltonReportGenerator:
         elif 'Performance' in recommended_group:
             group_level = 'performance'
         
-        print(f"Group level: {group_level}")
 
         # Draw the checkbox if we have coordinates for this group level
         if group_level and f'{group_level}_x' in rec_coords:
@@ -297,12 +297,6 @@ class EnhancedWiltonReportGenerator:
             )\
             .all()
         
-        ## Print the report data for debugging
-        print(f"301: Generating reports for period: {reports[0].teaching_period.name}")
-        for report in reports:
-            print(f"302: Generating report for {report.student.name}")
-
-
         
         if not reports:
             return {
@@ -325,16 +319,12 @@ class EnhancedWiltonReportGenerator:
         
         for report in reports:
             try:
-                print(f"330: Generating report for {report.student.name}")
                 # Get template path for this group
                 template_path = generator.get_template_path(report.tennis_group.name)
-                print(f"Template path: {template_path}")
-
-                print(f"334: Generating report for {report.student.name}")
                 
                 # Create group-specific directory with time slot and day
                 group_name = report.tennis_group.name.replace(' ', '_').lower()
-                print(f"342: Generating report for {report.student.name}")
+
                 if report.programme_player and report.programme_player.group_time:
                     time = report.programme_player.group_time
                     start_time = time.start_time.strftime('%I%M%p').lower()
@@ -370,10 +360,8 @@ class EnhancedWiltonReportGenerator:
                 
                 # Generate the report (either Wilton template or generic)
                 if template_path is None:
-                    print(f"Generating generic report for {report.student.name}")
                     try:
                         generator._generate_generic_report(data, output_path)
-                        print(f"Checking generated file at: {output_path}")
                         if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
                             raise ValueError(f"Generated file is empty or missing: {output_path}")
                     except Exception as e:
@@ -381,7 +369,6 @@ class EnhancedWiltonReportGenerator:
                         print(f"Error generating generic report: {str(e)}")
                         continue
                 else:
-                    print(f"Generating Wilton template report for {report.student.name}")
                     generator.generate_report(template_path, output_path, data)
                     
                 generated_reports.append(output_path)
@@ -407,12 +394,6 @@ class EnhancedWiltonReportGenerator:
             
             if report is None:
                 raise ValueError("Report object is required for generic report generation")
-            
-            print(f"Generating generic report for {report.student.name}")
-            print(f"Report content: {report.content}")
-            ## Print all the report data
-            for key, value in data.items():
-                print(f"Data: {key} - {value}")
 
             create_single_report_pdf(report, pdf_buffer)
             pdf_buffer.seek(0)  # Reset buffer position
@@ -522,16 +503,9 @@ def main():
             import sys
             if len(sys.argv) > 1 and sys.argv[1].isdigit():
                 report_id = int(sys.argv[1])
-                print(f"\nGenerating single report for ID: {report_id}")
                 
                 try:
                     result = EnhancedWiltonReportGenerator.generate_single_report(report_id)
-                    print("\nReport generation complete!")
-                    print(f"Report saved to: {result['output_path']}")
-                    print("\nReport details:")
-                    for key, value in result['report_data'].items():
-                        if key != 'content':  # Skip printing the full content
-                            print(f"{key}: {value}")
                     
                 except Exception as e:
                     print(f"Error generating report: {str(e)}")
@@ -545,25 +519,20 @@ def main():
                 print("Error: No teaching periods found")
                 return
                 
-            print(f"\nGenerating reports for period: {period.name}")
+
             
             # Generate reports
             results = EnhancedWiltonReportGenerator.batch_generate_reports(period.id)
             
-            print(f"\nReport generation complete!")
-            print(f"Successfully generated: {results['success']} reports")
-            print(f"Errors encountered: {results['errors']}")
-            
             if results['errors'] > 0:
-                print("\nError details:")
+                current_app.logger.error("\nError details:")
                 for error in results['error_details']:
-                    print(f"- {error}")
-                    
-            print(f"\nReports saved to: {results['output_directory']}")
+                    current_app.logger.error(f"- {error}")
+    
             
         except Exception as e:
-            print(f"Error: {str(e)}")
-            import traceback
+            current_app.logger.error(f"Error: {str(e)}")
+            
             traceback.print_exc()
 
 if __name__ == '__main__':

@@ -147,18 +147,14 @@ def create_app(config_class=Config):
     if not app.debug:
         app.config['PREFERRED_URL_SCHEME'] = 'https'
         os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = 'false'
-    
-    # Print debug information
-    if app.debug:
-        print(f"Flask Debug Mode: {app.debug}")
-        print(f"CORS origins configured for: {app.config.get('CORS_ORIGINS', 'default origins')}")
+
     
     # Ensure directories exist
     try:
         os.makedirs(app.instance_path, exist_ok=True)
         os.makedirs(os.path.join(app.static_folder, 'dist'), exist_ok=True)
     except Exception as e:
-        print(f"Error creating directories: {e}")
+        app.logger.error(f"Error creating directories: {e}")
     
     # Initialize extensions and register blueprints
     register_extensions(app)

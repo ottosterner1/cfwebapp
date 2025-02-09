@@ -35,10 +35,6 @@ def init_oauth(app):
         if not jwks:
             raise Exception("Failed to fetch JWKS")
 
-        print(f"Initializing OAuth with:")
-        print(f"Base URL: {base_url}")
-        print(f"JWKS URI: {jwks_uri}")
-
         oauth.register(
             name='cognito',
             client_id=app.config['AWS_COGNITO_CLIENT_ID'],
@@ -56,9 +52,6 @@ def init_oauth(app):
             # Add server metadata URL for OpenID configuration
             server_metadata_url=f"https://cognito-idp.{region}.amazonaws.com/{user_pool_id}/.well-known/openid-configuration"
         )
-        
-        print("OAuth client registered successfully")
-        print(f"JWKS configured with {len(jwks.get('keys', [])) if jwks else 0} keys")
         
     except NoCredentialsError:
         print("AWS credentials not found. Please check your configuration.")

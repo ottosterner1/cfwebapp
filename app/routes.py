@@ -63,7 +63,6 @@ def signup():
         session['oauth_nonce'] = nonce
         
         redirect_uri = url_for('main.auth_callback', _external=True)
-        print(f"Signup attempted with redirect URI: {redirect_uri}")
         
         authorize_params = {
             'redirect_uri': redirect_uri,
@@ -79,8 +78,8 @@ def signup():
         return oauth.cognito.authorize_redirect(**authorize_params)
         
     except Exception as e:
-        print(f"Signup error: {str(e)}")
-        print(traceback.format_exc())
+        current_app.logger.error(f"Signup error: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
         return f"Signup error: {str(e)}", 500
 
 @main.route('/login')
@@ -538,8 +537,8 @@ def dashboard_stats():
         return jsonify(response_data)
         
     except Exception as e:
-        print(f"Error in dashboard stats: {str(e)}")
-        print(traceback.format_exc())
+        current_app.logger.error(f"Error in dashboard stats: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
         return jsonify({
             'error': f"Server error: {str(e)}",
             'periods': [],
@@ -620,8 +619,8 @@ def get_next_player(current_player_id):
             return jsonify({'message': 'No more players need reports'}), 404
 
     except Exception as e:
-        print(f"Error finding next player: {str(e)}")
-        print(traceback.format_exc())
+        current_app.logger.error(f"Error finding next player: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @main.route('/api/programme-players')
@@ -830,8 +829,8 @@ def upload():
                         
                     except Exception as e:
                         db.session.rollback()
-                        print(f"Error processing student: {str(e)}")  # Add logging
-                        flash(f'Error processing student {student_name}: {str(e)}')
+                        current_app.logger.error(f"Error processing student: {str(e)}")  # Add logging
+                        current_app.logger.error(f'Error processing student {student_name}: {str(e)}')
                         return redirect(request.url)
                 
                 db.session.commit()
@@ -840,8 +839,7 @@ def upload():
                 
             except Exception as e:
                 db.session.rollback()
-                print(f"Error processing file: {str(e)}")  # Add logging
-                flash(f'Error processing file: {str(e)}')
+                current_app.logger.error(f"Error processing file: {str(e)}") 
                 return redirect(request.url)
                 
         else:
@@ -862,7 +860,7 @@ def home():
                             reports=reports,
                             students=students)
     except Exception as e:
-        print(f"Error in home route: {str(e)}")
+        current_app.logger.error(f"Error in home route: {str(e)}")
         flash("Error loading dashboard data", "error")
         return redirect(url_for('main.index'))
 
@@ -885,9 +883,7 @@ def debug_reports():
 @verify_club_access()
 def view_report(report_id):
     """Render the view report page"""
-    print(f"Accessing report {report_id}")
     report = Report.query.get_or_404(report_id)
-    print(f"Report found: {report is not None}")
     
     # Check permissions
     if not (current_user.is_admin or current_user.is_super_admin) and report.coach_id != current_user.id:
@@ -921,8 +917,6 @@ def report_operations(report_id):
         return jsonify({'error': 'Permission denied'}), 403
 
     if request.method == 'GET':
-        print(f"Report content: {report.content}")  # Debug log
-        print(f"Report recommended_group_id: {report.recommended_group_id}")  # Debug log
         
         # Get the template associated with this report
         template = report.template
@@ -993,7 +987,7 @@ def report_operations(report_id):
             
         except Exception as e:
             db.session.rollback()
-            print(f"Error updating report: {str(e)}")
+            current_app.logger.error(f"Error updating report: {str(e)}")
             return jsonify({'error': str(e)}), 500
 
 @main.route('/api/reports/download-all/<int:period_id>', methods=['GET'])
@@ -1206,7 +1200,7 @@ def get_profile():
         return jsonify(user_data)
         
     except Exception as e:
-        print(f"Error fetching profile: {str(e)}")
+        current_app.logger.error(f"Error fetching profile: {str(e)}")
         return jsonify({'error': 'Failed to fetch profile data'}), 500
 
 @main.route('/api/profile/details', methods=['PUT'])
@@ -1241,7 +1235,7 @@ def update_profile_details():
         
     except Exception as e:
         db.session.rollback()
-        print(f"Error updating profile: {str(e)}")
+        current_app.logger.error(f"Error updating profile: {str(e)}")
         return jsonify({'error': 'Failed to update profile'}), 500
 
 @main.route('/lta-accreditation')
@@ -1401,7 +1395,7 @@ def manage_templates():
             
         except Exception as e:
             db.session.rollback()
-            print(f"Error creating template: {str(e)}")
+            current_app.logger.error(f"Error creating template: {str(e)}")
             return jsonify({'error': str(e)}), 400
     
     # GET - Return all templates with their group assignments
@@ -1500,7 +1494,7 @@ def manage_template(template_id):
             
         except Exception as e:
             db.session.rollback()
-            print(f"Error updating template: {str(e)}")
+            current_app.logger.error(f"Error updating template: {str(e)}")
             return jsonify({'error': str(e)}), 400
     
     elif request.method == 'DELETE':
@@ -1556,8 +1550,8 @@ def get_groups():
         } for group in groups])
         
     except Exception as e:
-        print(f"Error fetching groups: {str(e)}")
-        print(traceback.format_exc())
+        current_app.logger.error(f"Error fetching groups: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': 'Failed to fetch tennis groups'}), 500
 
 @main.route('/clubs/manage/<int:club_id>/report-templates')
@@ -1685,8 +1679,8 @@ def manage_group_templates():
         } for a in assignments])
         
     except Exception as e:
-        print(f"Error fetching group templates: {str(e)}")
-        print(traceback.format_exc())
+        current_app.logger.error(f"Error fetching group templates: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @main.route('/report/new/<int:player_id>')
@@ -1767,8 +1761,8 @@ def submit_report(player_id):
         
     except Exception as e:
         db.session.rollback()
-        print(f"Error submitting report: {str(e)}")
-        print(traceback.format_exc())
+        current_app.logger.error(f"Error submitting report: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 400
 
 
@@ -2009,8 +2003,6 @@ def send_report_email(report_id):
 @login_required
 @admin_required
 def send_reports(period_id):
-    print(f"=== send_reports endpoint called with period_id: {period_id} ===")
-    print(f"Request method: {request.method}")
     
     try:
         # Verify the period exists and belongs to user's tennis club
@@ -2020,10 +2012,8 @@ def send_reports(period_id):
         ).first_or_404()
         
         if request.method == 'POST':
-            print("Processing POST request")
             try:
                 data = request.get_json()
-                print("Received data:", data)
                 
                 if not data:
                     return jsonify({'error': 'No data received'}), 400

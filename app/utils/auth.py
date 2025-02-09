@@ -30,12 +30,9 @@ def get_tennis_club_from_request():
 def club_access_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        print(f"User authenticated: {current_user.is_authenticated}")
-        print(f"Request host: {request.host}")
-        print(f"Request headers: {dict(request.headers)}")
         
         if not current_user.is_authenticated:
-            print("User not authenticated")
+            current_app.logger.error("User not authenticated")
             abort(403)
         
         # Special handling for Railway.app

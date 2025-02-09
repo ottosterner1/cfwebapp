@@ -106,7 +106,6 @@ def onboard_club():
 @club_management.route('/manage/<int:club_id>/club', methods=['GET', 'POST'])
 @login_required
 def manage_club(club_id):
-   print(f"Managing club {club_id} for user {current_user.id} with role {current_user.role}")
    
    club = TennisClub.query.get_or_404(club_id)
    
@@ -137,7 +136,6 @@ def manage_club(club_id):
 @club_management.route('/manage/<int:club_id>/teaching-periods', methods=['GET', 'POST'])
 @login_required
 def manage_teaching_periods(club_id):
-    print(f"Managing teaching periods for club {club_id}")
     
     club = TennisClub.query.get_or_404(club_id)
     
@@ -220,7 +218,6 @@ def manage_teaching_periods(club_id):
                     
         except Exception as e:
             db.session.rollback()
-            print(f"Error managing teaching period: {str(e)}")
             print(traceback.format_exc())
             flash(f'Error managing teaching period: {str(e)}', 'error')
 
