@@ -202,13 +202,13 @@ class TennisGroup(db.Model):
         'GroupTemplate', 
         back_populates='group', 
         cascade='all, delete-orphan',
-        overlaps="templates,groups"  
+        overlaps="templates,groups,group_associations"
     )
     templates = db.relationship(
         'ReportTemplate', 
         secondary='group_template', 
         back_populates='groups',
-        overlaps="template_associations" 
+        overlaps="template_associations,group_associations"
     )
     group_times = db.relationship(
         'TennisGroupTimes', 
@@ -487,13 +487,13 @@ class ReportTemplate(db.Model):
         'GroupTemplate', 
         back_populates='template', 
         cascade='all, delete-orphan',
-        overlaps="groups,template_associations" 
+        overlaps="groups,templates" 
     )
     groups = db.relationship(
         'TennisGroup', 
         secondary='group_template', 
         back_populates='templates',
-        overlaps="group_associations"  
+        overlaps="group_associations,template_associations"
     )
 
 class TemplateSection(db.Model):
