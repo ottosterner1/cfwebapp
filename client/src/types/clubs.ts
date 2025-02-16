@@ -36,25 +36,15 @@ export interface EmailTemplate {
                   "Based on their progress, they are recommended to sign up to the following group for next term:\n" +
                   "{recommended_group}\n\n" +
                   "Important Booking Information:\n" +
-                  "- Bookings open: {booking_date} at {booking_time}\n" +
-                  "- Booking password: {booking_password}\n" +
+                  "- Date bookings open: {booking_date}\n" +
+                  "- Time bookings open: \n" +
+                  "- Booking password: \n" +
                   "- Booking link: https://booking.wiltontennisclub.co.uk/\n\n" +
                   "Please let me know if you have any questions about this recommendation or the booking process.\n\n" +
                   "Kind regards,\n" +
                   "Marc Beckles\n" +
                   "Head Coach, Wilton Tennis Club"
         },
-        {
-          name: "Wilton Mid-Term Update",
-          subject: "Mid-Term Progress Update - {student_name}",
-          message: "Dear Parent/Guardian,\n\n" +
-                  "I hope this email finds you well. I wanted to provide a mid-term update on {student_name}'s progress in the {group_name} group.\n\n" +
-                  "Please find their progress report attached.\n\n" +
-                  "If you have any questions about their development or the report, please don't hesitate to contact me.\n\n" +
-                  "Kind regards,\n" +
-                  "Marc Beckles\n" +
-                  "Head Coach, Wilton Tennis Club"
-        }
       ]
     },
     'default': {
@@ -93,8 +83,6 @@ export interface EmailTemplate {
    * {term_name} - The current term name
    * {coach_name} - The coach's name
    * {booking_date} - The date bookings open
-   * {booking_time} - The time bookings open
-   * {booking_password} - The booking password
    */
   
   export const getClubConfig = (clubName: string): ClubConfig => {
@@ -129,8 +117,6 @@ export interface EmailTemplate {
         ...defaultPlaceholders,
         'recommended_group',
         'booking_date',
-        'booking_time',
-        'booking_password'
       ];
     }
   

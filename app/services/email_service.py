@@ -51,62 +51,72 @@ class EmailService:
         template = Template(template_str)
         return template.render(**context)
 
+
     def _prepare_email_content(self, report):
         """Prepare email subject and body using report template"""
-        template = report.template
-        
-        # Default templates if none specified
-        default_subject = f"Tennis Report for {report.student.name}"
-        default_body = f"""Dear Parent,
 
-Please find attached the tennis report for {report.student.name}.
+        # Get recommended group name
+        recommended_group = report.recommended_group.name if report.recommended_group else "Same group"
 
-Best regards,
-{report.coach.name}
-{report.programme_player.tennis_club.name}"""
-
-        # Create context with all available data
+        # Create context for replacements
         context = {
             'student_name': report.student.name,
-            'group_name': report.tennis_group.name,
+            'recommended_group': recommended_group,
+            'booking_date': report.teaching_period.next_period_start_date.strftime('%A %d %B') if report.teaching_period.next_period_start_date else 'TBC',
             'coach_name': report.coach.name,
             'tennis_club': report.programme_player.tennis_club.name,
-            'date': report.date.strftime('%B %d, %Y'),
-            'content': report.content  # The structured JSON content
         }
 
-        # Render subject and body
-        subject = self._render_template(template.email_subject_template, context) if template.email_subject_template else default_subject
-        body = self._render_template(template.email_body_template, context) if template.email_body_template else default_body
+        # Define default templates
+        subject = f"Tennis Report for {context['student_name']}"
+        body = f"""Dear Parent/Guardian,
+
+Please find attached the tennis report for {context['student_name']}.
+
+Recommended Group: {context['recommended_group']}
+
+Best regards,
+{context['coach_name']}
+{context['tennis_club']}"""
 
         return subject, body
+    
+    def send_report(self, report, subject=None, message=None):
+        """Send a single report with PDF attachment"""
+        try:
+            if not report.student.contact_email:
+                return False, "No email address available for this student", None
 
-    def send_reports_batch(self, reports, subject=None, message=None):
-        """Send batch of reports with PDF attachments"""
-        success_count = 0
-        error_count = 0
-        errors = []
+            # Check if email has already been sent
+            if report.email_sent:
+                return False, "Email has already been sent to this recipient", None
 
-        for report in reports:
+            # Generate PDF
+            pdf_buffer = BytesIO()
+            create_single_report_pdf(report, pdf_buffer)
+            pdf_buffer.seek(0)
+            pdf_data = pdf_buffer.getvalue()
+
+            # Create context for template replacements
+            context = {
+                'student_name': report.student.name,
+                'recommended_group': report.recommended_group.name if report.recommended_group else "Same group",
+                'booking_date': report.teaching_period.next_period_start_date.strftime('%A %d %B') if report.teaching_period.next_period_start_date else 'TBC',
+                'coach_name': report.coach.name,
+                'tennis_club': report.programme_player.tennis_club.name,
+                'group_name': report.tennis_group.name,
+                'term_name': report.teaching_period.name
+            }
+
             try:
-                if not report.student.contact_email:
-                    error_count += 1
-                    errors.append(f"No email for student: {report.student.name}")
-                    continue
+                # Render email content
+                if subject and message:
+                    email_subject = subject.format(**context)
+                    email_body = message.format(**context)
+                else:
+                    email_subject, email_body = self._prepare_email_content(report)
 
-                # Generate PDF
-                pdf_buffer = BytesIO()
-                create_single_report_pdf(report, pdf_buffer)
-                pdf_buffer.seek(0)
-                pdf_data = pdf_buffer.getvalue()
-
-                # Get email content from template if not provided
-                email_subject, email_body = (
-                    (subject, message) if subject and message
-                    else self._prepare_email_content(report)
-                )
-
-                # Create raw email with attachment
+                # Create and send email
                 raw_email = self._create_raw_email_with_attachment(
                     recipient=report.student.contact_email,
                     subject=email_subject,
@@ -115,34 +125,45 @@ Best regards,
                     student_name=report.student.name
                 )
 
-                # Send email
-                self.ses_client.send_raw_email(
+                response = self.ses_client.send_raw_email(
                     Source=self.sender,
                     RawMessage={'Data': raw_email}
                 )
-
-                # Update report status
-                if hasattr(report, 'email_sent'):
-                    report.mark_as_sent('Success')
-
-                success_count += 1
                 
+                message_id = response.get('MessageId', '')
+
+                # Record successful attempt
+                report.record_email_attempt(
+                    status='success',
+                    recipients=[report.student.contact_email],
+                    subject=email_subject,
+                    message_id=message_id
+                )
+
+                return True, "Email sent successfully", message_id
+
             except ClientError as e:
-                error_count += 1
-                error_msg = f"Failed to send to {report.student.name}: {str(e)}"
-                errors.append(error_msg)
-                logging.error(error_msg)
-                logging.error(traceback.format_exc())
-                if hasattr(report, 'email_sent'):
-                    report.mark_as_sent(f'Error: {str(e)}')
-                
-            except Exception as e:
-                error_count += 1
-                error_msg = f"Unexpected error for {report.student.name}: {str(e)}"
-                errors.append(error_msg)
-                logging.error(error_msg)
-                logging.error(traceback.format_exc())
-                if hasattr(report, 'email_sent'):
-                    report.mark_as_sent(f'Error: {str(e)}')
+                error_code = e.response['Error']['Code']
+                if error_code == 'MessageRejected' and 'not verified' in str(e):
+                    # Record skipped email
+                    report.record_email_attempt(
+                        status='skipped',
+                        recipients=[report.student.contact_email],
+                        subject=email_subject,
+                        error='Email address not verified'
+                    )
+                    return False, f"Email skipped - address not verified: {report.student.contact_email}", None
+                else:
+                    raise
 
-        return success_count, error_count, errors
+        except Exception as e:
+            error_msg = str(e)
+            # Record failed attempt
+            report.record_email_attempt(
+                status='failed',
+                recipients=[report.student.contact_email] if report.student.contact_email else [],
+                subject=subject,
+                error=error_msg
+            )
+            current_app.logger.error(f"Error sending email: {error_msg}")
+            return False, f"Failed to send email: {error_msg}", None

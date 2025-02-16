@@ -3,6 +3,7 @@ import { AlertCircle, Send, X, Eye, ArrowLeft, Mail, AlertTriangle, CheckCircle,
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Alert, AlertDescription, AlertTitle } from '../../components/ui/alert';
 import { getClubConfig } from '../../types/clubs';
+import { Loader2 } from 'lucide-react';
 
 interface EmailRecipient {
   student_name: string;
@@ -12,6 +13,12 @@ interface EmailRecipient {
   email_sent_at?: string;
   last_email_status?: string;
   group_name?: string;
+  recommended_group?: string;
+  booking_date?: string;
+  coach_name?: string;
+  term_name?: string;
+  tennis_club?: string;
+  email_attempts?: number;
 }
 
 interface BulkEmailSenderProps {
@@ -32,6 +39,9 @@ const BulkEmailSender: React.FC<BulkEmailSenderProps> = ({ periodId, clubName, o
   const [currentStep, setCurrentStep] = useState<'compose' | 'preview' | 'confirm' | 'sending'>('compose');
   const [selectedReport, setSelectedReport] = useState<number | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [sendingProgress, setSendingProgress] = useState(0);
+  const [totalToSend, setTotalToSend] = useState(0);
+  const [skippedEmails, setSkippedEmails] = useState<string[]>([]);
 
   // Get club-specific templates with better error handling
   const clubConfig = getClubConfig(clubName || '');
@@ -76,45 +86,45 @@ const BulkEmailSender: React.FC<BulkEmailSenderProps> = ({ periodId, clubName, o
 
   const handleSendSingle = async (reportId: number) => {
     try {
-      setLoading(true);
-      const response = await fetch(`/api/reports/send-email/${reportId}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          subject: emailSubject,
-          message: emailMessage,
-        }),
-      });
+        setLoading(true);
+        const response = await fetch(`/api/reports/send-email/${reportId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                subject: emailSubject,
+                message: emailMessage,
+            }),
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to send email');
-      }
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to send email');
+        }
 
-      setRecipients((prev) =>
-        prev.map((r) => {
-          if (r.report_id === reportId) {
-            return {
-              ...r,
-              email_sent: true,
-              email_sent_at: new Date().toISOString(),
-              last_email_status: 'Success',
-            };
-          }
-          return r;
-        })
-      );
+        setRecipients((prev) =>
+            prev.map((r) => {
+                if (r.report_id === reportId) {
+                    return {
+                        ...r,
+                        email_sent: true,
+                        email_sent_at: new Date().toISOString(),
+                        last_email_status: 'Success',
+                    };
+                }
+                return r;
+            })
+        );
 
-      setSuccessCount((prev) => prev + 1);
+        setSuccessCount((prev) => prev + 1);
     } catch (err) {
-      setErrorCount((prev) => prev + 1);
-      setError(err instanceof Error ? err.message : 'Failed to send email');
+        setErrorCount((prev) => prev + 1);
+        setError(err instanceof Error ? err.message : 'Failed to send email');
     } finally {
-      setLoading(false);
-      setSelectedReport(null);
-      setCurrentStep('compose');
+        setLoading(false);
+        setSelectedReport(null);
+        setCurrentStep('compose');
     }
   };
 
@@ -122,23 +132,92 @@ const BulkEmailSender: React.FC<BulkEmailSenderProps> = ({ periodId, clubName, o
     try {
       setLoading(true);
       setCurrentStep('sending');
-
+      setSkippedEmails([]);
+  
+      // Only get recipients that haven't been sent emails
       const unsentRecipients = recipients.filter((r) => !r.email_sent);
+      setTotalToSend(unsentRecipients.length);
+      setSendingProgress(0);
+      
       let successCount = 0;
       let errorCount = 0;
-
-      for (const recipient of unsentRecipients) {
+      const skippedEmailsList: string[] = [];
+  
+      for (let i = 0; i < unsentRecipients.length; i++) {
         try {
-          await handleSendSingle(recipient.report_id);
-          successCount++;
-        } catch {
+          const response = await fetch(`/api/reports/send-email/${unsentRecipients[i].report_id}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              subject: emailSubject,
+              message: emailMessage,
+            }),
+          });
+  
+          const data = await response.json();
+  
+          if (response.ok) {
+            successCount++;
+            // Update the recipients list to mark this email as sent
+            setRecipients(prev => prev.map(r => {
+              if (r.report_id === unsentRecipients[i].report_id) {
+                return {
+                  ...r,
+                  email_sent: true,
+                  email_sent_at: new Date().toISOString(),
+                  last_email_status: 'Success'
+                };
+              }
+              return r;
+            }));
+          } else {
+            if (data.error && data.error.includes('not verified')) {
+              skippedEmailsList.push(unsentRecipients[i].student_name);
+              setRecipients(prev => prev.map(r => {
+                if (r.report_id === unsentRecipients[i].report_id) {
+                  return {
+                    ...r,
+                    last_email_status: 'Skipped: Email not verified'
+                  };
+                }
+                return r;
+              }));
+            } else {
+              errorCount++;
+              setRecipients(prev => prev.map(r => {
+                if (r.report_id === unsentRecipients[i].report_id) {
+                  return {
+                    ...r,
+                    last_email_status: `Failed: ${data.error || 'Unknown error'}`
+                  };
+                }
+                return r;
+              }));
+            }
+          }
+        } catch (error) {
           errorCount++;
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+          setRecipients(prev => prev.map(r => {
+            if (r.report_id === unsentRecipients[i].report_id) {
+              return {
+                ...r,
+                last_email_status: `Failed: ${errorMessage}`
+              };
+            }
+            return r;
+          }));
+        } finally {
+          setSendingProgress(i + 1);
         }
       }
-
+  
       setSuccess(true);
       setSuccessCount(successCount);
       setErrorCount(errorCount);
+      setSkippedEmails(skippedEmailsList);
     } finally {
       setLoading(false);
     }
@@ -161,6 +240,59 @@ const BulkEmailSender: React.FC<BulkEmailSenderProps> = ({ periodId, clubName, o
     setCurrentStep('confirm');
   };
 
+  const renderPreviewWithPlaceholders = () => {
+    const selectedRecipient = recipients.find(r => r.report_id === selectedReport);
+    
+    // Helper function to safely format dates
+    const formatDate = (date: string | undefined | null) => {
+      if (!date) return '';
+      try {
+        return new Date(date).toLocaleDateString('en-GB', { 
+          weekday: 'long',
+          day: '2-digit',
+          month: 'long'
+        });
+      } catch {
+        return '';
+      }
+    };
+  
+    // Replace all placeholders with actual values or empty strings
+    const previewMessage = emailMessage
+      .replace(/\{student_name\}/g, selectedRecipient?.student_name || '')
+      .replace(/\{group_name\}/g, selectedRecipient?.group_name || '')
+      .replace(/\{recommended_group\}/g, selectedRecipient?.recommended_group || '')
+      .replace(/\{booking_date\}/g, formatDate(selectedRecipient?.booking_date))
+      .replace(/\{coach_name\}/g, selectedRecipient?.coach_name || '')
+      .replace(/\{term_name\}/g, selectedRecipient?.term_name || '')
+      .replace(/\{tennis_club\}/g, selectedRecipient?.tennis_club || '');
+  
+    return (
+      <div className="mt-4 p-4 bg-yellow-50 rounded-lg">
+        <h4 className="font-medium text-yellow-900">Preview with Placeholders</h4>
+        <div className="mt-2 text-sm text-yellow-800">
+          <p>Message with replaced placeholders:</p>
+          <div className="mt-2 p-3 bg-white rounded whitespace-pre-wrap font-mono">
+            {previewMessage}
+          </div>
+          <div className="mt-4 text-xs">
+            <p className="font-medium mb-2">Available Placeholders:</p>
+            <ul className="space-y-1 list-disc pl-4">
+              <li>{'{student_name}'} - {selectedRecipient?.student_name || '(not set)'}</li>
+              <li>{'{group_name}'} - {selectedRecipient?.group_name || '(not set)'}</li>
+              <li>{'{recommended_group}'} - {selectedRecipient?.recommended_group || '(not set)'}</li>
+              <li>{'{booking_date}'} - {formatDate(selectedRecipient?.booking_date) || '(not set)'}</li>
+              <li>{'{coach_name}'} - {selectedRecipient?.coach_name || '(not set)'}</li>
+              <li>{'{term_name}'} - {selectedRecipient?.term_name || '(not set)'}</li>
+              <li>{'{tennis_club}'} - {selectedRecipient?.tennis_club || '(not set)'}</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    );
+  };
+  
+  // Update the renderPreview function to include the new preview component
   const renderPreview = () => (
     <div className="space-y-6">
       <button
@@ -170,11 +302,11 @@ const BulkEmailSender: React.FC<BulkEmailSenderProps> = ({ periodId, clubName, o
         <ArrowLeft className="w-4 h-4 mr-2" />
         Back to Compose
       </button>
-
+  
       <div className="bg-white rounded-lg border p-6 space-y-4">
         <div>
           <h3 className="text-lg font-medium mb-4">Email Preview</h3>
-
+  
           {/* Recipient Details */}
           {selectedReport && (
             <div className="mb-4 p-4 bg-blue-50 rounded-lg">
@@ -186,7 +318,7 @@ const BulkEmailSender: React.FC<BulkEmailSenderProps> = ({ periodId, clubName, o
               </p>
             </div>
           )}
-
+  
           {/* Email Content */}
           <div className="space-y-4">
             <div>
@@ -201,25 +333,12 @@ const BulkEmailSender: React.FC<BulkEmailSenderProps> = ({ periodId, clubName, o
                 {emailMessage}
               </div>
             </div>
-
-            {/* Placeholder Preview */}
-            <div className="mt-4 p-4 bg-yellow-50 rounded-lg">
-              <h4 className="font-medium text-yellow-900">Preview with Placeholders</h4>
-              <div className="mt-2 text-sm text-yellow-800">
-                <p>Message with replaced placeholders:</p>
-                <p className="mt-2 p-3 bg-white rounded">
-                  {emailMessage
-                    .replace('{student_name}', 
-                      recipients.find(r => r.report_id === selectedReport)?.student_name || 'John Smith')
-                    .replace('{group_name}', 'Example Group')
-                    .replace('{coach_name}', 'Coach Example')
-                    .replace('{term_name}', 'Spring Term 2024')}
-                </p>
-              </div>
-            </div>
+  
+            {/* Render new placeholder preview */}
+            {renderPreviewWithPlaceholders()}
           </div>
         </div>
-
+  
         <div className="flex justify-end space-x-3 mt-6">
           <button
             onClick={() => setCurrentStep('compose')}
@@ -301,7 +420,7 @@ const BulkEmailSender: React.FC<BulkEmailSenderProps> = ({ periodId, clubName, o
           required
         />
         <p className="mt-2 text-sm text-gray-500">
-          Available placeholders: {'{student_name}, {group_name}, {coach_name}, {term_name}'}
+          Available placeholders: {'{student_name}, {group_name}, {recommended_group}, {coach_name}, {term_name}, {booking_date}'}
         </p>
       </div>
 
@@ -408,17 +527,65 @@ const BulkEmailSender: React.FC<BulkEmailSenderProps> = ({ periodId, clubName, o
           <CheckCircle className="h-6 w-6 text-green-600" />
         </div>
       </div>
-      <h3 className="text-lg font-medium text-gray-900 mb-2">Reports Sent Successfully!</h3>
-      <p className="text-sm text-gray-500">
-        Successfully sent: {successCount}<br />
-        Failed: {errorCount}
-      </p>
+      <h3 className="text-lg font-medium text-gray-900 mb-2">Reports Sent!</h3>
+      <div className="text-sm text-gray-500 space-y-2">
+        <p>Successfully sent: {successCount}</p>
+        <p>Failed: {errorCount}</p>
+        {skippedEmails.length > 0 && (
+          <div className="mt-4">
+            <p className="font-medium text-amber-600">Skipped Emails:</p>
+            <div className="mt-2 max-h-40 overflow-y-auto">
+              {skippedEmails.map((name, index) => (
+                <p key={index} className="text-amber-600">
+                  {name} - Email not verified
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
       <button
         onClick={onClose}
         className="mt-6 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
       >
         Close
       </button>
+    </div>
+  );
+
+  const renderSendingProgress = () => (
+    <div className="space-y-6">
+      <div className="text-center py-8">
+        <div className="mb-4">
+          <div className="mx-auto flex items-center justify-center h-12 w-12">
+            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          </div>
+        </div>
+        <h3 className="text-lg font-medium text-gray-900 mb-4">
+          Sending Reports...
+        </h3>
+        
+        {/* Progress Details */}
+        <div className="max-w-md mx-auto">
+          <div className="mb-2 flex justify-between text-sm text-gray-600">
+            <span>Progress</span>
+            <span>{sendingProgress} of {totalToSend}</span>
+          </div>
+          
+          {/* Progress Bar */}
+          <div className="w-full bg-gray-200 rounded-full h-2.5">
+            <div 
+              className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+              style={{ width: `${(sendingProgress / totalToSend) * 100}%` }}
+            />
+          </div>
+          
+          {/* Status Message */}
+          <p className="mt-4 text-sm text-gray-500">
+            Sending email {sendingProgress} of {totalToSend}
+          </p>
+        </div>
+      </div>
     </div>
   );
 
@@ -445,9 +612,10 @@ const BulkEmailSender: React.FC<BulkEmailSenderProps> = ({ periodId, clubName, o
           )}
 
           {success ? renderSuccess() :
-           currentStep === 'confirm' ? renderConfirmation() :
-           currentStep === 'preview' ? renderPreview() :
-           renderCompose()}
+          currentStep === 'confirm' ? renderConfirmation() :
+          currentStep === 'preview' ? renderPreview() :
+          currentStep === 'sending' ? renderSendingProgress() :
+          renderCompose()}
         </CardContent>
       </Card>
     </div>

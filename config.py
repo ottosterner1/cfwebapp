@@ -21,7 +21,6 @@ class Config:
     if DATABASE_URL.startswith('postgres://'):
         DATABASE_URL = DATABASE_URL.replace('postgres://', 'postgresql://')
 
-    print(f"DATABASE_URL: {DATABASE_URL}")
     
     SQLALCHEMY_DATABASE_URI = DATABASE_URL
     SQLALCHEMY_TRACK_MODIFICATIONS = False
@@ -66,9 +65,6 @@ class Config:
 
     def __init__(self):
         db_url = urlparse(self.DATABASE_URL)
-        print(f"Raw DATABASE_URL: {self.DATABASE_URL}") 
-        print(f"Using PostgreSQL database at {db_url.hostname}")
-        print(f"Cognito Domain: {self.COGNITO_DOMAIN}")
 
     # AWS SES Configuration
     AWS_SES_REGION = os.environ.get('AWS_SES_REGION', 'eu-west-2')

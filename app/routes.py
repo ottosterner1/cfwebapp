@@ -1849,66 +1849,93 @@ def print_all_reports(period_id):
             tennis_club_id=current_user.tennis_club_id
         ).first_or_404()
         
-        # Use the appropriate generator based on club name
-        if 'wilton' in current_user.tennis_club.name.lower():
+        # Get the club name and set up directories
+        club_name = current_user.tennis_club.name
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        instance_dir = os.path.join(base_dir, 'app', 'instance', 'reports')
+        
+        # Create period-specific directory path
+        period_name = period.name.replace(' ', '_').lower()
+        period_dir = os.path.join(instance_dir, f'reports-{period_name}')
+        
+        # Clear existing reports directory if it exists
+        if os.path.exists(period_dir):
+            shutil.rmtree(period_dir)
+        
+        # Create fresh directory
+        os.makedirs(instance_dir, exist_ok=True)
+        
+        # Choose generator based on club name
+        if 'wilton' in club_name.lower():
             from app.utils.wilton_report_generator import EnhancedWiltonReportGenerator
             
-            # Generate all reports first
-            config_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
-                'app', 'utils', 'wilton_group_config.json'
-            )
+            config_path = os.path.join(base_dir, 'app', 'utils', 'wilton_group_config.json')
             generator = EnhancedWiltonReportGenerator(config_path)
             result = generator.batch_generate_reports(period_id)
             
-            if result.get('success', 0) == 0:
-                return jsonify({
-                    'error': 'No reports were generated',
-                    'details': result.get('error_details', [])
-                }), 400
-
-            # Get all generated PDFs and merge them
-            from PyPDF2 import PdfMerger
-            merger = PdfMerger()
-            
-            reports_dir = result['output_directory']
-            pdf_count = 0
-            
-            # Walk through all PDFs in the directory and its subdirectories
-            for root, _, files in os.walk(reports_dir):
-                for file in sorted(files):  # Sort files for consistent ordering
-                    if file.endswith('.pdf'):
-                        file_path = os.path.join(root, file)
-                        merger.append(file_path)
-                        pdf_count += 1
-
-            if pdf_count == 0:
-                return jsonify({'error': 'No PDF reports found'}), 404
-
-            # Create the combined PDF in memory
-            output = BytesIO()
-            merger.write(output)
-            output.seek(0)
-            
-            # Format filename
-            formatted_club = current_user.tennis_club.name.lower().replace(' ', '_')
-            formatted_term = period.name.lower().replace(' ', '_')
-            filename = f"combined_reports_{formatted_club}_{formatted_term}.pdf"
-            
-            return send_file(
-                output,
-                mimetype='application/pdf',
-                as_attachment=True,
-                download_name=filename
-            )
-            
+            # Get the period-specific directory
+            reports_dir = period_dir
         else:
-            # Handle non-Wilton clubs here if needed
             from app.utils.report_generator import batch_generate_reports
-            # Similar logic as above but using the standard generator
-            
+            result = batch_generate_reports(period_id)
+            reports_dir = result.get('output_directory')
+        
+        if result.get('success', 0) == 0:
+            current_app.logger.error(f"No reports generated. Details: {result.get('error_details', [])}")
+            return jsonify({
+                'error': 'No reports were generated',
+                'details': result.get('error_details', [])
+            }), 400
+        
+        # Verify the reports directory exists
+        if not os.path.exists(reports_dir):
+            current_app.logger.error(f"Reports directory not found at: {reports_dir}")
+            return jsonify({'error': 'No reports were found after generation'}), 500
+        
+        # Get list of PDFs and merge them
+        pdf_files = []
+        for root, _, files in os.walk(reports_dir):
+            for file in sorted(files):
+                if file.endswith('.pdf'):
+                    file_path = os.path.join(root, file)
+                    pdf_files.append(file_path)
+        
+        if not pdf_files:
+            return jsonify({'error': 'No PDF reports were found'}), 404
+        
+        # Merge PDFs
+        from PyPDF2 import PdfMerger
+        merger = PdfMerger()
+        
+        for pdf_file in pdf_files:
+            merger.append(pdf_file)
+        
+        # Create the combined PDF in memory
+        output = BytesIO()
+        merger.write(output)
+        output.seek(0)
+        
+        # Format filename
+        formatted_club = club_name.lower().replace(' ', '_')
+        formatted_term = period.name.lower().replace(' ', '_')
+        filename = f"combined_reports_{formatted_club}_{formatted_term}.pdf"
+        
+        response = send_file(
+            output,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename
+        )
+        
+        # Add cache control headers
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
+        return response
+        
     except Exception as e:
-        current_app.logger.error(f"Error generating combined PDF: {str(e)}")
+        current_app.logger.error(f"Error generating reports: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
     
@@ -1923,16 +1950,25 @@ def print_all_reports(period_id):
 def get_email_status(period_id):
     """Get email status for all reports in a teaching period"""
     try:
+        from sqlalchemy.orm import aliased
+
+        # Create aliases for TennisGroup
+        CurrentGroup = aliased(TennisGroup)
+        RecommendedGroup = aliased(TennisGroup)
+
         # Verify period belongs to user's club
         period = TeachingPeriod.query.filter_by(
             id=period_id,
             tennis_club_id=current_user.tennis_club_id
         ).first_or_404()
 
-        # Get reports with student information
+        # Get reports with all necessary relationships loaded
         reports = (Report.query
             .join(Student)
             .join(ProgrammePlayers)
+            .join(CurrentGroup, ProgrammePlayers.group_id == CurrentGroup.id)
+            .join(User, Report.coach_id == User.id)
+            .outerjoin(RecommendedGroup, Report.recommended_group_id == RecommendedGroup.id)
             .filter(
                 Report.teaching_period_id == period_id,
                 ProgrammePlayers.tennis_club_id == current_user.tennis_club_id
@@ -1946,7 +1982,13 @@ def get_email_status(period_id):
             'email_sent': report.email_sent,
             'email_sent_at': report.email_sent_at.isoformat() if report.email_sent_at else None,
             'last_email_status': report.last_email_status,
-            'email_attempts': report.email_attempts
+            'email_attempts': report.email_attempts,
+            'group_name': report.tennis_group.name,
+            'recommended_group': report.recommended_group.name if report.recommended_group else '',
+            'booking_date': period.next_period_start_date.isoformat() if period.next_period_start_date else None,
+            'coach_name': report.coach.name,
+            'term_name': period.name,
+            'tennis_club': report.programme_player.tennis_club.name
         } for report in reports]
 
         return jsonify({
@@ -1956,6 +1998,7 @@ def get_email_status(period_id):
 
     except Exception as e:
         current_app.logger.error(f"Error getting email status: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
     
 @main.route('/api/reports/send-email/<int:report_id>', methods=['POST'])
@@ -1964,14 +2007,10 @@ def get_email_status(period_id):
 def send_report_email(report_id):
     """Send a single report email"""
     try:
-        data = request.get_json()
-        if not data or 'subject' not in data or 'message' not in data:
-            return jsonify({'error': 'Subject and message are required'}), 400
-
         report = Report.query.get_or_404(report_id)
         
-        # Check permissions
-        if report.tennis_club_id != current_user.tennis_club_id:
+        # Check permissions through student's tennis club
+        if report.student.tennis_club_id != current_user.tennis_club_id:
             return jsonify({'error': 'Unauthorized'}), 403
 
         # Check if can send email
@@ -1979,12 +2018,17 @@ def send_report_email(report_id):
         if not can_send:
             return jsonify({'error': reason}), 400
 
-        # Send email
+        # Get email content from request
+        data = request.get_json()
+        subject = data.get('subject')
+        message = data.get('message')
+
+        # Send email with custom template
         email_service = EmailService()
         success, message, message_id = email_service.send_report(
             report=report,
-            subject=data['subject'],
-            message=data['message']
+            subject=subject,
+            message=message
         )
 
         if success:
@@ -1998,96 +2042,3 @@ def send_report_email(report_id):
     except Exception as e:
         current_app.logger.error(f"Error sending email: {str(e)}")
         return jsonify({'error': str(e)}), 500
-    
-@main.route('/api/reports/send/<int:period_id>', methods=['GET', 'POST'])
-@login_required
-@admin_required
-def send_reports(period_id):
-    
-    try:
-        # Verify the period exists and belongs to user's tennis club
-        period = TeachingPeriod.query.filter_by(
-            id=period_id,
-            tennis_club_id=current_user.tennis_club_id
-        ).first_or_404()
-        
-        if request.method == 'POST':
-            try:
-                data = request.get_json()
-                
-                if not data:
-                    return jsonify({'error': 'No data received'}), 400
-
-                email_subject = data.get('email_subject')
-                email_message = data.get('email_message')
-                
-                if not email_subject or not email_message:
-                    return jsonify({
-                        'error': 'Email subject and message are required'
-                    }), 400
-
-                # Get reports for this period using proper joins
-                reports = (Report.query
-                    .join(Student)
-                    .join(ProgrammePlayers)
-                    .filter(
-                        Report.teaching_period_id == period_id,
-                        ProgrammePlayers.tennis_club_id == current_user.tennis_club_id,
-                        Student.contact_email.isnot(None)  # Only get reports where student has email
-                    ).all())
-                
-                print(f"Found {len(reports)} reports to process")
-                
-                if not reports:
-                    return jsonify({
-                        'error': 'No reports found with valid email addresses'
-                    }), 404
-                
-                # Use the EmailService with proper error handling
-                try:
-                    email_service = EmailService()
-                    success_count, error_count, errors = email_service.send_reports_batch(
-                        reports=reports,
-                        subject=email_subject,
-                        message=email_message
-                    )
-                    
-                    return jsonify({
-                        'success_count': success_count,
-                        'error_count': error_count,
-                        'errors': errors if errors else None
-                    })
-                    
-                except Exception as email_error:
-                    print(f"Email service error: {str(email_error)}")
-                    return jsonify({
-                        'error': f'Error sending emails: {str(email_error)}'
-                    }), 500
-                    
-            except Exception as e:
-                print(f"Error processing POST request: {str(e)}")
-                print(traceback.format_exc())
-                return jsonify({
-                    'error': f'Server error while sending reports: {str(e)}'
-                }), 500
-        
-        # GET request handling
-        reports = (Report.query
-            .join(Student)
-            .join(ProgrammePlayers)
-            .filter(
-                Report.teaching_period_id == period_id,
-                ProgrammePlayers.tennis_club_id == current_user.tennis_club_id
-            ).all())
-        
-        return jsonify({
-            'total_reports': len(reports),
-            'reports_with_email': len([r for r in reports if r.student.contact_email])
-        })
-        
-    except Exception as e:
-        print(f"Error in send_reports: {str(e)}")
-        print(traceback.format_exc())
-        return jsonify({
-            'error': f'Server error: {str(e)}'
-        }), 500

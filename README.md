@@ -34,3 +34,9 @@ flask run --host=localhost --port=3000
 
 flask db migrate -m "Updating report columns"
 
+
+## Docker App Commands
+docker-compose down -v 
+docker-compose up --build
+
+## Database migration (both locally and remote)

@@ -156,7 +156,6 @@ class EnhancedWiltonReportGenerator:
     def draw_group_recommendation_checkbox(self, c, data, rec_coords):
         """Draw the group recommendation checkbox based on the recommended group."""
         recommended_group = data.get('recommended_group')
-        print(f"Recommended group: {recommended_group}")
         # If no recommendation, don't draw any tick
         if not recommended_group:
             return

@@ -291,7 +291,7 @@ class Report(db.Model):
     email_sent_at = db.Column(db.DateTime(timezone=True))
     email_recipients = db.Column(JSONB)
     email_history = db.Column(JSONB, default=[])
-    last_email_status = db.Column(db.String(50))
+    last_email_status = db.Column(db.String(255))
     email_message_id = db.Column(db.String(100)) 
     email_attempts = db.Column(db.Integer, default=0)
 
@@ -306,7 +306,7 @@ class Report(db.Model):
     template = db.relationship('ReportTemplate', back_populates='reports')
 
     def record_email_attempt(self, status: str, recipients: list, subject: str, 
-                           message_id: str = None, error: str = None):
+                            message_id: str = None, error: str = None):
         """Record a detailed email attempt"""
         if self.email_history is None:
             self.email_history = []
@@ -329,8 +329,16 @@ class Report(db.Model):
             self.last_email_status = 'Success'
             self.email_recipients = recipients
             self.email_message_id = message_id
+        elif status == 'skipped':
+            self.email_sent = False
+            self.last_email_status = f'Skipped: {error}'
         else:
+            self.email_sent = False
             self.last_email_status = f'Failed: {error}'
+        
+        from app import db
+        db.session.add(self)
+        db.session.commit()
 
     def can_send_email(self) -> tuple[bool, str]:
         """Check if email can be sent and return (bool, reason)"""
