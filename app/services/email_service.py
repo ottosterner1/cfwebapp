@@ -60,7 +60,6 @@ class EmailService:
             # Check if we have both template and group config
             group_config = generator.get_group_config(data['group'])
             if not template_path or not os.path.exists(template_path) or not group_config:
-                current_app.logger.info(f"No Wilton template/config found for group: {report.tennis_group.name}, using generic report")
                 return False
 
             # Create temporary file for generation
@@ -102,8 +101,6 @@ class EmailService:
                 if success:
                     return
                 
-                # If Wilton generation failed, log and fall back to generic
-                current_app.logger.info(f"Falling back to generic report for Wilton club")
                 pdf_buffer.seek(0)
                 pdf_buffer.truncate()
 
