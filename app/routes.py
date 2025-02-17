@@ -2013,8 +2013,8 @@ def send_report_email(report_id):
         if report.student.tennis_club_id != current_user.tennis_club_id:
             return jsonify({'error': 'Unauthorized'}), 403
 
-        # Check if can send email
-        can_send, reason = report.can_send_email()
+        # Individual email check - only checks for contact email
+        can_send, reason = report.can_send_email(is_bulk_send=False)
         if not can_send:
             return jsonify({'error': reason}), 400
 
@@ -2034,11 +2034,67 @@ def send_report_email(report_id):
         if success:
             return jsonify({
                 'message': 'Email sent successfully',
-                'message_id': message_id
+                'message_id': message_id,
+                'email_sent_at': report.email_sent_at.isoformat() if report.email_sent_at else None,
+                'last_email_status': report.last_email_status,
+                'email_attempts': report.email_attempts
             })
         else:
             return jsonify({'error': message}), 500
 
     except Exception as e:
         current_app.logger.error(f"Error sending email: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
+
+def handle_bulk_email_send(reports, subject, message):
+    """Handle bulk email sending with restrictions"""
+    try:
+        email_service = EmailService()
+        results = {
+            'success': 0,
+            'errors': 0,
+            'skipped': 0,
+            'details': []
+        }
+
+        for report in reports:
+            # Check with bulk send restrictions
+            can_send, reason = report.can_send_email(is_bulk_send=True)
+            if not can_send:
+                # Skip if already sent
+                if "already been sent" in reason:
+                    continue
+                
+                # Record other issues
+                results['skipped'] += 1
+                results['details'].append({
+                    'student': report.student.name,
+                    'error': reason
+                })
+                continue
+
+            success, msg, _ = email_service.send_report(
+                report=report,
+                subject=subject,
+                message=message
+            )
+
+            if success:
+                results['success'] += 1
+            else:
+                if 'not verified' in msg.lower():
+                    results['skipped'] += 1
+                else:
+                    results['errors'] += 1
+                results['details'].append({
+                    'student': report.student.name,
+                    'error': msg
+                })
+
+        return results
+
+    except Exception as e:
+        current_app.logger.error(f"Error in bulk email send: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        raise

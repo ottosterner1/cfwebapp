@@ -21,11 +21,11 @@ def send_coach_invitation(invitation, club_name):
                            _external=True)
         
         # Email content
-        subject = f'Invitation to join {club_name} on Tennis Coach App'
+        subject = f'Invitation to join {club_name} on CourtFlow'
         body_html = f"""
         <html>
             <body>
-                <h2>Welcome to Tennis Coach App!</h2>
+                <h2>Welcome to CourtFlow!</h2>
                 <p>You have been invited to join {club_name} as a coach.</p>
                 <p>Click the link below to accept the invitation and set up your account:</p>
                 <p><a href="{invite_url}">Accept Invitation</a></p>
@@ -36,7 +36,7 @@ def send_coach_invitation(invitation, club_name):
         """
         
         body_text = f"""
-        Welcome to Tennis Coach App!
+        Welcome to CourtFlow!
         
         You have been invited to join {club_name} as a coach.
         

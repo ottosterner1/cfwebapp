@@ -305,8 +305,24 @@ class Report(db.Model):
     programme_player = db.relationship('ProgrammePlayers', back_populates='reports')
     template = db.relationship('ReportTemplate', back_populates='reports')
 
+    def can_send_email(self, is_bulk_send=False) -> tuple[bool, str]:
+        """
+        Check if email can be sent and return (bool, reason)
+        
+        Args:
+            is_bulk_send (bool): If True, checks if email has already been sent
+        """
+        if not self.student.contact_email:
+            return False, "No contact email available for this student"
+            
+        # Only check email_sent status for bulk sends
+        if is_bulk_send and self.email_sent:
+            return False, "Report has already been sent"
+            
+        return True, "OK"
+
     def record_email_attempt(self, status: str, recipients: list, subject: str, 
-                            message_id: str = None, error: str = None):
+                           message_id: str = None, error: str = None):
         """Record a detailed email attempt"""
         if self.email_history is None:
             self.email_history = []
@@ -320,9 +336,17 @@ class Report(db.Model):
             'error': error
         }
         
-        self.email_history.append(attempt)
+        # Initialize email_attempts if it's None
+        if self.email_attempts is None:
+            self.email_attempts = 0
+            
+        # Increment attempts counter for all cases
         self.email_attempts += 1
         
+        # Add to history
+        self.email_history.append(attempt)
+        
+        # Update status based on result
         if status == 'success':
             self.email_sent = True
             self.email_sent_at = datetime.now(timezone.utc)
@@ -330,25 +354,12 @@ class Report(db.Model):
             self.email_recipients = recipients
             self.email_message_id = message_id
         elif status == 'skipped':
-            self.email_sent = False
             self.last_email_status = f'Skipped: {error}'
         else:
-            self.email_sent = False
             self.last_email_status = f'Failed: {error}'
         
-        from app import db
         db.session.add(self)
         db.session.commit()
-
-    def can_send_email(self) -> tuple[bool, str]:
-        """Check if email can be sent and return (bool, reason)"""
-        if self.email_sent:
-            return False, "Report has already been sent"
-            
-        if not self.student.contact_email:
-            return False, "No contact email available for this student"
-            
-        return True, "OK"
 
     def is_student_under_18(self):
         """Check if the student is under 18"""

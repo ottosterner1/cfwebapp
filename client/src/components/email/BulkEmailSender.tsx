@@ -103,14 +103,18 @@ const BulkEmailSender: React.FC<BulkEmailSenderProps> = ({ periodId, clubName, o
             throw new Error(errorData.error || 'Failed to send email');
         }
 
+        const data = await response.json();
+        
+        // Update the recipients list with new email status
         setRecipients((prev) =>
             prev.map((r) => {
                 if (r.report_id === reportId) {
                     return {
                         ...r,
                         email_sent: true,
-                        email_sent_at: new Date().toISOString(),
-                        last_email_status: 'Success',
+                        email_sent_at: data.email_sent_at,
+                        last_email_status: data.last_email_status,
+                        email_attempts: data.email_attempts
                     };
                 }
                 return r;
@@ -295,29 +299,38 @@ const BulkEmailSender: React.FC<BulkEmailSenderProps> = ({ periodId, clubName, o
   // Update the renderPreview function to include the new preview component
   const renderPreview = () => (
     <div className="space-y-6">
-      <button
-        onClick={() => setCurrentStep('compose')}
-        className="flex items-center text-gray-600 hover:text-gray-900"
-      >
-        <ArrowLeft className="w-4 h-4 mr-2" />
-        Back to Compose
-      </button>
-  
-      <div className="bg-white rounded-lg border p-6 space-y-4">
-        <div>
-          <h3 className="text-lg font-medium mb-4">Email Preview</h3>
-  
-          {/* Recipient Details */}
-          {selectedReport && (
-            <div className="mb-4 p-4 bg-blue-50 rounded-lg">
-              <h4 className="font-medium text-blue-900">Recipient</h4>
-              <p className="text-sm text-blue-800 mt-1">
-                {recipients.find(r => r.report_id === selectedReport)?.student_name}
-                <br />
-                {recipients.find(r => r.report_id === selectedReport)?.contact_email}
-              </p>
-            </div>
-          )}
+        <button
+            onClick={() => setCurrentStep('compose')}
+            className="flex items-center text-gray-600 hover:text-gray-900"
+        >
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Compose
+        </button>
+
+        <div className="bg-white rounded-lg border p-6 space-y-4">
+            <div>
+                <h3 className="text-lg font-medium mb-4">Email Preview</h3>
+
+                {/* Recipient Details */}
+                {selectedReport && (
+                    <div className="mb-4 p-4 bg-blue-50 rounded-lg">
+                        <h4 className="font-medium text-blue-900">Recipient</h4>
+                        <div className="text-sm text-blue-800">
+                            {recipients.find(r => r.report_id === selectedReport)?.email_sent && (
+                                <div className="mt-2">
+                                    <p>Previously sent: {new Date(recipients.find(r => r.report_id === selectedReport)?.email_sent_at!).toLocaleDateString()}</p>
+                                    <p>Status: {recipients.find(r => r.report_id === selectedReport)?.last_email_status}</p>
+                                    <p>Attempts: {recipients.find(r => r.report_id === selectedReport)?.email_attempts}</p>
+                                </div>
+                            )}
+                            <p className="mt-1">
+                                {recipients.find(r => r.report_id === selectedReport)?.student_name}
+                                <br />
+                                {recipients.find(r => r.report_id === selectedReport)?.contact_email}
+                            </p>
+                        </div>
+                    </div>
+                )}
   
           {/* Email Content */}
           <div className="space-y-4">
@@ -425,34 +438,42 @@ const BulkEmailSender: React.FC<BulkEmailSenderProps> = ({ periodId, clubName, o
       </div>
 
       <div className="mt-6">
-        <h3 className="text-lg font-medium mb-4">Recipients ({recipients.length})</h3>
-        <div className="space-y-3 max-h-96 overflow-y-auto">
-          {recipients.map((recipient) => (
-            <div
-              key={recipient.report_id}
-              className="flex items-center justify-between p-3 bg-white border rounded-lg"
-            >
-              <div>
-                <p className="font-medium">{recipient.student_name}</p>
-                <p className="text-sm text-gray-500">{recipient.contact_email}</p>
-                {recipient.email_sent && (
-                  <p className="text-sm text-green-600">
-                    Sent: {new Date(recipient.email_sent_at!).toLocaleDateString()}
-                  </p>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => handlePreview(recipient.report_id)}
-                disabled={recipient.email_sent || loading}
-                className="ml-4 p-2 text-gray-400 hover:text-gray-600 disabled:opacity-50"
-              >
-                <Eye className="w-5 h-5" />
-              </button>
+            <h3 className="text-lg font-medium mb-4">Recipients ({recipients.length})</h3>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+                {recipients.map((recipient) => (
+                    <div
+                        key={recipient.report_id}
+                        className="flex items-center justify-between p-3 bg-white border rounded-lg"
+                    >
+                        <div>
+                            <p className="font-medium">{recipient.student_name}</p>
+                            <p className="text-sm text-gray-500">{recipient.contact_email}</p>
+                            {recipient.email_sent && (
+                                <div className="text-sm">
+                                    <p className="text-green-600">
+                                        Last sent: {new Date(recipient.email_sent_at!).toLocaleDateString()}
+                                    </p>
+                                    <p className="text-gray-600">
+                                        Status: {recipient.last_email_status}
+                                    </p>
+                                    <p className="text-gray-600">
+                                        Attempts: {recipient.email_attempts || 0}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => handlePreview(recipient.report_id)}
+                            disabled={loading}
+                            className="ml-4 p-2 text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                        >
+                            <Eye className="w-5 h-5" />
+                        </button>
+                    </div>
+                ))}
             </div>
-          ))}
         </div>
-      </div>
 
       <div className="flex justify-end space-x-3">
         <button
@@ -468,7 +489,7 @@ const BulkEmailSender: React.FC<BulkEmailSenderProps> = ({ periodId, clubName, o
           className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
         >
           <Mail className="w-4 h-4" />
-          Preview & Send
+          Preview & Send All
         </button>
       </div>
     </div>

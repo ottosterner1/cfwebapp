@@ -10,6 +10,8 @@ from app.utils.report_generator import create_single_report_pdf
 from io import BytesIO
 import traceback
 from jinja2 import Template
+import os
+import tempfile
 
 class EmailService:
     def __init__(self):
@@ -21,6 +23,97 @@ class EmailService:
             aws_secret_access_key=current_app.config['AWS_SECRET_ACCESS_KEY']
         )
         self.sender = current_app.config['AWS_SES_SENDER']
+
+    def _generate_wilton_report(self, report, pdf_buffer):
+        """Generate a Wilton-specific report"""
+        try:
+            from app.utils.wilton_report_generator import EnhancedWiltonReportGenerator
+            
+            # Get config path
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            config_path = os.path.join(base_dir, 'utils', 'wilton_group_config.json')
+            
+            if not os.path.exists(config_path):
+                current_app.logger.warning(f"Wilton config not found at: {config_path}")
+                return False
+
+            # Initialize generator
+            generator = EnhancedWiltonReportGenerator(config_path)
+            
+            # Get template path
+            template_path = generator.get_template_path(report.tennis_group.name)
+            
+            # Prepare report data
+            data = {
+                'player_name': report.student.name,
+                'coach_name': report.coach.name,
+                'term': report.teaching_period.name,
+                'group': report.tennis_group.name,
+                'content': report.content,
+                'recommended_group': report.recommended_group.name if report.recommended_group else None,
+                'teaching_period': {
+                    'next_period_start_date': report.teaching_period.next_period_start_date.strftime('%Y-%m-%d') if report.teaching_period.next_period_start_date else None,
+                    'bookings_open_date': report.teaching_period.bookings_open_date.strftime('%Y-%m-%d') if report.teaching_period.bookings_open_date else None
+                }
+            }
+
+            # Check if we have both template and group config
+            group_config = generator.get_group_config(data['group'])
+            if not template_path or not os.path.exists(template_path) or not group_config:
+                current_app.logger.info(f"No Wilton template/config found for group: {report.tennis_group.name}, using generic report")
+                return False
+
+            # Create temporary file for generation
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp_file:
+                try:
+                    # Generate the report
+                    generator.generate_report(template_path, tmp_file.name, data)
+                    
+                    # Verify file was created
+                    if not os.path.exists(tmp_file.name) or os.path.getsize(tmp_file.name) == 0:
+                        raise ValueError("Generated Wilton report is empty")
+                    
+                    # Copy to buffer
+                    with open(tmp_file.name, 'rb') as f:
+                        pdf_buffer.write(f.read())
+                        pdf_buffer.seek(0)
+                    
+                    return True
+                    
+                finally:
+                    # Clean up temporary file
+                    if os.path.exists(tmp_file.name):
+                        os.unlink(tmp_file.name)
+                        
+        except Exception as e:
+            current_app.logger.warning(f"Error in Wilton report generation: {str(e)}")
+            current_app.logger.debug(traceback.format_exc())
+            return False
+
+    def _generate_report_pdf(self, report, pdf_buffer):
+        """Generate appropriate PDF report based on tennis club"""
+        try:
+            # Check if this is a Wilton report
+            club_name = report.programme_player.tennis_club.name.lower()
+            
+            if 'wilton' in club_name:
+                # Try Wilton report first
+                success = self._generate_wilton_report(report, pdf_buffer)
+                if success:
+                    return
+                
+                # If Wilton generation failed, log and fall back to generic
+                current_app.logger.info(f"Falling back to generic report for Wilton club")
+                pdf_buffer.seek(0)
+                pdf_buffer.truncate()
+
+            # Generate generic report
+            create_single_report_pdf(report, pdf_buffer)
+            
+        except Exception as e:
+            current_app.logger.error(f"Error in report generation: {str(e)}")
+            current_app.logger.error(traceback.format_exc())
+            raise
 
     def _create_raw_email_with_attachment(self, recipient, subject, message, pdf_data, student_name):
         """Create a raw email with PDF attachment"""
@@ -44,17 +137,8 @@ class EmailService:
 
         return msg.as_string()
 
-    def _render_template(self, template_str: str, context: dict) -> str:
-        """Render a template string using Jinja2"""
-        if not template_str:
-            return ""
-        template = Template(template_str)
-        return template.render(**context)
-
-
     def _prepare_email_content(self, report):
         """Prepare email subject and body using report template"""
-
         # Get recommended group name
         recommended_group = report.recommended_group.name if report.recommended_group else "Same group"
 
@@ -80,20 +164,16 @@ Best regards,
 {context['tennis_club']}"""
 
         return subject, body
-    
+
     def send_report(self, report, subject=None, message=None):
         """Send a single report with PDF attachment"""
         try:
             if not report.student.contact_email:
                 return False, "No email address available for this student", None
 
-            # Check if email has already been sent
-            if report.email_sent:
-                return False, "Email has already been sent to this recipient", None
-
-            # Generate PDF
+            # Generate PDF using appropriate generator
             pdf_buffer = BytesIO()
-            create_single_report_pdf(report, pdf_buffer)
+            self._generate_report_pdf(report, pdf_buffer)
             pdf_buffer.seek(0)
             pdf_data = pdf_buffer.getvalue()
 
@@ -166,4 +246,5 @@ Best regards,
                 error=error_msg
             )
             current_app.logger.error(f"Error sending email: {error_msg}")
+            current_app.logger.error(traceback.format_exc())
             return False, f"Failed to send email: {error_msg}", None
