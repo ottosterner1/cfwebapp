@@ -7,24 +7,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    proxy: {
-      '/api': {
-        target: 'https://cfwebapp.local',
-        changeOrigin: true,
-        secure: false,
-        configure: (proxy, _options) => {
-          proxy.on('proxyReq', (proxyReq, req, _res) => {
-            // Forward cookies
-            if (req.headers.cookie) {
-              proxyReq.setHeader('cookie', req.headers.cookie);
-            }
-          });
-        },
-        headers: {
-          'X-Forwarded-Proto': 'https'
-        }
-      }
-    }
+    cors: true,
   },
   build: {
     manifest: true,
@@ -45,6 +28,7 @@ export default defineConfig({
         programme_management: path.resolve(__dirname, 'src/entry/programme_management.tsx'),
         edit_programme_player: path.resolve(__dirname, 'src/entry/edit_programme_player.tsx'),
         add_programme_player: path.resolve(__dirname, 'src/entry/add_programme_player.tsx'),
+        login: path.resolve(__dirname, 'src/entry/login.tsx'),
       }
     }
   }

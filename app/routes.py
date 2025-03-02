@@ -5,6 +5,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_user, login_required, logout_user, current_user
 import requests
 from werkzeug.security import check_password_hash, generate_password_hash
+from app.config.subdomains import get_subdomain, redirect_to_subdomain
 from app.models import (
     User, TennisGroup, TeachingPeriod, Student, Report, UserRole, 
     TennisClub, ProgrammePlayers, CoachInvitation, CoachDetails,
@@ -82,23 +83,66 @@ def signup():
         current_app.logger.error(traceback.format_exc())
         return f"Signup error: {str(e)}", 500
 
+@main.route('/api/debug/server-info')
+def server_info():
+    """Return server configuration for debugging"""
+    return jsonify({
+        'server_name': current_app.config.get('SERVER_NAME'),
+        'base_domain': current_app.config.get('BASE_DOMAIN'),
+        'subdomain': get_subdomain(),
+        'host': request.host,
+        'session_keys': list(session.keys()),
+        'session_permanent': session.permanent
+    })
+
 @main.route('/login')
 def login():
     state = secrets.token_urlsafe(32)
     
-    # Store state in session instead of cookie
+    # Make session permanent and set the state
+    session.permanent = True
     session['oauth_state'] = state
+    session.modified = True
     
-    redirect_uri = url_for('main.auth_callback', _external=True, _scheme='https')
+    # Get current subdomain and determine base domain
+    subdomain = get_subdomain()
+    base_domain = os.getenv('BASE_DOMAIN', 'cfwebapp.local')
     
-    # Create and return response without setting cookie
-    return redirect(
+    # Build the redirect URI
+    if subdomain:
+        host = f"{subdomain}.{base_domain}"
+    else:
+        host = base_domain
+        
+    redirect_uri = f"https://{host}/auth/callback"
+    
+    # Enhanced logging
+    current_app.logger.info(f"Login route accessed")
+    current_app.logger.info(f"Subdomain detected: {subdomain}")
+    current_app.logger.info(f"Base domain: {base_domain}")
+    current_app.logger.info(f"Redirect URI: {redirect_uri}")
+    
+    # Create Cognito URL
+    cognito_login_url = (
         f"https://{current_app.config['COGNITO_DOMAIN']}/login"
         f"?client_id={current_app.config['AWS_COGNITO_CLIENT_ID']}"
-        f"&response_type=code&scope=openid+email+profile"
+        f"&response_type=code"
+        f"&scope=openid+email+profile"
         f"&redirect_uri={redirect_uri}"
         f"&state={state}"
     )
+    
+    current_app.logger.info(f"Redirecting to: {cognito_login_url}")
+    
+    response = redirect(cognito_login_url)
+    
+    # Set secure cookie headers
+    response.headers.update({
+        'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+        'X-Content-Type-Options': 'nosniff',
+    })
+    
+    return response
 
 @main.route('/auth/callback')
 def auth_callback():
@@ -107,9 +151,23 @@ def auth_callback():
         state_in_session = session.get('oauth_state')
         code = request.args.get('code')
         
+        # Get current subdomain and determine base domain
+        subdomain = get_subdomain()
+        base_domain = os.getenv('BASE_DOMAIN', 'cfwebapp.local')
+        
+        # Build the redirect URI
+        if subdomain:
+            host = f"{subdomain}.{base_domain}"
+        else:
+            host = base_domain
+            
+        redirect_uri = f"https://{host}/auth/callback"
+        
+        current_app.logger.info(f"Auth Callback - Redirect URI: {redirect_uri}")
+        
         if not state_in_session or state_in_session != state_in_request:
             current_app.logger.error(f"State mismatch: session={state_in_session}, request={state_in_request}")
-            session.clear()  # Clear the session on mismatch
+            session.clear()
             return redirect(url_for('main.login'))
 
         if not code:
@@ -125,7 +183,10 @@ def auth_callback():
 
         # Exchange the code for tokens
         token_endpoint = f"https://{current_app.config['COGNITO_DOMAIN']}/oauth2/token"
-        redirect_uri = url_for('main.auth_callback', _external=True, _scheme='https')
+        
+        # Log token request details
+        current_app.logger.info(f"Token Request - Endpoint: {token_endpoint}")
+        current_app.logger.info(f"Token Request - Redirect URI: {redirect_uri}")
         
         token_response = requests.post(
             token_endpoint,
@@ -170,20 +231,39 @@ def auth_callback():
 
         if user and user.tennis_club_id:
             login_user(user, remember=True)
-            response = redirect(url_for('main.home'))
+            
+            # Handle subdomain routing
+            target_subdomain = None
+            if subdomain:
+                # If already on a subdomain, verify it matches user's club
+                if subdomain == user.tennis_club.subdomain:
+                    target_subdomain = subdomain
+                else:
+                    target_subdomain = user.tennis_club.subdomain
+            else:
+                # If not on a subdomain, redirect to user's club subdomain
+                target_subdomain = user.tennis_club.subdomain
             
             # Set session data
             session.permanent = True
             session['user_id'] = user.id
-            session.modified = True  # Ensure session is saved
+            session.modified = True
             
             # Clean up oauth state
             session.pop('oauth_state', None)
             
+            # Create response with subdomain
+            response = redirect_to_subdomain(
+                subdomain=target_subdomain,
+                endpoint='main.home',
+                _external=True,
+                _scheme='https'
+            )
+            
             # Set response headers
             response.headers.update({
                 'Access-Control-Allow-Credentials': 'true',
-                'Access-Control-Allow-Origin': request.headers.get('Origin', 'https://cfwebapp.local'),
+                'Access-Control-Allow-Origin': request.headers.get('Origin', f'https://{target_subdomain}.{base_domain}'),
                 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cookie, X-Requested-With',
                 'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -193,13 +273,21 @@ def auth_callback():
             
             return response
         else:
+            # For new users or users without a club
             session['temp_user_info'] = {
                 'email': email,
                 'name': name,
                 'provider_id': provider_id,
             }
-            session.modified = True  # Ensure session is saved
-            return redirect(url_for('club_management.onboard_club'))
+            session.modified = True
+            
+            # Redirect to club onboarding on main domain
+            return redirect_to_subdomain(
+                subdomain=None,  # No subdomain for onboarding
+                endpoint='club_management.onboard_club',
+                _external=True,
+                _scheme='https'
+            )
 
     except requests.exceptions.RequestException as e:
         current_app.logger.error(f"Network error during authentication: {str(e)}")

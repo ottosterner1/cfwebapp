@@ -1,49 +1,60 @@
 from functools import wraps
-from flask import abort, current_app, request
+from flask import abort, current_app, request, redirect, url_for
 from flask_login import current_user
 from app.models import UserRole
+from app.config.subdomains import get_subdomain, redirect_to_subdomain
 
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not current_user.is_authenticated or (not current_user.is_admin and not current_user.is_super_admin):
             abort(403)
+            
+        # Ensure admin is on admin subdomain
+        subdomain = get_subdomain()
+        if subdomain != 'admin':
+            return redirect_to_subdomain('admin')
+            
         return f(*args, **kwargs)
     return decorated_function
-
-def get_tennis_club_from_request():
-    """Extract tennis club from subdomain"""
-    host = request.host.split(':')[0]  # Remove port if present
-    
-    # Special handling for localhost development
-    if host in ['localhost', '127.0.0.1']:
-        return 'localhost'
-        
-    subdomain = host.split('.')[0]
-    base_domain = current_app.config.get('BASE_DOMAIN', '')
-    
-    if subdomain == 'www' or subdomain == base_domain:
-        return None
-        
-    return subdomain
 
 def club_access_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        
         if not current_user.is_authenticated:
             current_app.logger.error("User not authenticated")
             abort(403)
+            
+        # Get subdomain and user's club
+        subdomain = get_subdomain()
+        user_club = current_user.tennis_club
         
-        # Special handling for Railway.app
-        if 'railway.app' in request.host:
+        # Special handling for development environment
+        if current_app.debug and subdomain == 'localhost':
             return f(*args, **kwargs)
             
-        # Rest of your existing code...
-        subdomain = get_tennis_club_from_request()
-        if not subdomain or current_user.tennis_club.subdomain != subdomain:
-            print(f"Subdomain mismatch: {subdomain} vs {current_user.tennis_club.subdomain}")
+        # Handle admin subdomain
+        if subdomain == 'admin':
+            if current_user.is_super_admin:
+                return f(*args, **kwargs)
             abort(403)
             
+        # Verify club access
+        if not subdomain or not user_club or user_club.subdomain != subdomain:
+            if user_club:
+                # Redirect to correct subdomain if user has a club
+                return redirect_to_subdomain(user_club.subdomain)
+            abort(403)
+            
+        return f(*args, **kwargs)
+    return decorated_function
+
+def marketing_site_only(f):
+    """Decorator to ensure route is only accessible on main domain"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        subdomain = get_subdomain()
+        if subdomain:
+            abort(404)
         return f(*args, **kwargs)
     return decorated_function

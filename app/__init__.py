@@ -1,10 +1,10 @@
-# app/__init__.py
 from datetime import timedelta
 from flask import Flask, send_from_directory, jsonify, request
 from config import Config
 import os
 from app.extensions import db, migrate, login_manager, cors
 from app.auth import init_oauth
+from app.config.subdomains import init_subdomain_handler, get_subdomain
 import sentry_sdk
 from sentry_sdk.integrations.flask import FlaskIntegration
 import json
@@ -38,6 +38,7 @@ def get_vite_asset(app, entry_point):
     except Exception as e:
         app.logger.error(f"Error reading Vite manifest: {e}")
         return ''
+
 def register_extensions(app):
     """Register Flask extensions."""
     db.init_app(app)
@@ -45,18 +46,37 @@ def register_extensions(app):
     login_manager.init_app(app)
     init_oauth(app)
     
-    # Updated CORS configuration
+    # Updated CORS configuration for subdomains
     cors_origins = app.config.get('CORS_ORIGINS', [])
-    if not app.debug:
-        cors_origins.append('https://cfwebapp-production.up.railway.app')
+    if app.debug:
+        # Local development
+        cors_origins.extend([
+            'https://cfwebapp.local',
+            'https://admin.cfwebapp.local',
+            'https://wilton.cfwebapp.local',
+            'https://demo.cfwebapp.local',
+            'https://cfwebapp.local:443',
+            'https://admin.cfwebapp.local:443',
+            'https://wilton.cfwebapp.local:443',
+            'https://demo.cfwebapp.local:443',
+            'https://localhost:5173'  # Vite dev server
+        ])
+    else:
+        # Production
+        cors_origins.extend([
+            'https://courtflow.co.uk',
+            'https://admin.courtflow.co.uk',
+            'https://*.courtflow.co.uk'
+        ])
     
     cors.init_app(app, resources={
         r"/api/*": {
             "origins": cors_origins,
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "methods": ["GET", "POST", "PUT", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization", "Cookie", "X-CSRF-TOKEN"],
             "expose_headers": ["Content-Type", "Authorization", "Set-Cookie"],
-            "supports_credentials": True
+            "supports_credentials": True,
+            "send_wildcard": False  # Important for credentials
         }
     })
 
@@ -92,7 +112,7 @@ def create_app(config_class=Config):
     
     app = Flask(__name__, 
                 static_folder='static', 
-                static_url_path='/static')  
+                static_url_path='/static')
     app.logger.handlers = logger.handlers
     app.logger.setLevel(logger.level)
     
@@ -105,21 +125,39 @@ def create_app(config_class=Config):
     
     app.config.from_object(config_obj)
 
-    # Remove server name restriction
-    app.config['SERVER_NAME'] = None
+    # In create_app function, change:
+    if app.debug:
+        app.config['BASE_DOMAIN'] = os.getenv('BASE_DOMAIN', 'cfwebapp.local')
+    else:
+        app.config['BASE_DOMAIN'] = os.getenv('BASE_DOMAIN', 'courtflow.co.uk')
 
-    # Update session configuration for all environments
+    # Initialize subdomain handling
+    init_subdomain_handler(app)
+
+    # Session configuration
     app.config.update(
         SESSION_COOKIE_SECURE=True,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE='Lax',
-        SESSION_COOKIE_DOMAIN=None,
+        SESSION_COOKIE_DOMAIN='.cfwebapp.local',  
         PERMANENT_SESSION_LIFETIME=timedelta(days=1),
-        REMEMBER_COOKIE_DOMAIN=None,
+        REMEMBER_COOKIE_DOMAIN='.cfwebapp.local',
         REMEMBER_COOKIE_SECURE=True,
         REMEMBER_COOKIE_HTTPONLY=True,
         REMEMBER_COOKIE_SAMESITE='Lax'
     )
+
+    # Update cookie domains based on environment
+    if app.debug:
+        app.config.update(
+            SESSION_COOKIE_DOMAIN='.cfwebapp.local',
+            REMEMBER_COOKIE_DOMAIN='.cfwebapp.local'
+        )
+    else:
+        app.config.update(
+            SESSION_COOKIE_DOMAIN='.courtflow.co.uk',
+            REMEMBER_COOKIE_DOMAIN='.courtflow.co.uk'
+        )
 
     # Configure proxy settings for HTTPS
     from werkzeug.middleware.proxy_fix import ProxyFix
@@ -148,7 +186,6 @@ def create_app(config_class=Config):
         app.config['PREFERRED_URL_SCHEME'] = 'https'
         os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = 'false'
 
-    
     # Ensure directories exist
     try:
         os.makedirs(app.instance_path, exist_ok=True)
@@ -185,15 +222,26 @@ def create_app(config_class=Config):
     @app.after_request
     def after_request(response):
         # Get the origin from the request
-        origin = request.headers.get('Origin')
+        origin = request.headers.get('Origin', '')
         allowed_origins = app.config.get('CORS_ORIGINS', [])
         
-        if origin in allowed_origins:
+        # Handle wildcard subdomains in development and production
+        if app.debug and origin.endswith('.cfwebapp.local:5000'):
             response.headers['Access-Control-Allow-Origin'] = origin
             response.headers['Access-Control-Allow-Credentials'] = 'true'
-            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
-            response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Cookie, X-CSRF-TOKEN'
-            response.headers['Access-Control-Expose-Headers'] = 'Content-Type, Authorization, Set-Cookie'
+        elif not app.debug and origin.endswith('.courtflow.co.uk'):
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+        elif origin in allowed_origins:
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+        
+        if 'Access-Control-Allow-Origin' in response.headers:
+            response.headers.update({
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cookie, X-CSRF-TOKEN',
+                'Access-Control-Expose-Headers': 'Content-Type, Authorization, Set-Cookie'
+            })
             
         # Security headers
         response.headers.update({
@@ -230,27 +278,26 @@ def create_app(config_class=Config):
     def serve(path):
         dist_dir = os.path.join(app.static_folder, 'dist')
         
-        # Log directory contents
-        if not os.path.exists(dist_dir):
-            app.logger.error(f"Dist directory does not exist: {dist_dir}")
-            # Try to create it
-            try:
-                os.makedirs(dist_dir, exist_ok=True)
-            except Exception as e:
-                app.logger.error(f"Error creating dist directory: {e}")
+        # Get subdomain for serving different frontend apps
+        subdomain = get_subdomain()
         
+        # If it's the marketing site (no subdomain), serve marketing frontend
+        if not subdomain and not path.startswith('api/'):
+            marketing_dist = os.path.join(app.static_folder, 'dist', 'marketing')
+            if os.path.exists(os.path.join(marketing_dist, path)):
+                return send_from_directory(marketing_dist, path)
+            if os.path.exists(os.path.join(marketing_dist, 'index.html')):
+                return send_from_directory(marketing_dist, 'index.html')
         
+        # For all other cases, serve the main app
         try:
             if path and os.path.exists(os.path.join(dist_dir, path)):
                 return send_from_directory(dist_dir, path)
-            
-            index_path = os.path.join(dist_dir, 'index.html')
-            if os.path.exists(index_path):
+            if os.path.exists(os.path.join(dist_dir, 'index.html')):
                 return send_from_directory(dist_dir, 'index.html')
             else:
-                app.logger.error(f"index.html not found at: {index_path}")
+                app.logger.error(f"index.html not found at: {os.path.join(dist_dir, 'index.html')}")
                 return "index.html not found", 404
-                
         except Exception as e:
             app.logger.error(f"Error serving file: {str(e)}")
             return str(e), 500
@@ -265,20 +312,6 @@ def create_app(config_class=Config):
             'static_contents': os.listdir(app.static_folder) if os.path.exists(app.static_folder) else 'not found',
             'dist_contents': os.listdir(dist_dir) if os.path.exists(dist_dir) else 'not found',
             'env': dict(os.environ)
-        }
-        return jsonify(debug_info)
-    
-    @app.route('/debug/static')
-    def debug_static_files():
-        static_dir = app.static_folder
-        dist_dir = os.path.join(static_dir, 'dist')
-        debug_info = {
-            'static_folder_abs': os.path.abspath(static_dir),
-            'dist_dir_abs': os.path.abspath(dist_dir),
-            'static_exists': os.path.exists(static_dir),
-            'dist_exists': os.path.exists(dist_dir),
-            'static_contents': os.listdir(static_dir) if os.path.exists(static_dir) else [],
-            'dist_contents': os.listdir(dist_dir) if os.path.exists(dist_dir) else []
         }
         return jsonify(debug_info)
     

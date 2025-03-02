@@ -1,4 +1,22 @@
 services:
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./certs:/etc/nginx/certs
+    ports:
+      - "443:443"
+    networks:
+      app_net:
+    depends_on:
+      - backend
+      - frontend
+    extra_hosts:
+      - "cfwebapp.local:host-gateway"
+      - "wilton.cfwebapp.local:host-gateway"
+      - "admin.cfwebapp.local:host-gateway"
+      - "demo.cfwebapp.local:host-gateway"
+
   backend:
     build:
       context: .
@@ -19,19 +37,22 @@ services:
       AWS_S3_REGION: ${AWS_S3_REGION}
       AWS_SES_REGION: ${AWS_SES_REGION}
       AWS_SES_SENDER: ${AWS_SES_SENDER}
-      SERVER_NAME: "cfwebapp.local"
+      BASE_DOMAIN: ${BASE_DOMAIN:-cfwebapp.local}     
+      SESSION_COOKIE_DOMAIN: ".cfwebapp.local"
+      REMEMBER_COOKIE_DOMAIN: ".cfwebapp.local"
+      OAUTHLIB_INSECURE_TRANSPORT: "1"  # Allow insecure transport for local dev
     extra_hosts:
       - "cfwebapp.local:host-gateway"
+      - "wilton.cfwebapp.local:host-gateway"
+      - "admin.cfwebapp.local:host-gateway"
+      - "demo.cfwebapp.local:host-gateway"
     volumes:
       - .:/app
       - dist-volume:/app/app/static/dist
-      - ./certs:/app/certs
-    ports:
-      - "443:443"
+      - ./certs:/app/certs:ro
     networks:
       app_net:
-        aliases:
-          - cfwebapp.local
+    command: gunicorn --workers 4 --reload --bind 0.0.0.0:5000 wsgi:app
 
   frontend:
     build:
@@ -39,26 +60,19 @@ services:
       dockerfile: Dockerfile.dev
     environment:
       - NODE_ENV=development
-      - VITE_API_URL=https://cfwebapp.local
+      - VITE_API_URL=https://wilton.cfwebapp.local
     volumes:
       - ./client:/app
       - dist-volume:/app/app/static/dist
       - /app/node_modules
-    ports:
-      - "5173:5173"
-    command: >
-      sh -c "
-        mkdir -p /app/app/static/dist &&
-        chmod -R 777 /app/app/static/dist &&
-        npm run build &&
-        cp -r /app/dist/* /app/app/static/dist/ &&
-        cp -r /app/dist/.vite /app/app/static/dist/ &&
-        npm run dev -- --host
-      "
     networks:
       app_net:
-    extra_hosts:
-      - "cfwebapp.local:host-gateway"
+    command: >
+      sh -c "
+        mkdir -p /app/dist &&
+        npm run build &&
+        npm run dev -- --host
+      "
 
 volumes:
   dist-volume:
