@@ -31,6 +31,6 @@ EXPOSE 443
 # Use Gunicorn with SSL in development to match production
 CMD ["gunicorn", "--chdir", "/app", "wsgi:app", \
      "--bind", "0.0.0.0:443", \
-     "--certfile", "/app/certs/cert.pem", \
-     "--keyfile", "/app/certs/key.pem", \
+     "--certfile", "/app/certs/server.crt", \
+     "--keyfile", "/app/certs/server.key", \
      "--reload"] 

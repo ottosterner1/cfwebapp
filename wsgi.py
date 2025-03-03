@@ -6,8 +6,8 @@ env = os.getenv('FLASK_ENV', 'development')
 app = create_app(config[env])
 
 if __name__ == '__main__':
-    cert_path = '/app/certs/cert.pem'
-    key_path = '/app/certs/key.pem'
+    cert_path = '/app/certs/server.crt'
+    key_path = '/app/certs/server.key'
     
     if not os.path.exists(cert_path) or not os.path.exists(key_path):
         raise Exception("SSL certificates not found")
