@@ -9,7 +9,6 @@ from email.mime.application import MIMEApplication
 from app.utils.report_generator import create_single_report_pdf
 from io import BytesIO
 import traceback
-from jinja2 import Template
 import os
 import tempfile
 
@@ -112,16 +111,59 @@ class EmailService:
             current_app.logger.error(traceback.format_exc())
             raise
 
-    def _create_raw_email_with_attachment(self, recipient, subject, message, pdf_data, student_name):
-        """Create a raw email with PDF attachment"""
+    def _create_raw_email_with_attachment(self, recipient, subject, message, pdf_data, student_name, club_name):
+        """Create a raw email with PDF attachment and improved headers for better deliverability"""
         msg = MIMEMultipart('mixed')
         msg['Subject'] = subject
-        msg['From'] = self.sender
+        msg['From'] = f'"{club_name}" <{self.sender}>'  # Display name as the tennis club
         msg['To'] = recipient
-
-        # Add the message
-        text_part = MIMEText(message, 'plain', 'utf-8')
-        msg.attach(text_part)
+        
+        # Add custom headers to improve deliverability
+        msg.add_header('X-Auto-Response-Suppress', 'OOF')
+        msg.add_header('X-Report-Type', 'Tennis-Student-Report')
+        msg.add_header('X-Priority', '1')  # High priority
+        
+        # Create alternative part for plain text and HTML
+        alt_part = MIMEMultipart('alternative')
+        
+        # Plain text part - always include this for better compatibility
+        text_plain = message.replace('<br>', '\n').replace('<br/>', '\n')
+        # Remove HTML tags for plain text version
+        for tag in ['<p>', '</p>', '<div>', '</div>', '<html>', '</html>', '<body>', '</body>']:
+            text_plain = text_plain.replace(tag, '')
+        text_part = MIMEText(text_plain, 'plain', 'utf-8')
+        alt_part.attach(text_part)
+        
+        # HTML part - if message contains HTML format, use it directly
+        if '<html>' in message or '<body>' in message or '<p>' in message or '<br>' in message:
+            html_part = MIMEText(message, 'html', 'utf-8')
+            alt_part.attach(html_part)
+        else:
+            # If plain text is provided, convert newlines to <br> for HTML version
+            html_content = """
+            <html>
+            <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto;">
+                    <div style="margin-bottom: 30px;">
+                        {content}
+                    </div>
+                    <div style="font-size: 0.9em; color: #666; border-top: 1px solid #eee; padding-top: 15px;">
+                        <p>Please do not reply to this email.</p>
+                        <p>To ensure you receive our emails, please add {sender} to your contacts or primary inbox.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """.format(
+                club=club_name,
+                content=message.replace('\n', '<br>'),
+                sender=self.sender
+            )
+            html_part = MIMEText(html_content, 'html', 'utf-8')
+            alt_part.attach(html_part)
+        
+        # Attach the multipart/alternative to the message
+        msg.attach(alt_part)
 
         # Add the PDF attachment
         pdf_attachment = MIMEApplication(pdf_data, _subtype='pdf')
@@ -133,34 +175,6 @@ class EmailService:
         msg.attach(pdf_attachment)
 
         return msg.as_string()
-
-    def _prepare_email_content(self, report):
-        """Prepare email subject and body using report template"""
-        # Get recommended group name
-        recommended_group = report.recommended_group.name if report.recommended_group else "Same group"
-
-        # Create context for replacements
-        context = {
-            'student_name': report.student.name,
-            'recommended_group': recommended_group,
-            'booking_date': report.teaching_period.next_period_start_date.strftime('%A %d %B') if report.teaching_period.next_period_start_date else 'TBC',
-            'coach_name': report.coach.name,
-            'tennis_club': report.programme_player.tennis_club.name,
-        }
-
-        # Define default templates
-        subject = f"Tennis Report for {context['student_name']}"
-        body = f"""Dear Parent/Guardian,
-
-Please find attached the tennis report for {context['student_name']}.
-
-Recommended Group: {context['recommended_group']}
-
-Best regards,
-{context['coach_name']}
-{context['tennis_club']}"""
-
-        return subject, body
 
     def send_report(self, report, subject=None, message=None):
         """Send a single report with PDF attachment"""
@@ -174,36 +188,48 @@ Best regards,
             pdf_buffer.seek(0)
             pdf_data = pdf_buffer.getvalue()
 
+            # Get club name
+            club_name = report.programme_player.tennis_club.name
+            
             # Create context for template replacements
             context = {
                 'student_name': report.student.name,
                 'recommended_group': report.recommended_group.name if report.recommended_group else "Same group",
                 'booking_date': report.teaching_period.next_period_start_date.strftime('%A %d %B') if report.teaching_period.next_period_start_date else 'TBC',
                 'coach_name': report.coach.name,
-                'tennis_club': report.programme_player.tennis_club.name,
+                'tennis_club': club_name,
                 'group_name': report.tennis_group.name,
                 'term_name': report.teaching_period.name
             }
+            
+            # Use provided subject and message or set defaults
+            if not subject:
+                subject = f"Tennis Report for {report.student.name} - {report.teaching_period.name}"
+            else:
+                # Replace placeholders in subject
+                for key, value in context.items():
+                    subject = subject.replace(f"{{{key}}}", str(value))
+                    
+            if not message:
+                message = f"Please find attached the tennis report for {report.student.name}."
+            else:
+                # Replace placeholders in message
+                for key, value in context.items():
+                    message = message.replace(f"{{{key}}}", str(value))
 
             try:
-                # Render email content
-                if subject and message:
-                    email_subject = subject.format(**context)
-                    email_body = message.format(**context)
-                else:
-                    email_subject, email_body = self._prepare_email_content(report)
-
-                # Create and send email
+                # Create and send email with improved headers
                 raw_email = self._create_raw_email_with_attachment(
                     recipient=report.student.contact_email,
-                    subject=email_subject,
-                    message=email_body,
+                    subject=subject,
+                    message=message,
                     pdf_data=pdf_data,
-                    student_name=report.student.name
+                    student_name=report.student.name,
+                    club_name=club_name
                 )
 
                 response = self.ses_client.send_raw_email(
-                    Source=self.sender,
+                    Source=f'"{club_name}" <{self.sender}>',  # Show tennis club name in sender
                     RawMessage={'Data': raw_email}
                 )
                 
@@ -213,7 +239,7 @@ Best regards,
                 report.record_email_attempt(
                     status='success',
                     recipients=[report.student.contact_email],
-                    subject=email_subject,
+                    subject=subject,
                     message_id=message_id
                 )
 
@@ -226,7 +252,7 @@ Best regards,
                     report.record_email_attempt(
                         status='skipped',
                         recipients=[report.student.contact_email],
-                        subject=email_subject,
+                        subject=subject,
                         error='Email address not verified'
                     )
                     return False, f"Email skipped - address not verified: {report.student.contact_email}", None
@@ -245,3 +271,44 @@ Best regards,
             current_app.logger.error(f"Error sending email: {error_msg}")
             current_app.logger.error(traceback.format_exc())
             return False, f"Failed to send email: {error_msg}", None
+            
+    def send_accreditation_reminder(self, email, coach_name, expiring_accreditations):
+        """Send reminder email for expiring coaching accreditations"""
+        try:
+            # Create accreditation list
+            accreditation_list = "\n".join([
+                f"- {name}: {days} days remaining" if days > 0 else
+                f"- {name}: Expired" 
+                for name, days in expiring_accreditations
+            ])
+            
+            subject = "Action Required: Coaching Accreditation Update"
+            
+            message = f"""Dear {coach_name},
+
+This is a reminder that the following coaching accreditations need attention:
+
+{accreditation_list}
+
+Please update your accreditations as soon as possible to maintain compliance with LTA requirements.
+
+Thank you,
+CourtFlow Platform
+"""
+            
+            # Send simple email without attachment
+            response = self.ses_client.send_email(
+                Source=self.sender,
+                Destination={'ToAddresses': [email]},
+                Message={
+                    'Subject': {'Data': subject},
+                    'Body': {'Text': {'Data': message}}
+                }
+            )
+            
+            return True, "Reminder sent successfully", response.get('MessageId', '')
+            
+        except Exception as e:
+            current_app.logger.error(f"Error sending accreditation reminder: {str(e)}")
+            current_app.logger.error(traceback.format_exc())
+            return False, f"Failed to send reminder: {str(e)}", None
