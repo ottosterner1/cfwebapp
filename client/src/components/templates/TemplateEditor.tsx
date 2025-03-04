@@ -295,7 +295,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
+                    if (e.key === 'Enter') {
                       e.preventDefault();
                       toggleSection(sectionIndex);
                     }
@@ -310,6 +310,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
                       placeholder="Section Name"
                       className="text-lg font-medium bg-transparent border-none focus:ring-0 p-0"
                       onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()} 
                     />
                   </div>
                   <div className="flex items-center space-x-2">
