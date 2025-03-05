@@ -42,20 +42,67 @@ class EnhancedWiltonReportGenerator:
             self.font_name = 'Helvetica-Bold'
             
     def get_template_path(self, group_name):
-        """Get the correct template path based on group name."""
-        template_name = f"wilton_{group_name.lower().replace(' ', '_')}_report.pdf"
+        """
+        Get the correct template path based on group name.
+        Finds any template that contains a substring of the group name.
+        """
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        template_path = os.path.join(base_dir, 'app', 'static', 'pdf_templates', template_name)
+        template_dir = os.path.join(base_dir, 'app', 'static', 'pdf_templates')
         
-        # Return None if template doesn't exist instead of raising error
-        if not os.path.exists(template_path):
+        # Check if the directory exists
+        if not os.path.exists(template_dir):
             return None
-        return template_path
+        
+        # Normalize the group name for comparison (lowercase, no spaces)
+        normalized_group = group_name.lower().replace(' ', '_')
+        
+        # Get all template files in the directory
+        template_files = [f for f in os.listdir(template_dir) if f.startswith('wilton_') and f.endswith('_report.pdf')]
+        
+        # Sort templates by length (descending) to prefer more specific matches
+        template_files.sort(key=len, reverse=True)
+        
+        for template_file in template_files:
+            # Extract the middle part between 'wilton_' and '_report.pdf'
+            template_key = template_file[len('wilton_'):-len('_report.pdf')]
+            
+            # Check if this template key appears in the normalized group name
+            if template_key in normalized_group:
+                return os.path.join(template_dir, template_file)
+        
+        # If no match found, return None
+        return None
 
     def get_group_config(self, group_name):
-        """Get the configuration for a specific group."""
-        # Return None if no config found instead of raising error
-        return self.config.get(group_name)
+        """
+        Get the configuration for a specific group.
+        Tries to find the best matching config for the group name.
+        """
+        # First try exact match
+        if group_name in self.config:
+            return self.config[group_name]
+        
+        # Normalize the group name for comparison
+        normalized_group = group_name.lower().replace(' ', '_')
+        
+        # Create a list of config keys sorted by length (descending) to prefer more specific matches
+        config_keys = sorted(self.config.keys(), key=len, reverse=True)
+        
+        # Look for partial matches
+        for config_key in config_keys:
+            normalized_key = config_key.lower().replace(' ', '_')
+            
+            # Check if the normalized key is in the normalized group name
+            if normalized_key in normalized_group:
+                return self.config[config_key]
+            
+            # Also check the reverse - if the group name is in the config key
+            # This can help with cases where the config is more specific than the group name
+            if normalized_group in normalized_key:
+                return self.config[config_key]
+        
+        # If no match found, return None
+        return None
         
     def draw_diagonal_text(self, c, text, x, y, angle=23):
         """Draw text at a specified angle with handwriting style."""
@@ -141,8 +188,6 @@ class EnhancedWiltonReportGenerator:
             if next_term in term_to_x:
                 self.draw_checkbox(c, term_to_x[next_term], y, True)
 
-
-
     def get_next_term(self, current_term):
         """Determine the next term based on the current term."""
         if 'Autumn' in current_term:
@@ -154,31 +199,38 @@ class EnhancedWiltonReportGenerator:
         return current_term
 
     def draw_group_recommendation_checkbox(self, c, data, rec_coords):
-        """Draw the group recommendation checkbox based on the recommended group."""
+        """
+        Draw the group recommendation checkbox based on the recommended group.
+        Uses a flexible matching approach to find the right checkbox coordinates.
+        """
         recommended_group = data.get('recommended_group')
         # If no recommendation, don't draw any tick
         if not recommended_group:
             return
-            
-        # Extract the group level (Red, Orange, Green, Yellow) from the full group name
-        group_level = None
-        if 'Tots' in recommended_group:
-            group_level = 'tots'
-        elif 'Red' in recommended_group:
-            group_level = 'red'
-        elif 'Orange' in recommended_group:
-            group_level = 'orange'
-        elif 'Green' in recommended_group:
-            group_level = 'green'
-        elif 'Yellow' in recommended_group:
-            group_level = 'yellow'
-        elif 'Performance' in recommended_group:
-            group_level = 'performance'
         
-
-        # Draw the checkbox if we have coordinates for this group level
-        if group_level and f'{group_level}_x' in rec_coords:
-            self.draw_checkbox(c, rec_coords[f'{group_level}_x'], rec_coords['y'], True)
+        # Normalize the recommended group name
+        normalized_group = recommended_group.lower().replace(' ', '_')
+        
+        # Look for the most specific matching coordinate in rec_coords
+        best_match = None
+        best_match_length = 0
+        
+        for coord_key in rec_coords:
+            # Only consider keys that end with '_x' to get coordinate keys
+            if not coord_key.endswith('_x'):
+                continue
+                
+            # Extract the group identifier from the coordinate key (remove '_x')
+            group_id = coord_key[:-2]
+            
+            # Check if this identifier is in the normalized group name
+            if group_id in normalized_group and len(group_id) > best_match_length:
+                best_match = group_id
+                best_match_length = len(group_id)
+        
+        # If we found a match, draw the checkbox
+        if best_match:
+            self.draw_checkbox(c, rec_coords[f'{best_match}_x'], rec_coords['y'], True)
 
     def generate_page_overlay(self, data, config, page_num):
         """Generate a single page overlay."""
@@ -410,8 +462,6 @@ class EnhancedWiltonReportGenerator:
             # Verify file was written
             if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
                 raise ValueError(f"Failed to write PDF to {output_path}")
-                
-            print(f"Successfully generated generic report at: {output_path}")
             
         except Exception as e:
             print(f"Error generating generic report: {str(e)}")
@@ -466,8 +516,9 @@ class EnhancedWiltonReportGenerator:
         
         # Get template path
         template_path = generator.get_template_path(report.tennis_group.name)
-        if not os.path.exists(template_path):
-            raise FileNotFoundError(f"Template not found for group: {report.tennis_group.name}")
+        if not template_path:
+            # Instead of raising an error, use generic report
+            print(f"Template not found for group: {report.tennis_group.name}. Using generic report.")
             
         # Prepare output path
         filename = f"{report.student.name}_{report.tennis_group.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
@@ -480,11 +531,19 @@ class EnhancedWiltonReportGenerator:
             'term': report.teaching_period.name,
             'group': report.tennis_group.name,
             'content': report.content,
-            'recommended_group': report.recommended_group.name if report.recommended_group else None
+            'recommended_group': report.recommended_group.name if report.recommended_group else None,
+            'teaching_period': {
+                'next_period_start_date': report.teaching_period.next_period_start_date.strftime('%Y-%m-%d') if report.teaching_period.next_period_start_date else None,
+                'bookings_open_date': report.teaching_period.bookings_open_date.strftime('%Y-%m-%d') if report.teaching_period.bookings_open_date else None
+            },
+            'report': report
         }
         
         # Generate the report
-        generator.generate_report(template_path, output_path, data)
+        if template_path:
+            generator.generate_report(template_path, output_path, data)
+        else:
+            generator._generate_generic_report(data, output_path)
         
         return {
             'success': True,
@@ -505,6 +564,7 @@ def main():
                 
                 try:
                     result = EnhancedWiltonReportGenerator.generate_single_report(report_id)
+                    print(f"Report generated successfully: {result['output_path']}")
                     
                 except Exception as e:
                     print(f"Error generating report: {str(e)}")
@@ -514,24 +574,26 @@ def main():
             else:
                 # Get the most recent teaching period
                 period = TeachingPeriod.query.order_by(TeachingPeriod.start_date.desc()).first()
-            if not period:
-                print("Error: No teaching periods found")
-                return
+                if not period:
+                    print("Error: No teaching periods found")
+                    return
                 
-
+                # Generate reports
+                results = EnhancedWiltonReportGenerator.batch_generate_reports(period.id)
+                
+                print(f"Reports generated: {results['success']}")
+                print(f"Errors: {results['errors']}")
+                if results['output_directory']:
+                    print(f"Output directory: {results['output_directory']}")
             
-            # Generate reports
-            results = EnhancedWiltonReportGenerator.batch_generate_reports(period.id)
-            
-            if results['errors'] > 0:
-                current_app.logger.error("\nError details:")
-                for error in results['error_details']:
-                    current_app.logger.error(f"- {error}")
+                if results['errors'] > 0:
+                    print("\nError details:")
+                    for error in results['error_details']:
+                        print(f"- {error}")
     
             
         except Exception as e:
-            current_app.logger.error(f"Error: {str(e)}")
-            
+            print(f"Error: {str(e)}")
             traceback.print_exc()
 
 if __name__ == '__main__':
