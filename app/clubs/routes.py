@@ -15,7 +15,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime, timezone
 import pytz
 import json
-from app.utils.email import send_coach_invitation
+
+from app.services.email_service import EmailService
 import secrets 
 from app.utils.s3 import upload_file_to_s3, allowed_file
 
@@ -775,8 +776,9 @@ def invite_coach(club_id):
             expiry_hours=current_app.config['INVITATION_EXPIRY_HOURS']
         )
         
-        # Try to send the email
-        success, message = send_coach_invitation(invitation, club.name)
+        # Use the EmailService class to send the invitation
+        email_service = EmailService()
+        success, message = email_service.send_coach_invitation(invitation, club.name)
         
         if success:
             # Save to database if email was sent successfully

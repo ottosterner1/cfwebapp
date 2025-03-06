@@ -73,7 +73,7 @@ class Config:
     AWS_SES_SENDER = os.environ.get('AWS_SES_SENDER')
     
     # Club invitation configuration
-    INVITATION_EXPIRY_HOURS = 48 
+    INVITATION_EXPIRY_HOURS = 48
 
 
 class DevelopmentConfig(Config):

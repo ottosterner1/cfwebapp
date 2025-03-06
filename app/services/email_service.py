@@ -1,6 +1,6 @@
 import boto3
 from botocore.exceptions import ClientError
-from flask import current_app
+from flask import current_app, url_for
 import logging
 from datetime import datetime, timezone
 from email.mime.multipart import MIMEMultipart
@@ -312,3 +312,104 @@ CourtFlow Platform
             current_app.logger.error(f"Error sending accreditation reminder: {str(e)}")
             current_app.logger.error(traceback.format_exc())
             return False, f"Failed to send reminder: {str(e)}", None
+            
+    def send_coach_invitation(self, invitation, club_name):
+        """Send an invitation email to a coach using raw email format for better deliverability"""
+        try:
+            
+            # Generate the invitation URL
+            invite_url = url_for('club_management.accept_invitation',
+                            token=invitation.token,
+                            _external=True)
+            
+            # Email content
+            subject = f'Invitation to join {club_name} on CourtFlow'
+            
+            # HTML version
+            body_html = f"""
+            <html>
+                <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto;">
+                        <div style="margin-bottom: 30px;">
+                            <h2>Welcome to CourtFlow!</h2>
+                            <p>You have been invited to join {club_name} as a coach.</p>
+                            <p>Click the link below to accept the invitation and set up your account:</p>
+                            <p><a href="{invite_url}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">Accept Invitation</a></p>
+                            <p>This invitation will expire in 48 hours.</p>
+                            <p>If you did not expect this invitation, please ignore this email.</p>
+                        </div>
+                        <div style="font-size: 0.9em; color: #666; border-top: 1px solid #eee; padding-top: 15px;">
+                            <p>Please do not reply to this email.</p>
+                            <p>To ensure you receive our emails, please add {self.sender} to your contacts or primary inbox.</p>
+                        </div>
+                    </div>
+                </body>
+            </html>
+            """
+            
+            # Plain text version
+            body_text = f"""
+            Welcome to CourtFlow!
+            
+            You have been invited to join {club_name} as a coach.
+            
+            Click the link below to accept the invitation and set up your account:
+            {invite_url}
+            
+            This invitation will expire in 48 hours.
+            
+            If you did not expect this invitation, please ignore this email.
+            
+            ---
+            Please do not reply to this email.
+            To ensure you receive our emails, please add {self.sender} to your contacts or primary inbox.
+            """
+            
+            # Create multipart message
+            msg = MIMEMultipart('mixed')
+            msg['Subject'] = subject
+            msg['From'] = f'"{club_name}" <{self.sender}>'  # Display name as the tennis club
+            msg['To'] = invitation.email
+            
+            # Add custom headers to improve deliverability
+            msg.add_header('X-Auto-Response-Suppress', 'OOF')
+            msg.add_header('X-Invitation-Type', 'Coach-Invitation')
+            msg.add_header('X-Priority', '1')  # High priority
+            
+            # Create alternative part for plain text and HTML
+            alt_part = MIMEMultipart('alternative')
+            
+            # Plain text part
+            text_part = MIMEText(body_text, 'plain', 'utf-8')
+            alt_part.attach(text_part)
+            
+            # HTML part
+            html_part = MIMEText(body_html, 'html', 'utf-8')
+            alt_part.attach(html_part)
+            
+            # Attach the multipart/alternative to the message
+            msg.attach(alt_part)
+            
+            # Log email content preview
+            raw_email = msg.as_string()
+            
+            # Send the raw email
+            response = self.ses_client.send_raw_email(
+                Source=f'"{club_name}" <{self.sender}>',
+                RawMessage={'Data': raw_email}
+            )
+
+            return True, response.get('MessageId', '')
+            
+        except ClientError as e:
+            current_app.logger.error(f"AWS SES ClientError: {str(e)}")
+            if hasattr(e, 'response') and 'Error' in e.response:
+                error_code = e.response['Error'].get('Code', 'Unknown')
+                error_message = e.response['Error'].get('Message', 'No message')
+                current_app.logger.error(f"Error Code: {error_code}")
+                current_app.logger.error(f"Error Message: {error_message}")
+            return False, str(e)
+        except Exception as e:
+            current_app.logger.error(f"Unexpected error sending invitation: {str(e)}")
+            current_app.logger.error(traceback.format_exc())
+            return False, f"Failed to send invitation: {str(e)}"

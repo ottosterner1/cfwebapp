@@ -167,7 +167,81 @@ def auth_callback():
             return redirect(url_for('main.login'))
 
         user = User.query.filter_by(email=email).first()
+        
+        # Check for pending invitation first
+        pending_invitation = session.get('pending_invitation')
+        if pending_invitation:
+            
+            # Get the invitation data
+            invitation_token = pending_invitation.get('token')
+            tennis_club_id = pending_invitation.get('tennis_club_id')
+            invitation_email = pending_invitation.get('email')
+            
+            # Verify the invitation is valid and matches the authenticated email
+            if email.lower() == invitation_email.lower():
+                invitation = CoachInvitation.query.filter_by(
+                    token=invitation_token, 
+                    used=False,
+                    tennis_club_id=tennis_club_id,
+                    email=invitation_email
+                ).first()
+                
+                if invitation and not invitation.is_expired:
+                    # If user doesn't exist yet, create them
+                    if not user:
+                        # Generate a unique username
+                        base_username = f"coach_{email.split('@')[0]}"
+                        username = base_username
+                        counter = 1
+                        
+                        # Keep checking until we find a unique username
+                        while User.query.filter_by(username=username).first():
+                            username = f"{base_username}_{counter}"
+                            counter += 1
+                        
+                        user = User(
+                            email=email,
+                            username=username,
+                            name=name,
+                            role=UserRole.COACH,
+                            auth_provider='cognito',
+                            auth_provider_id=provider_id,
+                            is_active=True,
+                            tennis_club_id=tennis_club_id
+                        )
+                        db.session.add(user)
+                    else:
+                        # Update existing user with tennis club info
+                        user.tennis_club_id = tennis_club_id
+                        user.auth_provider = 'cognito'
+                        user.auth_provider_id = provider_id
+                    
+                    # Mark invitation as used
+                    invitation.used = True
+                    db.session.commit()
+                    
+                    # Login the user
+                    login_user(user, remember=True)
+                    
+                    # Clear the pending invitation
+                    session.pop('pending_invitation', None)
+                    session.pop('oauth_state', None)
+                    
+                    flash('You have successfully joined the tennis club!', 'success')
+                    return redirect(url_for('main.home'))
+                else:
+                    # Invalid or expired invitation
+                    session.pop('pending_invitation', None)
+                    flash('Invalid or expired invitation', 'error')
+                    return redirect(url_for('main.login'))
+            else:
+                # Email mismatch
+                current_app.logger.warning(f"Email mismatch: invitation for {invitation_email}, but logged in as {email}")
+                session.pop('pending_invitation', None)
+                flash('The email you logged in with does not match the invitation', 'error')
+                return redirect(url_for('main.login'))
 
+        # Normal flow for non-invitation users
         if user and user.tennis_club_id:
             login_user(user, remember=True)
             response = redirect(url_for('main.home'))
