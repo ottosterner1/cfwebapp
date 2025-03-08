@@ -96,6 +96,30 @@
             }
         }
     },
+    "Orange 2": {
+        "page1": {
+            "player_name": [250, 205],
+            "coach_name": [250, 162],
+            "term": [250, 128],
+            "group": [400, 193]
+        },
+        "page2": {
+            "sections": {
+                "RULES OF TENNIS": { "start_y": 559, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
+                "GROUNDSTROKES": { "start_y": 502, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
+                "VOLLEYS": { "start_y": 417, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
+                "SERVE": { "start_y": 360, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
+                "RALLYING": { "start_y": 276, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
+                "COMPETITION": { "start_y": 220, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+            },
+            "group_recommendation": { "orange_x": 349, "green_x": 418, "y": 160 },
+            "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 138},
+            "teaching_period_dates": {
+                "next_term_start": {"x": 340, "y": 98},
+                "bookings_open": {"x": 340, "y": 75}
+            }
+        }
+    },
     "Orange 3": {
         "page1": {
             "player_name": [250, 205],
@@ -132,6 +156,30 @@
                 "VOLLEYS": { "start_y": 446, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
                 "SERVE": { "start_y": 401, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
                 "RALLYING": { "start_y": 304, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
+                "COMPETITION": { "start_y": 234, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+            },
+            "group_recommendation": { "green_x": 348, "yellow_x": 418, "y": 169 },
+            "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 147},
+            "teaching_period_dates": {
+                "next_term_start": {"x": 340, "y": 100},
+                "bookings_open": {"x": 340, "y": 75}
+            }
+        }
+    },
+    "Green 2": {
+        "page1": {
+            "player_name": [250, 205],
+            "coach_name": [250, 162],
+            "term": [250, 128]
+        },
+        "page2": {
+            "sections": {
+                "RULES OF TENNIS": { "start_y": 573, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
+                "GRIPS": { "start_y": 515, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
+                "GROUNDSTROKES": { "start_y": 460, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
+                "VOLLEYS": { "start_y": 388, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
+                "SERVE": { "start_y": 332, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
+                "RALLYING": { "start_y": 276, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
                 "COMPETITION": { "start_y": 234, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
             },
             "group_recommendation": { "green_x": 348, "yellow_x": 418, "y": 169 },
