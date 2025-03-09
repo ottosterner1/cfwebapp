@@ -117,7 +117,8 @@ class ProductionConfig(Config):
     # CORS Configuration
     CORS_ORIGINS = [
         'https://courtflow.co.uk',
-        'https://cfwebapp-production.up.railway.app'
+        'https://cfwebapp-production.up.railway.app',
+        'cfwebapp-staging.up.railway.app'
     ]
     CORS_SUPPORTS_CREDENTIALS = True
 

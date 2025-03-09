@@ -20,6 +20,7 @@ __pycache__/
 .Python
 venv/
 instance/
+data/
 
 # Node/React
 node_modules/
