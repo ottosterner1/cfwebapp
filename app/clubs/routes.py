@@ -709,7 +709,7 @@ def edit_coach(club_id, coach_id):
                 db.session.add(details)
             
             # Update fields from form
-            details.coach_number = request.form.get('coach_number')
+            details.coach_number = request.form.get('coach_number') or None
             if request.form.get('qualification'):
                 details.qualification = CoachQualification[request.form.get('qualification')]
             if request.form.get('coach_role'):
