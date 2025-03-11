@@ -303,8 +303,9 @@ def parse_date(date_str):
     print(f"Attempting to parse date: '{date_str}'")
     print(date_str)
     
-    if not date_str or not isinstance(date_str, str):
-        raise ValueError(f"Invalid date input: {date_str}")
+    # Return None for empty strings or None values
+    if not date_str or date_str.strip() == '':
+        return None
 
     try:
         # First try YYYY-MM-DD format (HTML5 date input)
