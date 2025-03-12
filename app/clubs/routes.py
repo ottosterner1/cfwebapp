@@ -920,27 +920,42 @@ def manage_players(club_id):
 def bulk_upload_players():
     """API endpoint for bulk uploading players via CSV"""
     try:
-        
         if 'file' not in request.files:
+            current_app.logger.error("No file in request")
             return jsonify({'error': 'No file uploaded'}), 400
             
         file = request.files['file']
         if file.filename == '':
+            current_app.logger.error("Empty filename")
             return jsonify({'error': 'No selected file'}), 400
             
         teaching_period_id = request.form.get('teaching_period_id')
         if not teaching_period_id:
+            current_app.logger.error("Missing teaching_period_id")
             return jsonify({'error': 'Teaching period is required'}), 400
 
         # Get current club
         club = TennisClub.query.get_or_404(current_user.tennis_club_id)
+        current_app.logger.info(f"Processing upload for club: {club.name} (ID: {club.id})")
 
         # Read and validate CSV
         try:
+            # Save file content for debugging
+            file_content = file.read()
+            current_app.logger.debug(f"CSV content (first 500 chars): {file_content[:500]}")
+            
+            # Reset file pointer and parse CSV
+            file.seek(0)
             df = pd.read_csv(file, encoding='utf-8')
+            
+            # Log DataFrame info
+            current_app.logger.info(f"CSV loaded with {len(df)} rows and columns: {', '.join(df.columns)}")
+            
+            # Clean whitespace
             df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
         except Exception as e:
             current_app.logger.error(f"Error reading CSV: {str(e)}")
+            current_app.logger.error(traceback.format_exc())
             return jsonify({'error': f'Error reading CSV file: {str(e)}'}), 400
         
         # Verify required columns
@@ -951,6 +966,7 @@ def bulk_upload_players():
         ]
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
+            current_app.logger.error(f"Missing columns: {', '.join(missing_columns)}")
             return jsonify({'error': f'Missing columns: {", ".join(missing_columns)}'}), 400
         
         # Get all coaches and groups for the club
@@ -959,10 +975,19 @@ def bulk_upload_players():
         groups = {group.name.lower(): group for group in 
                  TennisGroup.query.filter_by(tennis_club_id=club.id).all()}
 
+        current_app.logger.info(f"Found {len(coaches)} coaches and {len(groups)} groups")
+        
+        # Log available coaches and groups for debugging
+        current_app.logger.debug(f"Available coaches: {list(coaches.keys())}")
+        current_app.logger.debug(f"Available groups: {list(groups.keys())}")
+
         # Verify teaching period
         teaching_period = TeachingPeriod.query.get(teaching_period_id)
         if not teaching_period or teaching_period.tennis_club_id != club.id:
+            current_app.logger.error(f"Invalid teaching period: {teaching_period_id}")
             return jsonify({'error': 'Invalid teaching period selected'}), 400
+        
+        current_app.logger.info(f"Using teaching period: {teaching_period.name} (ID: {teaching_period.id})")
         
         students_created = 0
         players_created = 0
@@ -975,33 +1000,43 @@ def bulk_upload_players():
             # Process each row in the CSV
             for index, row in df.iterrows():
                 try:
+                    current_app.logger.debug(f"Processing row {index + 2}: {dict(row)}")
+                    
                     # Validate coach
                     coach_email = row['coach_email'].lower()
                     if coach_email not in coaches:
+                        current_app.logger.error(f"Coach not found: {coach_email}")
                         errors.append(f"Row {index + 2}: Coach with email {coach_email} not found")
                         continue
 
                     # Validate group
                     group_name = row['group_name'].lower()
                     if group_name not in groups:
+                        current_app.logger.error(f"Group not found: {row['group_name']}")
                         errors.append(f"Row {index + 2}: Group {row['group_name']} not found")
                         continue
 
                     # Parse time values
                     try:
+                        current_app.logger.debug(f"Parsing times: {row['start_time']} - {row['end_time']}")
                         start_time = datetime.strptime(row['start_time'], '%H:%M').time()
                         end_time = datetime.strptime(row['end_time'], '%H:%M').time()
-                    except ValueError:
+                    except ValueError as e:
+                        current_app.logger.error(f"Invalid time format: {str(e)}")
                         errors.append(f"Row {index + 2}: Invalid time format. Use HH:MM")
                         continue
 
                     # Find or create group time slot
                     try:
+                        current_app.logger.debug(f"Parsing day of week: {row['day_of_week']}")
                         day_of_week = DayOfWeek[row['day_of_week'].upper()]
                     except KeyError:
-                        errors.append(f"Row {index + 2}: Invalid day of week")
+                        current_app.logger.error(f"Invalid day of week: {row['day_of_week']}")
+                        errors.append(f"Row {index + 2}: Invalid day of week '{row['day_of_week']}'. Must be one of: {', '.join([d.name.title() for d in DayOfWeek])}")
                         continue
 
+                    # Find group time
+                    current_app.logger.debug(f"Finding group time: {day_of_week.value} {start_time}-{end_time}")
                     group_time = TennisGroupTimes.query.filter_by(
                         group_id=groups[group_name].id,
                         day_of_week=day_of_week,
@@ -1011,27 +1046,60 @@ def bulk_upload_players():
                     ).first()
 
                     if not group_time:
-                        errors.append(f"Row {index + 2}: Group time slot not found")
+                        current_app.logger.error(f"Group time not found for {group_name} on {day_of_week.value} at {start_time}-{end_time}")
+                        # Enhanced error message with available times for this group
+                        available_times = TennisGroupTimes.query.filter_by(
+                            group_id=groups[group_name].id,
+                            tennis_club_id=club.id
+                        ).all()
+                        time_info = ', '.join([f"{t.day_of_week.value} {t.start_time}-{t.end_time}" for t in available_times])
+                        errors.append(f"Row {index + 2}: Group time slot not found for {row['group_name']} on {row['day_of_week']} at {row['start_time']}-{row['end_time']}. Available times: {time_info}")
                         continue
 
                     # Get or create student with explicit flush
+                    current_app.logger.debug(f"Checking for student: {row['student_name']}")
                     student = Student.query.filter_by(
                         name=row['student_name'],
                         tennis_club_id=club.id
                     ).first()
 
                     if not student:
-                        student = Student(
-                            name=row['student_name'],
-                            date_of_birth=parse_date(row['date_of_birth']),
-                            contact_email=row['contact_email'],
-                            tennis_club_id=club.id
-                        )
-                        db.session.add(student)
-                        db.session.flush()  # Explicitly flush to get student.id
-                        students_created += 1
+                        current_app.logger.debug(f"Creating new student: {row['student_name']}")
+                        try:
+                            dob = parse_date(row['date_of_birth']) if pd.notna(row['date_of_birth']) else None
+                            current_app.logger.debug(f"Parsed DOB: {dob}")
+                            
+                            student = Student(
+                                name=row['student_name'],
+                                date_of_birth=dob,
+                                contact_email=row['contact_email'],
+                                tennis_club_id=club.id
+                            )
+                            db.session.add(student)
+                            db.session.flush()  # Explicitly flush to get student.id
+                            students_created += 1
+                        except Exception as student_error:
+                            current_app.logger.error(f"Error creating student: {str(student_error)}")
+                            errors.append(f"Row {index + 2}: Error creating student: {str(student_error)}")
+                            raise
+
+                    # Change this check in both places it appears (bulk upload and single player creation)
+                    # Instead of checking just student and teaching period, check for exact duplicates
+                    existing_player = ProgrammePlayers.query.filter_by(
+                        student_id=student.id,
+                        group_id=groups[group_name].id,
+                        group_time_id=group_time.id,  # Include the specific time slot
+                        teaching_period_id=teaching_period.id,
+                        tennis_club_id=club.id
+                    ).first()
+
+                    if existing_player:
+                        current_app.logger.warning(f"Student {student.name} is already assigned to this group and time slot in this teaching period")
+                        errors.append(f"Row {index + 2}: Student {student.name} is already assigned to this specific group and time slot")
+                        continue
 
                     # Create programme player
+                    current_app.logger.debug(f"Creating player assignment for {student.name}")
                     player = ProgrammePlayers(
                         student_id=student.id,
                         coach_id=coaches[coach_email].id,
@@ -1045,10 +1113,12 @@ def bulk_upload_players():
 
                 except Exception as e:
                     current_app.logger.error(f"Error processing row {index + 2}: {str(e)}")
+                    current_app.logger.error(traceback.format_exc())
                     errors.append(f"Row {index + 2}: {str(e)}")
                     raise  # Re-raise to trigger rollback
 
             if errors:
+                current_app.logger.error(f"Upload failed with {len(errors)} errors")
                 db.session.rollback()
                 return jsonify({
                     'error': 'Upload failed',
@@ -1057,6 +1127,7 @@ def bulk_upload_players():
 
             # If we get here, everything worked
             db.session.commit()
+            current_app.logger.info(f"Upload successful: {students_created} students and {players_created} player assignments created")
             
             return jsonify({
                 'message': 'Upload successful',
@@ -1067,11 +1138,13 @@ def bulk_upload_players():
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Bulk upload error: {str(e)}")
+            current_app.logger.error(traceback.format_exc())
             return jsonify({'error': str(e)}), 400
             
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Bulk upload error: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 400
 
 @club_management.route('/api/template/download')
@@ -1275,17 +1348,19 @@ def create_player():
             db.session.add(student)
             db.session.flush()
 
-        # Check if player already exists in this period
-        existing_player = ProgrammePlayers.query.filter_by(
-            student_id=student.id,
-            teaching_period_id=data['teaching_period_id'],
-            tennis_club_id=club_id
-        ).first()
+            # Check if player already exists in this specific group and time slot
+            existing_player = ProgrammePlayers.query.filter_by(
+                student_id=student.id,
+                group_id=data['group_id'],
+                group_time_id=data['group_time_id'],
+                teaching_period_id=data['teaching_period_id'],
+                tennis_club_id=club_id
+            ).first()
 
-        if existing_player:
-            return jsonify({
-                'error': 'Player is already assigned to this teaching period'
-            }), 400
+            if existing_player:
+                return jsonify({
+                    'error': 'Player is already assigned to this specific group and time slot'
+                }), 400
 
         # Create programme player assignment
         assignment = ProgrammePlayers(
