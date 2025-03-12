@@ -30,6 +30,42 @@ interface SessionInfo {
 }
 
 const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
+  // Helper function to get day order value - handles case and whitespace
+  const getDayOrder = (day: string): number => {
+    const normalizedDay = day.trim().toLowerCase();
+    const DAY_ORDER: Record<string, number> = {
+      'monday': 1,
+      'tuesday': 2,
+      'wednesday': 3,
+      'thursday': 4,
+      'friday': 5,
+      'saturday': 6,
+      'sunday': 7
+    };
+    return DAY_ORDER[normalizedDay] || 999; // Default to high number if not found
+  };
+
+  // Helper function to convert time string to numerical minutes for sorting
+  const getTimeValue = (timeStr: string): number => {
+    // Extract just the hours and minutes from the start time
+    const [time] = timeStr.split('-');
+    const [hoursStr, minutesStr] = time.trim().split(':');
+    
+    // Convert to integers
+    let hours = parseInt(hoursStr, 10);
+    const minutes = parseInt(minutesStr, 10) || 0;
+    
+    // Handle 12-hour format if needed (assuming afternoon lessons)
+    // If time seems to be in 12-hour format (1-8), convert to 24-hour
+    // This assumes tennis lessons don't happen between 1-8 AM
+    if (hours > 0 && hours < 9) {
+      hours += 12;
+    }
+    
+    // Return a numerical value for sorting (hours * 60 + minutes)
+    return hours * 60 + minutes;
+  };
+
   const analytics = React.useMemo(() => {
     const summary = {
       totalPlayers: players.length,
@@ -44,7 +80,9 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
 
       // Session breakdown
       if (player.time_slot) {
-        const sessionKey = `${player.group_name} ${player.time_slot.start_time}-${player.time_slot.end_time}`;
+        // Include day_of_week in the sessionKey to distinguish between sessions on different days
+        const sessionKey = `${player.group_name} ${player.time_slot.day_of_week} ${player.time_slot.start_time}-${player.time_slot.end_time}`;
+        
         if (!summary.sessionBreakdown[sessionKey]) {
           summary.sessionBreakdown[sessionKey] = {
             count: 0,
@@ -137,21 +175,18 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
               const sessionA = analytics.sessionBreakdown[a[0]];
               const sessionB = analytics.sessionBreakdown[b[0]];
               
-              // First sort by group name
-              const groupCompare = sessionA.group.localeCompare(sessionB.group);
-              if (groupCompare !== 0) return groupCompare;
-
-              // Then sort by day of week
-              const dayOrder = {
-                'Monday': 1, 'Tuesday': 2, 'Wednesday': 3,
-                'Thursday': 4, 'Friday': 5, 'Saturday': 6, 'Sunday': 7
-              };
-              const dayDiff = dayOrder[sessionA.dayOfWeek as keyof typeof dayOrder] - 
-                            dayOrder[sessionB.dayOfWeek as keyof typeof dayOrder];
-              if (dayDiff !== 0) return dayDiff;
-
-              // Finally sort by time
-              return sessionA.timeSlot.localeCompare(sessionB.timeSlot);
+              // First sort by day of week
+              const dayOrderA = getDayOrder(sessionA.dayOfWeek);
+              const dayOrderB = getDayOrder(sessionB.dayOfWeek);
+              if (dayOrderA !== dayOrderB) return dayOrderA - dayOrderB;
+              
+              // Then sort by time
+              const timeValueA = getTimeValue(sessionA.timeSlot);
+              const timeValueB = getTimeValue(sessionB.timeSlot);
+              if (timeValueA !== timeValueB) return timeValueA - timeValueB;
+              
+              // Finally sort by group name if day and time are the same
+              return sessionA.group.localeCompare(sessionB.group);
             })
             .map(([sessionKey, session]) => (
               <div 
