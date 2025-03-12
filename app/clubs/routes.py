@@ -918,12 +918,13 @@ def manage_players(club_id):
 @login_required
 @admin_required
 def bulk_upload_players():
-    """API endpoint for bulk uploading players via CSV"""
+    """API endpoint for bulk uploading players via CSV with batch processing"""
     
-    students_created = 0
-    players_created = 0
-    warnings = []
-    errors = []
+    # Tracking variables for the entire upload process
+    total_students_created = 0
+    total_players_created = 0
+    all_warnings = []
+    all_errors = []
     
     try:
         # Validate request has file
@@ -961,7 +962,7 @@ def bulk_upload_players():
                 current_app.logger.error("Empty CSV file")
                 return jsonify({'error': 'The uploaded CSV file is empty'}), 400
                 
-            current_app.logger.debug(f"CSV content preview: {file_content[:500]}")
+            current_app.logger.debug(f"CSV content preview (first 200 chars): {file_content[:200]}")
             
             # Reset file pointer and parse CSV
             file.seek(0)
@@ -1010,7 +1011,7 @@ def bulk_upload_players():
                 'details': f"The following columns are required: {', '.join(missing_columns)}"
             }), 400
         
-        # Get all coaches and groups for the club
+        # Get all coaches and groups for the club (cached for all batches)
         coaches = {coach.email.lower(): coach for coach in 
                  User.query.filter_by(tennis_club_id=club.id).all()}
                  
@@ -1039,54 +1040,72 @@ def bulk_upload_players():
         
         current_app.logger.info(f"Using teaching period: {teaching_period.name} (ID: {teaching_period.id})")
         
-        # Start a new transaction
-        db.session.begin_nested()
+        # Define batch size
+        BATCH_SIZE = 50  # Process 50 rows at a time
         
-        try:
-            # First pass: validate data rows
+        # Calculate number of batches
+        total_rows = len(df)
+        num_batches = (total_rows + BATCH_SIZE - 1) // BATCH_SIZE
+        current_app.logger.info(f"Processing {total_rows} rows in {num_batches} batches of {BATCH_SIZE}")
+        
+        # Process each batch
+        for batch_num in range(num_batches):
+            start_idx = batch_num * BATCH_SIZE
+            end_idx = min((batch_num + 1) * BATCH_SIZE, total_rows)
+            batch_df = df.iloc[start_idx:end_idx]
+            
+            current_app.logger.info(f"Processing batch {batch_num + 1}/{num_batches} (rows {start_idx + 1}-{end_idx})")
+            
+            # Variables to track this batch
+            batch_students_created = 0
+            batch_players_created = 0
+            batch_errors = []
+            batch_warnings = []
             valid_rows = []
-            for index, row in df.iterrows():
+            
+            # Stage 1: Validate all rows in the batch
+            for index, row in batch_df.iterrows():
                 try:
                     row_number = index + 2  # +2 for header row and 0-indexing
                     row_data = {}
                     
                     # Validate student name
                     if pd.isna(row['student_name']):
-                        errors.append(f"Row {row_number}: Missing student name")
+                        batch_errors.append(f"Row {row_number}: Missing student name")
                         continue
                     row_data['student_name'] = row['student_name']
                     
                     # Validate contact email
                     if pd.isna(row['contact_email']):
-                        errors.append(f"Row {row_number}: Missing contact email for {row['student_name']}")
+                        batch_errors.append(f"Row {row_number}: Missing contact email for {row['student_name']}")
                         continue
                     row_data['contact_email'] = row['contact_email']
                     
                     # Validate coach
                     if pd.isna(row['coach_email']):
-                        errors.append(f"Row {row_number}: Missing coach email for {row['student_name']}")
+                        batch_errors.append(f"Row {row_number}: Missing coach email for {row['student_name']}")
                         continue
                         
                     coach_email = str(row['coach_email']).lower()
                     if coach_email not in coaches:
-                        errors.append(f"Row {row_number}: Coach with email {row['coach_email']} not found")
+                        batch_errors.append(f"Row {row_number}: Coach with email {row['coach_email']} not found")
                         continue
                     row_data['coach'] = coaches[coach_email]
                     
                     # Validate group
                     if pd.isna(row['group_name']):
-                        errors.append(f"Row {row_number}: Missing group name for {row['student_name']}")
+                        batch_errors.append(f"Row {row_number}: Missing group name for {row['student_name']}")
                         continue
                         
                     group_name = str(row['group_name']).lower()
                     if group_name not in groups:
-                        errors.append(f"Row {row_number}: Group '{row['group_name']}' not found")
+                        batch_errors.append(f"Row {row_number}: Group '{row['group_name']}' not found")
                         continue
                     row_data['group'] = groups[group_name]
                     
                     # Parse day of week
                     if pd.isna(row['day_of_week']):
-                        errors.append(f"Row {row_number}: Missing day of week for {row['student_name']}")
+                        batch_errors.append(f"Row {row_number}: Missing day of week for {row['student_name']}")
                         continue
                         
                     try:
@@ -1094,12 +1113,12 @@ def bulk_upload_players():
                         row_data['day_of_week'] = day_of_week
                     except KeyError:
                         valid_days = ', '.join([d.name.title() for d in DayOfWeek])
-                        errors.append(f"Row {row_number}: Invalid day of week '{row['day_of_week']}'. Must be one of: {valid_days}")
+                        batch_errors.append(f"Row {row_number}: Invalid day of week '{row['day_of_week']}'. Must be one of: {valid_days}")
                         continue
                     
                     # Parse time values
                     if pd.isna(row['start_time']) or pd.isna(row['end_time']):
-                        errors.append(f"Row {row_number}: Missing start or end time for {row['student_name']}")
+                        batch_errors.append(f"Row {row_number}: Missing start or end time for {row['student_name']}")
                         continue
                         
                     try:
@@ -1107,13 +1126,13 @@ def bulk_upload_players():
                         end_time = datetime.strptime(str(row['end_time']), '%H:%M').time()
                         
                         if start_time >= end_time:
-                            errors.append(f"Row {row_number}: End time must be after start time")
+                            batch_errors.append(f"Row {row_number}: End time must be after start time")
                             continue
                             
                         row_data['start_time'] = start_time
                         row_data['end_time'] = end_time
                     except ValueError as e:
-                        errors.append(f"Row {row_number}: Invalid time format. Use HH:MM. Error: {str(e)}")
+                        batch_errors.append(f"Row {row_number}: Invalid time format. Use HH:MM. Error: {str(e)}")
                         continue
                     
                     # Find group time slot
@@ -1137,9 +1156,9 @@ def bulk_upload_players():
                         else:
                             time_info = ', '.join([f"{t.day_of_week.value} {t.start_time}-{t.end_time}" for t in available_times])
                             
-                        errors.append(f"Row {row_number}: Group time slot not found for {row['group_name']} " +
-                                    f"on {row['day_of_week']} at {row['start_time']}-{row['end_time']}. " +
-                                    f"Available times: {time_info}")
+                        batch_errors.append(f"Row {row_number}: Group time slot not found for {row['group_name']} " +
+                                          f"on {row['day_of_week']} at {row['start_time']}-{row['end_time']}. " +
+                                          f"Available times: {time_info}")
                         continue
                         
                     row_data['group_time'] = group_time
@@ -1149,130 +1168,124 @@ def bulk_upload_players():
                         try:
                             row_data['date_of_birth'] = parse_date(str(row['date_of_birth']))
                         except ValueError as e:
-                            warnings.append(f"Row {row_number}: Couldn't parse date of birth '{row['date_of_birth']}', will be ignored. Error: {str(e)}")
+                            batch_warnings.append(f"Row {row_number}: Couldn't parse date of birth '{row['date_of_birth']}', will be ignored. Error: {str(e)}")
                     
-                    # Add row to valid rows
+                    # Add row to valid rows for this batch
                     valid_rows.append(row_data)
                     
                 except Exception as e:
                     current_app.logger.error(f"Error validating row {index + 2}: {str(e)}")
                     current_app.logger.error(traceback.format_exc())
-                    errors.append(f"Row {index + 2}: Unexpected error: {str(e)}")
+                    batch_errors.append(f"Row {index + 2}: Unexpected error: {str(e)}")
             
-            # If there are errors, return them without processing
-            if errors and not valid_rows:
-                db.session.rollback()
-                current_app.logger.error(f"Upload failed: No valid rows found, {len(errors)} errors")
+            # Stage 2: Process valid rows with a separate transaction per batch
+            if valid_rows:
+                # Start a transaction for this batch
+                with db.session.begin_nested():
+                    for row_data in valid_rows:
+                        try:
+                            # Get or create student
+                            student = Student.query.filter_by(
+                                name=row_data['student_name'],
+                                tennis_club_id=club.id
+                            ).first()
+    
+                            if not student:
+                                student = Student(
+                                    name=row_data['student_name'],
+                                    date_of_birth=row_data.get('date_of_birth'),
+                                    contact_email=row_data['contact_email'],
+                                    tennis_club_id=club.id
+                                )
+                                db.session.add(student)
+                                db.session.flush()  # Get student.id
+                                batch_students_created += 1
+    
+                            # Check if player assignment already exists
+                            existing_player = ProgrammePlayers.query.filter_by(
+                                student_id=student.id,
+                                group_id=row_data['group'].id,
+                                group_time_id=row_data['group_time'].id,
+                                teaching_period_id=teaching_period.id,
+                                tennis_club_id=club.id
+                            ).first()
+    
+                            if existing_player:
+                                batch_warnings.append(f"Student {student.name} is already assigned to {row_data['group'].name} " +
+                                                  f"at {row_data['day_of_week'].value} {row_data['start_time']}-{row_data['end_time']}")
+                                continue
+    
+                            # Create new player assignment
+                            player = ProgrammePlayers(
+                                student_id=student.id,
+                                coach_id=row_data['coach'].id,
+                                group_id=row_data['group'].id,
+                                group_time_id=row_data['group_time'].id,
+                                teaching_period_id=teaching_period.id,
+                                tennis_club_id=club.id
+                            )
+                            db.session.add(player)
+                            batch_players_created += 1
+    
+                        except Exception as e:
+                            current_app.logger.error(f"Error processing student {row_data['student_name']}: {str(e)}")
+                            current_app.logger.error(traceback.format_exc())
+                            batch_errors.append(f"Error creating player assignment for {row_data['student_name']}: {str(e)}")
+                            raise  # Re-raise to trigger rollback
+                
+                # If we got here, the batch was successful
+                db.session.commit()
+                
+                # Update totals
+                total_students_created += batch_students_created
+                total_players_created += batch_players_created
+                all_warnings.extend(batch_warnings)
+                
+                current_app.logger.info(f"Batch {batch_num + 1}/{num_batches} completed: " +
+                                       f"{batch_students_created} students and {batch_players_created} players created")
+            
+            # Add batch errors to overall errors
+            all_errors.extend(batch_errors)
+        
+        # Final status report
+        current_app.logger.info(f"Upload completed: {total_students_created} students and {total_players_created} players " +
+                               f"created, with {len(all_errors)} errors and {len(all_warnings)} warnings")
+        
+        # Check if we have any successful creations
+        if total_players_created == 0:
+            if all_errors:
                 return jsonify({
-                    'error': 'Upload failed: No valid data rows',
-                    'details': errors
+                    'error': 'Upload failed: No players were created',
+                    'details': all_errors,
+                    'warnings': all_warnings
                 }), 400
+            elif all_warnings:
+                return jsonify({
+                    'error': 'Upload failed: No new players were created',
+                    'details': 'All students already exist in the specified groups',
+                    'warnings': all_warnings
+                }), 400
+            else:
+                return jsonify({
+                    'error': 'Upload failed: No players were created',
+                    'details': 'Unknown error occurred'
+                }), 500
+        
+        # Construct response with warnings and errors if any
+        response = {
+            'message': 'Upload successful',
+            'students_created': total_students_created,
+            'players_created': total_players_created
+        }
+        
+        if all_warnings:
+            response['warnings'] = all_warnings
             
-            # Second pass: process valid rows
-            for row_data in valid_rows:
-                try:
-                    # Get or create student
-                    student = Student.query.filter_by(
-                        name=row_data['student_name'],
-                        tennis_club_id=club.id
-                    ).first()
-
-                    if not student:
-                        student = Student(
-                            name=row_data['student_name'],
-                            date_of_birth=row_data.get('date_of_birth'),
-                            contact_email=row_data['contact_email'],
-                            tennis_club_id=club.id
-                        )
-                        db.session.add(student)
-                        db.session.flush()  # Get student.id
-                        students_created += 1
-
-                    # Check if player assignment already exists
-                    existing_player = ProgrammePlayers.query.filter_by(
-                        student_id=student.id,
-                        group_id=row_data['group'].id,
-                        group_time_id=row_data['group_time'].id,
-                        teaching_period_id=teaching_period.id,
-                        tennis_club_id=club.id
-                    ).first()
-
-                    if existing_player:
-                        warnings.append(f"Student {student.name} is already assigned to {row_data['group'].name} " +
-                                      f"at {row_data['day_of_week'].value} {row_data['start_time']}-{row_data['end_time']}")
-                        continue
-
-                    # Create new player assignment
-                    player = ProgrammePlayers(
-                        student_id=student.id,
-                        coach_id=row_data['coach'].id,
-                        group_id=row_data['group'].id,
-                        group_time_id=row_data['group_time'].id,
-                        teaching_period_id=teaching_period.id,
-                        tennis_club_id=club.id
-                    )
-                    db.session.add(player)
-                    players_created += 1
-
-                except Exception as e:
-                    current_app.logger.error(f"Error processing student {row_data['student_name']}: {str(e)}")
-                    current_app.logger.error(traceback.format_exc())
-                    errors.append(f"Error creating player assignment for {row_data['student_name']}: {str(e)}")
-                    raise  # Re-raise to trigger rollback
+        if all_errors:
+            response['errors'] = all_errors
+            response['message'] = 'Upload partially successful with some errors'
             
-            # Check if we have any successful creations
-            if players_created == 0:
-                db.session.rollback()
-                current_app.logger.warning(f"No players created, {len(errors)} errors, {len(warnings)} warnings")
-                
-                if errors:
-                    return jsonify({
-                        'error': 'Upload failed: No players were created',
-                        'details': errors,
-                        'warnings': warnings
-                    }), 400
-                elif warnings:
-                    return jsonify({
-                        'error': 'Upload failed: No new players were created',
-                        'details': 'All students already exist in the specified groups',
-                        'warnings': warnings
-                    }), 400
-                else:
-                    return jsonify({
-                        'error': 'Upload failed: No players were created',
-                        'details': 'Unknown error occurred'
-                    }), 500
-            
-            # If we get here, commit the transaction
-            db.session.commit()
-            current_app.logger.info(f"Upload successful: {students_created} students and {players_created} player assignments created")
-            
-            # Construct response with warnings if any
-            response = {
-                'message': 'Upload successful',
-                'students_created': students_created,
-                'players_created': players_created
-            }
-            
-            if warnings:
-                response['warnings'] = warnings
-                
-            if errors:
-                response['errors'] = errors
-                response['message'] = 'Upload partially successful with some errors'
-                
-            return jsonify(response)
-            
-        except Exception as e:
-            db.session.rollback()
-            current_app.logger.error(f"Bulk upload error: {str(e)}")
-            current_app.logger.error(traceback.format_exc())
-            return jsonify({
-                'error': 'Upload failed',
-                'details': str(e),
-                'errors': errors,
-                'warnings': warnings
-            }), 500
+        return jsonify(response)
             
     except Exception as e:
         # Be sure to rollback any active transaction
