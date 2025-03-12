@@ -919,7 +919,14 @@ def manage_players(club_id):
 @admin_required
 def bulk_upload_players():
     """API endpoint for bulk uploading players via CSV"""
+    
+    students_created = 0
+    players_created = 0
+    warnings = []
+    errors = []
+    
     try:
+        # Validate request has file
         if 'file' not in request.files:
             current_app.logger.error("No file in request")
             return jsonify({'error': 'No file uploaded'}), 400
@@ -928,7 +935,13 @@ def bulk_upload_players():
         if file.filename == '':
             current_app.logger.error("Empty filename")
             return jsonify({'error': 'No selected file'}), 400
+        
+        # Validate file type
+        if not file.filename.lower().endswith('.csv'):
+            current_app.logger.error(f"Invalid file type: {file.filename}")
+            return jsonify({'error': 'Only CSV files are allowed'}), 400
             
+        # Validate teaching period
         teaching_period_id = request.form.get('teaching_period_id')
         if not teaching_period_id:
             current_app.logger.error("Missing teaching_period_id")
@@ -942,17 +955,42 @@ def bulk_upload_players():
         try:
             # Save file content for debugging
             file_content = file.read()
-            current_app.logger.debug(f"CSV content (first 500 chars): {file_content[:500]}")
+            
+            # Protect against empty files
+            if not file_content:
+                current_app.logger.error("Empty CSV file")
+                return jsonify({'error': 'The uploaded CSV file is empty'}), 400
+                
+            current_app.logger.debug(f"CSV content preview: {file_content[:500]}")
             
             # Reset file pointer and parse CSV
             file.seek(0)
-            df = pd.read_csv(file, encoding='utf-8')
+            
+            # Try different encodings if UTF-8 fails
+            try:
+                df = pd.read_csv(file, encoding='utf-8')
+            except UnicodeDecodeError:
+                file.seek(0)
+                df = pd.read_csv(file, encoding='latin-1')
+            
+            # Check if CSV has any rows
+            if len(df) == 0:
+                current_app.logger.error("CSV has no data rows")
+                return jsonify({'error': 'The CSV file contains no data rows'}), 400
             
             # Log DataFrame info
             current_app.logger.info(f"CSV loaded with {len(df)} rows and columns: {', '.join(df.columns)}")
             
-            # Clean whitespace
+            # Clean whitespace and handle missing values
             df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
+            
+            # Replace empty strings with NaN for better handling
+            df = df.replace('', pd.NA)
+            
+        except pd.errors.ParserError as e:
+            current_app.logger.error(f"CSV parsing error: {str(e)}")
+            current_app.logger.error(traceback.format_exc())
+            return jsonify({'error': f'Error parsing CSV: {str(e)}. Please check file format.'}), 400
         except Exception as e:
             current_app.logger.error(f"Error reading CSV: {str(e)}")
             current_app.logger.error(traceback.format_exc())
@@ -967,144 +1005,209 @@ def bulk_upload_players():
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
             current_app.logger.error(f"Missing columns: {', '.join(missing_columns)}")
-            return jsonify({'error': f'Missing columns: {", ".join(missing_columns)}'}), 400
+            return jsonify({
+                'error': 'Missing required columns in CSV file', 
+                'details': f"The following columns are required: {', '.join(missing_columns)}"
+            }), 400
         
         # Get all coaches and groups for the club
         coaches = {coach.email.lower(): coach for coach in 
                  User.query.filter_by(tennis_club_id=club.id).all()}
+                 
+        if not coaches:
+            current_app.logger.error("No coaches found in club")
+            return jsonify({'error': 'No coaches found in your club'}), 400
+                 
         groups = {group.name.lower(): group for group in 
                  TennisGroup.query.filter_by(tennis_club_id=club.id).all()}
+                 
+        if not groups:
+            current_app.logger.error("No groups found in club")
+            return jsonify({'error': 'No groups found in your club'}), 400
 
         current_app.logger.info(f"Found {len(coaches)} coaches and {len(groups)} groups")
         
-        # Log available coaches and groups for debugging
-        current_app.logger.debug(f"Available coaches: {list(coaches.keys())}")
-        current_app.logger.debug(f"Available groups: {list(groups.keys())}")
-
         # Verify teaching period
         teaching_period = TeachingPeriod.query.get(teaching_period_id)
-        if not teaching_period or teaching_period.tennis_club_id != club.id:
-            current_app.logger.error(f"Invalid teaching period: {teaching_period_id}")
-            return jsonify({'error': 'Invalid teaching period selected'}), 400
+        if not teaching_period:
+            current_app.logger.error(f"Teaching period not found: {teaching_period_id}")
+            return jsonify({'error': 'Teaching period not found'}), 404
+            
+        if teaching_period.tennis_club_id != club.id:
+            current_app.logger.error(f"Teaching period {teaching_period_id} does not belong to club {club.id}")
+            return jsonify({'error': 'Teaching period does not belong to your club'}), 403
         
         current_app.logger.info(f"Using teaching period: {teaching_period.name} (ID: {teaching_period.id})")
-        
-        students_created = 0
-        players_created = 0
-        errors = []
         
         # Start a new transaction
         db.session.begin_nested()
         
         try:
-            # Process each row in the CSV
+            # First pass: validate data rows
+            valid_rows = []
             for index, row in df.iterrows():
                 try:
-                    current_app.logger.debug(f"Processing row {index + 2}: {dict(row)}")
+                    row_number = index + 2  # +2 for header row and 0-indexing
+                    row_data = {}
+                    
+                    # Validate student name
+                    if pd.isna(row['student_name']):
+                        errors.append(f"Row {row_number}: Missing student name")
+                        continue
+                    row_data['student_name'] = row['student_name']
+                    
+                    # Validate contact email
+                    if pd.isna(row['contact_email']):
+                        errors.append(f"Row {row_number}: Missing contact email for {row['student_name']}")
+                        continue
+                    row_data['contact_email'] = row['contact_email']
                     
                     # Validate coach
-                    coach_email = row['coach_email'].lower()
+                    if pd.isna(row['coach_email']):
+                        errors.append(f"Row {row_number}: Missing coach email for {row['student_name']}")
+                        continue
+                        
+                    coach_email = str(row['coach_email']).lower()
                     if coach_email not in coaches:
-                        current_app.logger.error(f"Coach not found: {coach_email}")
-                        errors.append(f"Row {index + 2}: Coach with email {coach_email} not found")
+                        errors.append(f"Row {row_number}: Coach with email {row['coach_email']} not found")
                         continue
-
+                    row_data['coach'] = coaches[coach_email]
+                    
                     # Validate group
-                    group_name = row['group_name'].lower()
+                    if pd.isna(row['group_name']):
+                        errors.append(f"Row {row_number}: Missing group name for {row['student_name']}")
+                        continue
+                        
+                    group_name = str(row['group_name']).lower()
                     if group_name not in groups:
-                        current_app.logger.error(f"Group not found: {row['group_name']}")
-                        errors.append(f"Row {index + 2}: Group {row['group_name']} not found")
+                        errors.append(f"Row {row_number}: Group '{row['group_name']}' not found")
                         continue
-
-                    # Parse time values
-                    try:
-                        current_app.logger.debug(f"Parsing times: {row['start_time']} - {row['end_time']}")
-                        start_time = datetime.strptime(row['start_time'], '%H:%M').time()
-                        end_time = datetime.strptime(row['end_time'], '%H:%M').time()
-                    except ValueError as e:
-                        current_app.logger.error(f"Invalid time format: {str(e)}")
-                        errors.append(f"Row {index + 2}: Invalid time format. Use HH:MM")
+                    row_data['group'] = groups[group_name]
+                    
+                    # Parse day of week
+                    if pd.isna(row['day_of_week']):
+                        errors.append(f"Row {row_number}: Missing day of week for {row['student_name']}")
                         continue
-
-                    # Find or create group time slot
+                        
                     try:
-                        current_app.logger.debug(f"Parsing day of week: {row['day_of_week']}")
-                        day_of_week = DayOfWeek[row['day_of_week'].upper()]
+                        day_of_week = DayOfWeek[str(row['day_of_week']).upper()]
+                        row_data['day_of_week'] = day_of_week
                     except KeyError:
-                        current_app.logger.error(f"Invalid day of week: {row['day_of_week']}")
-                        errors.append(f"Row {index + 2}: Invalid day of week '{row['day_of_week']}'. Must be one of: {', '.join([d.name.title() for d in DayOfWeek])}")
+                        valid_days = ', '.join([d.name.title() for d in DayOfWeek])
+                        errors.append(f"Row {row_number}: Invalid day of week '{row['day_of_week']}'. Must be one of: {valid_days}")
                         continue
-
-                    # Find group time
-                    current_app.logger.debug(f"Finding group time: {day_of_week.value} {start_time}-{end_time}")
+                    
+                    # Parse time values
+                    if pd.isna(row['start_time']) or pd.isna(row['end_time']):
+                        errors.append(f"Row {row_number}: Missing start or end time for {row['student_name']}")
+                        continue
+                        
+                    try:
+                        start_time = datetime.strptime(str(row['start_time']), '%H:%M').time()
+                        end_time = datetime.strptime(str(row['end_time']), '%H:%M').time()
+                        
+                        if start_time >= end_time:
+                            errors.append(f"Row {row_number}: End time must be after start time")
+                            continue
+                            
+                        row_data['start_time'] = start_time
+                        row_data['end_time'] = end_time
+                    except ValueError as e:
+                        errors.append(f"Row {row_number}: Invalid time format. Use HH:MM. Error: {str(e)}")
+                        continue
+                    
+                    # Find group time slot
                     group_time = TennisGroupTimes.query.filter_by(
-                        group_id=groups[group_name].id,
-                        day_of_week=day_of_week,
-                        start_time=start_time,
-                        end_time=end_time,
+                        group_id=row_data['group'].id,
+                        day_of_week=row_data['day_of_week'],
+                        start_time=row_data['start_time'],
+                        end_time=row_data['end_time'],
                         tennis_club_id=club.id
                     ).first()
 
                     if not group_time:
-                        current_app.logger.error(f"Group time not found for {group_name} on {day_of_week.value} at {start_time}-{end_time}")
-                        # Enhanced error message with available times for this group
+                        # Get available times for more helpful error message
                         available_times = TennisGroupTimes.query.filter_by(
-                            group_id=groups[group_name].id,
+                            group_id=row_data['group'].id,
                             tennis_club_id=club.id
                         ).all()
-                        time_info = ', '.join([f"{t.day_of_week.value} {t.start_time}-{t.end_time}" for t in available_times])
-                        errors.append(f"Row {index + 2}: Group time slot not found for {row['group_name']} on {row['day_of_week']} at {row['start_time']}-{row['end_time']}. Available times: {time_info}")
+                        
+                        if not available_times:
+                            time_info = "No time slots configured for this group"
+                        else:
+                            time_info = ', '.join([f"{t.day_of_week.value} {t.start_time}-{t.end_time}" for t in available_times])
+                            
+                        errors.append(f"Row {row_number}: Group time slot not found for {row['group_name']} " +
+                                    f"on {row['day_of_week']} at {row['start_time']}-{row['end_time']}. " +
+                                    f"Available times: {time_info}")
                         continue
-
-                    # Get or create student with explicit flush
-                    current_app.logger.debug(f"Checking for student: {row['student_name']}")
+                        
+                    row_data['group_time'] = group_time
+                    
+                    # Parse date of birth (optional)
+                    if not pd.isna(row['date_of_birth']):
+                        try:
+                            row_data['date_of_birth'] = parse_date(str(row['date_of_birth']))
+                        except ValueError as e:
+                            warnings.append(f"Row {row_number}: Couldn't parse date of birth '{row['date_of_birth']}', will be ignored. Error: {str(e)}")
+                    
+                    # Add row to valid rows
+                    valid_rows.append(row_data)
+                    
+                except Exception as e:
+                    current_app.logger.error(f"Error validating row {index + 2}: {str(e)}")
+                    current_app.logger.error(traceback.format_exc())
+                    errors.append(f"Row {index + 2}: Unexpected error: {str(e)}")
+            
+            # If there are errors, return them without processing
+            if errors and not valid_rows:
+                db.session.rollback()
+                current_app.logger.error(f"Upload failed: No valid rows found, {len(errors)} errors")
+                return jsonify({
+                    'error': 'Upload failed: No valid data rows',
+                    'details': errors
+                }), 400
+            
+            # Second pass: process valid rows
+            for row_data in valid_rows:
+                try:
+                    # Get or create student
                     student = Student.query.filter_by(
-                        name=row['student_name'],
+                        name=row_data['student_name'],
                         tennis_club_id=club.id
                     ).first()
 
                     if not student:
-                        current_app.logger.debug(f"Creating new student: {row['student_name']}")
-                        try:
-                            dob = parse_date(row['date_of_birth']) if pd.notna(row['date_of_birth']) else None
-                            current_app.logger.debug(f"Parsed DOB: {dob}")
-                            
-                            student = Student(
-                                name=row['student_name'],
-                                date_of_birth=dob,
-                                contact_email=row['contact_email'],
-                                tennis_club_id=club.id
-                            )
-                            db.session.add(student)
-                            db.session.flush()  # Explicitly flush to get student.id
-                            students_created += 1
-                        except Exception as student_error:
-                            current_app.logger.error(f"Error creating student: {str(student_error)}")
-                            errors.append(f"Row {index + 2}: Error creating student: {str(student_error)}")
-                            raise
+                        student = Student(
+                            name=row_data['student_name'],
+                            date_of_birth=row_data.get('date_of_birth'),
+                            contact_email=row_data['contact_email'],
+                            tennis_club_id=club.id
+                        )
+                        db.session.add(student)
+                        db.session.flush()  # Get student.id
+                        students_created += 1
 
-                    # Change this check in both places it appears (bulk upload and single player creation)
-                    # Instead of checking just student and teaching period, check for exact duplicates
+                    # Check if player assignment already exists
                     existing_player = ProgrammePlayers.query.filter_by(
                         student_id=student.id,
-                        group_id=groups[group_name].id,
-                        group_time_id=group_time.id,  # Include the specific time slot
+                        group_id=row_data['group'].id,
+                        group_time_id=row_data['group_time'].id,
                         teaching_period_id=teaching_period.id,
                         tennis_club_id=club.id
                     ).first()
 
                     if existing_player:
-                        current_app.logger.warning(f"Student {student.name} is already assigned to this group and time slot in this teaching period")
-                        errors.append(f"Row {index + 2}: Student {student.name} is already assigned to this specific group and time slot")
+                        warnings.append(f"Student {student.name} is already assigned to {row_data['group'].name} " +
+                                      f"at {row_data['day_of_week'].value} {row_data['start_time']}-{row_data['end_time']}")
                         continue
 
-                    # Create programme player
-                    current_app.logger.debug(f"Creating player assignment for {student.name}")
+                    # Create new player assignment
                     player = ProgrammePlayers(
                         student_id=student.id,
-                        coach_id=coaches[coach_email].id,
-                        group_id=groups[group_name].id,
-                        group_time_id=group_time.id,
+                        coach_id=row_data['coach'].id,
+                        group_id=row_data['group'].id,
+                        group_time_id=row_data['group_time'].id,
                         teaching_period_id=teaching_period.id,
                         tennis_club_id=club.id
                     )
@@ -1112,40 +1215,76 @@ def bulk_upload_players():
                     players_created += 1
 
                 except Exception as e:
-                    current_app.logger.error(f"Error processing row {index + 2}: {str(e)}")
+                    current_app.logger.error(f"Error processing student {row_data['student_name']}: {str(e)}")
                     current_app.logger.error(traceback.format_exc())
-                    errors.append(f"Row {index + 2}: {str(e)}")
+                    errors.append(f"Error creating player assignment for {row_data['student_name']}: {str(e)}")
                     raise  # Re-raise to trigger rollback
-
-            if errors:
-                current_app.logger.error(f"Upload failed with {len(errors)} errors")
+            
+            # Check if we have any successful creations
+            if players_created == 0:
                 db.session.rollback()
-                return jsonify({
-                    'error': 'Upload failed',
-                    'details': errors
-                }), 400
-
-            # If we get here, everything worked
+                current_app.logger.warning(f"No players created, {len(errors)} errors, {len(warnings)} warnings")
+                
+                if errors:
+                    return jsonify({
+                        'error': 'Upload failed: No players were created',
+                        'details': errors,
+                        'warnings': warnings
+                    }), 400
+                elif warnings:
+                    return jsonify({
+                        'error': 'Upload failed: No new players were created',
+                        'details': 'All students already exist in the specified groups',
+                        'warnings': warnings
+                    }), 400
+                else:
+                    return jsonify({
+                        'error': 'Upload failed: No players were created',
+                        'details': 'Unknown error occurred'
+                    }), 500
+            
+            # If we get here, commit the transaction
             db.session.commit()
             current_app.logger.info(f"Upload successful: {students_created} students and {players_created} player assignments created")
             
-            return jsonify({
+            # Construct response with warnings if any
+            response = {
                 'message': 'Upload successful',
                 'students_created': students_created,
                 'players_created': players_created
-            })
+            }
+            
+            if warnings:
+                response['warnings'] = warnings
+                
+            if errors:
+                response['errors'] = errors
+                response['message'] = 'Upload partially successful with some errors'
+                
+            return jsonify(response)
             
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Bulk upload error: {str(e)}")
             current_app.logger.error(traceback.format_exc())
-            return jsonify({'error': str(e)}), 400
+            return jsonify({
+                'error': 'Upload failed',
+                'details': str(e),
+                'errors': errors,
+                'warnings': warnings
+            }), 500
             
     except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Bulk upload error: {str(e)}")
+        # Be sure to rollback any active transaction
+        if db.session.in_transaction():
+            db.session.rollback()
+            
+        current_app.logger.error(f"Unexpected error in bulk upload: {str(e)}")
         current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 400
+        return jsonify({
+            'error': 'Server error during upload',
+            'details': str(e)
+        }), 500
 
 @club_management.route('/api/template/download')
 @login_required

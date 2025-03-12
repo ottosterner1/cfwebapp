@@ -8,6 +8,7 @@ from app.auth import init_oauth
 import sentry_sdk
 from sentry_sdk.integrations.flask import FlaskIntegration
 import json
+import traceback
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -291,5 +292,55 @@ def create_app(config_class=Config):
         @app.route('/api/test-cors', methods=['GET'])
         def test_cors():
             return {'status': 'CORS is working'}
+        
+        # Error handlers
+    @app.errorhandler(404)
+    def not_found_error(error):
+        if request.path.startswith('/api/') or request.path.startswith('/clubs/api/'):
+            return jsonify({"error": "Resource not found"}), 404
+        return send_from_directory(os.path.join(app.static_folder, 'dist'), 'index.html')
+
+    @app.errorhandler(500)
+    def internal_error(error):
+        db.session.rollback()
+        if request.path.startswith('/api/') or request.path.startswith('/clubs/api/'):
+            app.logger.error(f"Internal server error: {str(error)}")
+            return jsonify({"error": "Internal server error", "details": str(error)}), 500
+        return "Internal server error", 500
+        
+    @app.errorhandler(403)
+    def forbidden_error(error):
+        if request.path.startswith('/api/') or request.path.startswith('/clubs/api/'):
+            return jsonify({"error": "Access denied"}), 403
+        return "Access denied", 403
+        
+    @app.errorhandler(400)
+    def bad_request_error(error):
+        if request.path.startswith('/api/') or request.path.startswith('/clubs/api/'):
+            return jsonify({"error": "Bad request", "details": str(error)}), 400
+        return "Bad request", 400
+        
+    @app.errorhandler(Exception)
+    def handle_exception(e):
+        """General exception handler for API routes"""
+        # Always rollback any pending database changes on exceptions
+        if db.session.in_transaction():
+            db.session.rollback()
+            
+        if request.path.startswith('/api/') or request.path.startswith('/clubs/api/'):
+            # Log the error with traceback
+            app.logger.error(f"Unhandled exception in API: {str(e)}")
+            app.logger.error(traceback.format_exc())
+            
+            # Return JSON error response
+            response = jsonify({
+                "error": str(e),
+                "type": e.__class__.__name__
+            })
+            response.status_code = 500
+            return response
+            
+        # For non-API routes, use the default Flask error handler
+        return app.handle_exception(e)
     
     return app
