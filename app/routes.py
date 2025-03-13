@@ -525,7 +525,6 @@ def dashboard_stats():
             coach_summaries = []
             coaches = User.query.filter_by(
                 tennis_club_id=tennis_club_id,
-                role=UserRole.COACH
             ).all()
             
             for coach in coaches:
