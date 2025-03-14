@@ -176,82 +176,82 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-      {/* Total Players and Capacity Card */}
-      <Card className="p-6 bg-white rounded-lg shadow">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      {/* Total Players and Capacity Card with Group Fill Rate */}
+      <Card className="p-4 bg-white rounded-lg shadow">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-lg font-medium text-gray-900">Programme Totals</h3>
-          <div className="bg-blue-100 p-2 rounded-full">
-            <Users className="h-5 w-5 text-blue-600" />
+          <h3 className="text-md font-medium text-gray-900">Programme Totals</h3>
+          <div className="bg-blue-100 p-1.5 rounded-full">
+            <Users className="h-4 w-4 text-blue-600" />
           </div>
         </div>
-        <div className="space-y-2">
-          <div className="flex justify-between items-center">
-            <span className="text-gray-600">Total Players</span>
-            <span className="text-xl font-semibold text-gray-900">
-              {analytics.totalPlayers}
-            </span>
+        <div className="grid grid-cols-3 gap-2 text-center mb-3">
+          <div className="bg-gray-50 rounded p-2">
+            <div className="text-xs text-gray-500">Players</div>
+            <div className="text-lg font-semibold text-gray-900">{analytics.totalPlayers}</div>
           </div>
-          <div className="flex justify-between items-center">
-            <span className="text-gray-600">Total Capacity</span>
-            <span className="text-xl font-semibold text-gray-900">
-              {analytics.totalCapacity}
-            </span>
+          <div className="bg-gray-50 rounded p-2">
+            <div className="text-xs text-gray-500">Capacity</div>
+            <div className="text-lg font-semibold text-gray-900">{analytics.totalCapacity}</div>
           </div>
-          <div className="flex justify-between items-center mb-4">
-            <span className="text-gray-600">Fill Rate</span>
-            <span className="text-xl font-semibold text-gray-900">
+          <div className="bg-gray-50 rounded p-2">
+            <div className="text-xs text-gray-500">Fill Rate</div>
+            <div className="text-lg font-semibold text-gray-900">
               {analytics.totalCapacity > 0 
                 ? `${Math.round((analytics.totalPlayers / analytics.totalCapacity) * 100)}%` 
                 : 'N/A'}
-            </span>
-          </div>
-          
-          {/* Group Capacity Section (moved here) */}
-          <div className="pt-4 border-t border-gray-200">
-            <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-              <BarChart2 className="h-4 w-4 text-indigo-600 mr-2" />
-              Group Fill Rates
-            </h4>
-            <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
-              {Object.values(analytics.groupCapacityBreakdown)
-                .sort((a, b) => a.name.localeCompare(b.name)) // Sort alphabetically by group name
-                .map((group) => (
-                  <div key={group.name} className="space-y-1">
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="font-medium text-gray-900">{group.name}</span>
-                      <span className="text-gray-600">
-                        {group.playerCount}/{group.totalCapacity}
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className="bg-indigo-600 h-2 rounded-full" 
-                        style={{ width: `${Math.min(100, group.fillPercentage)}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                ))}
             </div>
+          </div>
+        </div>
+        
+        {/* Group Fill Rate Section */}
+        <div className="pt-2 border-t border-gray-200">
+          <h4 className="text-sm font-medium text-gray-900 mb-2 flex items-center">
+            <BarChart2 className="h-3.5 w-3.5 text-indigo-600 mr-1.5" />
+            Group Fill Rates
+          </h4>
+          <div className="space-y-2 max-h-[120px] overflow-y-auto pr-1">
+            {Object.values(analytics.groupCapacityBreakdown)
+              .sort((a, b) => a.name.localeCompare(b.name)) // Sort alphabetically by group name
+              .map((group) => (
+                <div key={group.name} className="space-y-1">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-medium text-gray-900">{group.name}</span>
+                    <span className="text-gray-600">
+                      {group.playerCount}/{group.totalCapacity} ({Math.round(group.fillPercentage)}%)
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-1.5">
+                    <div 
+                      className={`h-1.5 rounded-full ${
+                        group.fillPercentage >= 95 ? 'bg-green-500' : 
+                        group.fillPercentage >= 80 ? 'bg-yellow-500' : 
+                        'bg-indigo-500'
+                      }`}
+                      style={{ width: `${Math.min(100, group.fillPercentage)}%` }}
+                    ></div>
+                  </div>
+                </div>
+              ))}
           </div>
         </div>
       </Card>
 
-      {/* Group Breakdown Card */}
-      <Card className="p-6 bg-white rounded-lg shadow">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-medium text-gray-900">Group Breakdown</h3>
-          <div className="bg-purple-100 p-2 rounded-full">
-            <PieChart className="h-5 w-5 text-purple-600" />
+      {/* Group Breakdown Card sorted by size */}
+      <Card className="p-4 bg-white rounded-lg shadow">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-md font-medium text-gray-900">Group Breakdown</h3>
+          <div className="bg-purple-100 p-1.5 rounded-full">
+            <PieChart className="h-4 w-4 text-purple-600" />
           </div>
         </div>
-        <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+        <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
           {Object.entries(analytics.groupBreakdown)
-            .sort((a, b) => a[0].localeCompare(b[0])) // Sort alphabetically by group name
+            .sort((a, b) => b[1] - a[1]) // Sort by player count (largest to smallest)
             .map(([group, count]) => (
-              <div key={group} className="p-3 bg-gray-50 rounded-lg flex justify-between items-center">
-                <span className="font-medium text-gray-900">{group}</span>
-                <span className="text-lg font-semibold text-gray-900">
+              <div key={group} className="bg-gray-50 rounded p-2 flex justify-between items-center">
+                <span className="text-sm font-medium text-gray-900">{group}</span>
+                <span className="text-sm font-semibold text-gray-900">
                   {count}
                 </span>
               </div>
@@ -260,14 +260,14 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
       </Card>
 
       {/* Session Breakdown Card */}
-      <Card className="p-6 bg-white rounded-lg shadow">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-medium text-gray-900">Session Breakdown</h3>
-          <div className="bg-green-100 p-2 rounded-full">
-            <Calendar className="h-5 w-5 text-green-600" />
+      <Card className="p-4 bg-white rounded-lg shadow">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-md font-medium text-gray-900">Session Breakdown</h3>
+          <div className="bg-green-100 p-1.5 rounded-full">
+            <Calendar className="h-4 w-4 text-green-600" />
           </div>
         </div>
-        <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+        <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
           {Object.entries(analytics.sessionBreakdown)
             .sort((a, b) => {
               const sessionA = analytics.sessionBreakdown[a[0]];
@@ -289,16 +289,16 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
             .map(([sessionKey, session]) => (
               <div 
                 key={sessionKey} 
-                className={`p-3 rounded-lg ${getCapacityColor(session)}`}
+                className={`rounded p-2 ${getCapacityColor(session)}`}
               >
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center text-sm">
                   <div className="flex flex-col">
                     <span className="font-medium text-gray-900">{session.group}</span>
-                    <span className="text-sm text-gray-500">
+                    <span className="text-xs text-gray-500">
                       {session.dayOfWeek} {session.timeSlot}
                     </span>
                   </div>
-                  <span className="text-lg font-semibold">
+                  <span className="font-medium">
                     {getCapacityDisplay(session)}
                   </span>
                 </div>
