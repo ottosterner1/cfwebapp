@@ -267,7 +267,13 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
             <Calendar className="h-4 w-4 text-green-600" />
           </div>
         </div>
-        <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
+        <div className="bg-gray-50 rounded p-2 mb-3 text-center">
+          <div className="text-xs text-gray-500">Total Sessions</div>
+          <div className="text-lg font-semibold text-gray-900">
+            {Object.keys(analytics.sessionBreakdown).length}
+          </div>
+        </div>
+        <div className="space-y-2 max-h-[150px] overflow-y-auto pr-1">
           {Object.entries(analytics.sessionBreakdown)
             .sort((a, b) => {
               const sessionA = analytics.sessionBreakdown[a[0]];
