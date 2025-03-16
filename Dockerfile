@@ -1,30 +1,36 @@
-# Build frontend
+# Build frontend with memory optimizations
 FROM node:18-alpine as frontend-build
 
 WORKDIR /frontend
 
+COPY client/package*.json ./
+# Install dependencies first (separate step for better caching)
+RUN npm ci --only=production
+# Copy remaining files and build
 COPY client/ .
-RUN npm install
-RUN npm run build
-# Add verification step
+RUN NODE_OPTIONS="--max-old-space-size=512" npm run build
 RUN echo "Frontend build contents:" && ls -la dist/
 
-# Build backend and combine
+# Build backend and combine with memory optimizations 
 FROM python:3.11-slim
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies with memory optimization flags
+RUN apt-get update -y --no-install-recommends && \
+    apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
     python3-dev \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+    libpq-dev && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Copy requirements first
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies with memory optimizations
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy the backend application
 COPY . .
