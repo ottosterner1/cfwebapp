@@ -1,48 +1,27 @@
-# Build frontend with memory optimizations
+# Build frontend
 FROM node:18-alpine as frontend-build
 
 WORKDIR /frontend
-
 COPY client/package*.json ./
-# Install dependencies first (separate step for better caching)
 RUN npm ci --only=production
-# Copy remaining files and build
 COPY client/ .
-RUN NODE_OPTIONS="--max-old-space-size=512" npm run build
-RUN echo "Frontend build contents:" && ls -la dist/
+RUN npm run build
 
-# Build backend and combine with memory optimizations 
-FROM python:3.11-slim
-
-# Install system dependencies with memory optimization flags
-RUN apt-get update -y --no-install-recommends && \
-    apt-get install -y --no-install-recommends \
-    build-essential \
-    gcc \
-    python3-dev \
-    libpq-dev && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Use a pre-built Python image with PostgreSQL support
+FROM nikolaik/python-nodejs:python3.11-nodejs18-slim
 
 WORKDIR /app
-
-# Copy requirements first
-COPY requirements.txt .
-# Install Python dependencies with memory optimizations
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
 
 # Copy the backend application
 COPY . .
 
-# Create static/dist directory
+# Copy requirements first and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Create static directory and copy frontend
 RUN mkdir -p /app/app/static/dist
-
-# Copy the built frontend files
 COPY --from=frontend-build /frontend/dist /app/app/static/dist/
-
-# Verify the files were copied correctly
-RUN echo "Static dist contents:" && ls -la /app/app/static/dist/
 
 # Add this line to ensure wsgi.py is in the Python path
 ENV PYTHONPATH=/app
