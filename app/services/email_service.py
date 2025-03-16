@@ -413,3 +413,60 @@ CourtFlow Platform
             current_app.logger.error(f"Unexpected error sending invitation: {str(e)}")
             current_app.logger.error(traceback.format_exc())
             return False, f"Failed to send invitation: {str(e)}"
+        
+    def send_generic_email(self, recipient_email, subject, html_content, text_content=None, sender_name=None):
+        """Send a generic email with HTML and plain text content"""
+        try:
+            # If no plain text content is provided, create it from HTML
+            if not text_content:
+                text_content = html_content.replace('<br>', '\n').replace('<br/>', '\n')
+                for tag in ['<p>', '</p>', '<div>', '</div>', '<html>', '</html>', '<body>', '</body>', '<h2>', '</h2>', '<a href="', '">', '</a>']:
+                    text_content = text_content.replace(tag, '')
+            
+            # Use the provided sender name or default
+            from_address = f'"{sender_name}" <{self.sender}>' if sender_name else self.sender
+            
+            # Create multipart message
+            msg = MIMEMultipart('mixed')
+            msg['Subject'] = subject
+            msg['From'] = from_address
+            msg['To'] = recipient_email
+            
+            # Add custom headers to improve deliverability
+            msg.add_header('X-Auto-Response-Suppress', 'OOF')
+            
+            # Create alternative part for plain text and HTML
+            alt_part = MIMEMultipart('alternative')
+            
+            # Plain text part
+            text_part = MIMEText(text_content, 'plain', 'utf-8')
+            alt_part.attach(text_part)
+            
+            # HTML part
+            html_part = MIMEText(html_content, 'html', 'utf-8')
+            alt_part.attach(html_part)
+            
+            # Attach the multipart/alternative to the message
+            msg.attach(alt_part)
+            
+            # Send the raw email
+            raw_email = msg.as_string()
+            response = self.ses_client.send_raw_email(
+                Source=from_address,
+                RawMessage={'Data': raw_email}
+            )
+            
+            return True, response.get('MessageId', '')
+            
+        except ClientError as e:
+            current_app.logger.error(f"AWS SES ClientError: {str(e)}")
+            if hasattr(e, 'response') and 'Error' in e.response:
+                error_code = e.response['Error'].get('Code', 'Unknown')
+                error_message = e.response['Error'].get('Message', 'No message')
+                current_app.logger.error(f"Error Code: {error_code}")
+                current_app.logger.error(f"Error Message: {error_message}")
+            return False, str(e)
+        except Exception as e:
+            current_app.logger.error(f"Unexpected error sending email: {str(e)}")
+            current_app.logger.error(traceback.format_exc())
+            return False, f"Failed to send email: {str(e)}"

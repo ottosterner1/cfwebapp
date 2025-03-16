@@ -241,7 +241,7 @@ def auth_callback():
                 flash('The email you logged in with does not match the invitation', 'error')
                 return redirect(url_for('main.login'))
 
-        # Normal flow for non-invitation users
+        # Normal flow for existing users
         if user and user.tennis_club_id:
             login_user(user, remember=True)
             response = redirect(url_for('main.home'))
@@ -267,13 +267,55 @@ def auth_callback():
             
             return response
         else:
-            session['temp_user_info'] = {
-                'email': email,
-                'name': name,
-                'provider_id': provider_id,
-            }
-            session.modified = True  # Ensure session is saved
-            return redirect(url_for('club_management.onboard_club'))
+            # User is not associated with any tennis club and doesn't have a pending invitation
+            # Check if there's an unused invitation for this email
+            current_time = datetime.now(timezone.utc)
+            invitation = CoachInvitation.query.filter_by(
+                email=email.lower(),
+                used=False
+            ).filter(CoachInvitation.expires_at > current_time).first()
+            
+            if invitation:
+                # Store invitation in session and process it directly
+                invitation.used = True
+                
+                if not user:
+                    # Create new user
+                    base_username = f"coach_{email.split('@')[0]}"
+                    username = base_username
+                    counter = 1
+                    
+                    while User.query.filter_by(username=username).first():
+                        username = f"{base_username}_{counter}"
+                        counter += 1
+                    
+                    user = User(
+                        email=email,
+                        username=username,
+                        name=name,
+                        role=UserRole.COACH,
+                        auth_provider='cognito',
+                        auth_provider_id=provider_id,
+                        is_active=True,
+                        tennis_club_id=invitation.tennis_club_id
+                    )
+                    db.session.add(user)
+                else:
+                    # Update existing user 
+                    user.tennis_club_id = invitation.tennis_club_id
+                    user.auth_provider = 'cognito'
+                    user.auth_provider_id = provider_id
+                
+                db.session.commit()
+                
+                # Login the user
+                login_user(user, remember=True)
+                flash('You have successfully joined the tennis club!', 'success')
+                return redirect(url_for('main.home'))
+            else:
+                # No valid invitation found - redirect to login with error
+                flash('You need an invitation to access this application', 'error')
+                return redirect(url_for('main.login'))  # Send back to login page
 
     except requests.exceptions.RequestException as e:
         current_app.logger.error(f"Network error during authentication: {str(e)}")

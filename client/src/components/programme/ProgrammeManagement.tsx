@@ -357,7 +357,7 @@ const ProgrammeManagement = () => {
           {/* Header with Actions */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 space-y-4 md:space-y-0">
             <h1 className="text-2xl font-bold text-gray-900">
-              Manage Programme Players
+              Manage Programme
             </h1>
 
             <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-4">
