@@ -33,8 +33,6 @@ const SuperAdminDashboard: React.FC = () => {
   // User management state
   const [clubUsers, setClubUsers] = useState<User[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(false);
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [newUserRole, setNewUserRole] = useState<string>('');
   const [updateInProgress, setUpdateInProgress] = useState<number | null>(null);
 
   // Fetch all clubs on component mount
@@ -381,80 +379,6 @@ const SuperAdminDashboard: React.FC = () => {
       });
     } finally {
       setUpdateInProgress(null);
-    }
-  };
-
-  // Function to update a user's role through the form
-  const handleUpdateUserRole = async (): Promise<void> => {
-    if (!selectedUserId || !newUserRole) {
-      setNotification({
-        type: 'error',
-        message: 'Please select a user and role'
-      });
-      return;
-    }
-    
-    setIsActionLoading(true);
-    setNotification(null);
-    
-    try {
-      const response = await fetch('/clubs/api/super-admin/update-user-role', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify({ 
-          user_id: selectedUserId,
-          role: newUserRole
-        }),
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Update the user in the local state
-        setClubUsers(prevUsers => 
-          prevUsers.map(user => 
-            user.id === selectedUserId 
-              ? { ...user, role: newUserRole } 
-              : user
-          )
-        );
-        
-        setNotification({
-          type: 'success',
-          message: data.message || `User role updated successfully`
-        });
-        
-        // Reset selection
-        setSelectedUserId(null);
-        setNewUserRole('');
-      } else {
-        let errorMessage = `Failed to update user role`;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorMessage;
-        } catch (e) {
-          const textError = await response.text();
-          console.error('Error response:', textError.substring(0, 200));
-        }
-        
-        setNotification({
-          type: 'error',
-          message: errorMessage
-        });
-      }
-    } catch (error) {
-      console.error(`Error updating user role:`, error);
-      setNotification({
-        type: 'error',
-        message: error instanceof Error ? error.message : `An error occurred while updating user role`
-      });
-    } finally {
-      setIsActionLoading(false);
     }
   };
 
