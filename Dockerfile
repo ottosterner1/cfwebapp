@@ -13,8 +13,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install only what you absolutely need, separately
-RUN apt-get update && apt-get install -y --no-install-recommends libpq-dev && rm -rf /var/lib/apt/lists/*
+# Install minimal dependencies but include build-essential and gcc
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install
 COPY requirements.txt .
