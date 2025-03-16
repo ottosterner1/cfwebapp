@@ -113,13 +113,14 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ currentUser }) => {
                       Report Templates
                     </a>
                   </DropdownMenuItem>
+                  {/* Super Admin Dashboard link - only for super admins */}
                   {currentUser.is_super_admin && (
                     <DropdownMenuItem>
                       <a 
-                        href="/club/onboard" 
-                        className="flex items-center w-full"
+                        href="/clubs/super-admin" 
+                        className="flex items-center w-full text-purple-600 font-medium"
                       >
-                        New Tennis Club
+                        Super Admin Dashboard
                       </a>
                     </DropdownMenuItem>
                   )}

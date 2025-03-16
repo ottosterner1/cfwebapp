@@ -3,7 +3,7 @@ import boto3
 from flask import Blueprint, app, jsonify, request, render_template, flash, redirect, url_for, session, make_response, current_app
 from sqlalchemy import case
 from app import db
-from app.models import TennisClub, User, TennisGroup, TeachingPeriod, UserRole, Student, ProgrammePlayers, CoachDetails, CoachQualification, CoachRole, CoachInvitation, DayOfWeek, TennisGroupTimes
+from app.models import TennisClub, User, TennisGroup, TeachingPeriod, UserRole, Student, ProgrammePlayers, CoachDetails, CoachQualification, CoachRole, CoachInvitation, DayOfWeek, TennisGroupTimes, ClubInvitation
 from datetime import datetime, timedelta
 from flask_login import login_required, current_user, login_user
 import traceback
@@ -55,53 +55,118 @@ def setup_initial_teaching_period(club_id):
        start_date=start_date, 
        end_date=start_date + timedelta(weeks=12)
    ))
+
 @club_management.route('/onboard', methods=['GET', 'POST'])
 def onboard_club():
-    # Check if we have temporary user info
+    """Handle onboarding of a new tennis club"""
+    current_app.logger.info("Onboarding club page accessed")
+    
+    # Check available authentication methods
     temp_user_info = session.get('temp_user_info')
-    if not temp_user_info:
-        flash('Please login first', 'error')
+    club_invitation = session.get('club_invitation')
+    
+    current_app.logger.info(f"Session data: temp_user_info={bool(temp_user_info)}, club_invitation={bool(club_invitation)}")
+    
+    # If neither exists, redirect to login
+    if not temp_user_info and not club_invitation:
+        flash('Please login first or use an invitation link', 'error')
         return redirect(url_for('main.login'))
 
     if request.method == 'GET':
+        # Determine email and name to pre-fill
+        email = ""
+        name = ""
+        
+        if temp_user_info:
+            email = temp_user_info.get('email', '')
+            name = temp_user_info.get('name', '')
+        elif club_invitation:
+            email = club_invitation.get('email', '')
+        
         return render_template('admin/club_onboarding.html', 
-                             email=temp_user_info.get('email'),
-                             name=temp_user_info.get('name'))
+                             email=email,
+                             name=name)
 
     try:
         # Create new tennis club
+        club_name = request.form.get('club_name')
+        subdomain = request.form.get('subdomain')
+        
+        if not club_name or not subdomain:
+            flash('Club name and subdomain are required', 'error')
+            return redirect(url_for('club_management.onboard_club'))
+        
+        # Check if subdomain already exists
+        existing_club = TennisClub.query.filter_by(subdomain=subdomain).first()
+        if existing_club:
+            flash(f'Subdomain "{subdomain}" is already in use. Please choose another.', 'error')
+            return redirect(url_for('club_management.onboard_club'))
+            
         club = TennisClub(
-            name=request.form['club_name'],
-            subdomain=request.form['subdomain']
+            name=club_name,
+            subdomain=subdomain
         )
         db.session.add(club)
         db.session.flush()  # Get club ID
 
-        # Create admin user using the Google auth info
-        admin = User(
-            email=temp_user_info['email'],
-            username=f"admin_{request.form['subdomain']}",
-            name=temp_user_info['name'],
-            role=UserRole.ADMIN,
-            tennis_club_id=club.id,
-            auth_provider='google',
-            auth_provider_id=temp_user_info['provider_id'],
-            is_active=True
-        )
+        # Create admin user based on available info
+        if temp_user_info:
+            # Create admin user using the Google auth info
+            admin = User(
+                email=temp_user_info['email'],
+                username=f"admin_{subdomain}",
+                name=temp_user_info['name'],
+                role=UserRole.ADMIN,
+                tennis_club_id=club.id,
+                auth_provider='google',
+                auth_provider_id=temp_user_info['provider_id'],
+                is_active=True
+            )
+        elif club_invitation:
+            # Use submitted name or default
+            admin_name = request.form.get('admin_name')
+            if not admin_name:
+                flash('Administrator name is required', 'error')
+                return redirect(url_for('club_management.onboard_club'))
+                
+            # Create admin user from invitation
+            admin = User(
+                email=club_invitation['email'],
+                username=f"admin_{subdomain}",
+                name=admin_name,
+                role=UserRole.ADMIN,
+                tennis_club_id=club.id,
+                is_active=True
+            )
+            
+            # Mark invitation as used if we have a proper token
+            if 'token' in club_invitation:
+                invitation = ClubInvitation.query.filter_by(token=club_invitation['token']).first()
+                if invitation:
+                    invitation.used = True
+        
         db.session.add(admin)
+        
+        # Create default club data
+        setup_default_groups(club.id)
+        setup_initial_teaching_period(club.id)
+        
         db.session.commit()
         
         # Log the user in and clear session
         login_user(admin)
-        session.pop('temp_user_info', None)
+        if 'temp_user_info' in session:
+            session.pop('temp_user_info', None)
+        if 'club_invitation' in session:
+            session.pop('club_invitation', None)
         
-        flash('Tennis club created successfully! Please set up your teaching periods and groups.', 'success')
+        flash('Tennis club created successfully! You can now manage your club settings.', 'success')
         return redirect(url_for('main.home'))
         
     except Exception as e:
         db.session.rollback()
-        print(f"Error creating club: {str(e)}")
-        print(traceback.format_exc())
+        current_app.logger.error(f"Error creating club: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
         flash(f'Error creating club: {str(e)}', 'error')
         return redirect(url_for('club_management.onboard_club'))
 
@@ -1843,3 +1908,339 @@ def get_logo_url(club_id):
     except Exception as e:
         current_app.logger.error(f"Error generating logo URL: {str(e)}")
         return jsonify({'error': 'Failed to generate URL'}), 500
+    
+@club_management.route('/super-admin', methods=['GET'])
+@login_required
+def super_admin_dashboard():
+    # Ensure only super admins can access this page
+    if not current_user.is_super_admin:
+        flash('Access denied. Super admin privileges required.', 'error')
+        return redirect(url_for('main.home'))
+    
+    return render_template('admin/super_admin_dashboard.html')
+
+@club_management.route('/api/clubs', methods=['GET'])
+@login_required
+def get_all_clubs():
+    """API endpoint to get all tennis clubs for super admin"""
+    current_app.logger.info(f"get_all_clubs called, super_admin: {current_user.is_super_admin}")
+    
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    try:
+        clubs = TennisClub.query.order_by(TennisClub.name).all()
+        result = [{
+            'id': club.id,
+            'name': club.name,
+            'subdomain': club.subdomain
+        } for club in clubs]
+        
+        # Set explicit content type
+        response = jsonify(result)
+        response.headers['Content-Type'] = 'application/json'
+        return response
+    except Exception as e:
+        current_app.logger.error(f"Error fetching clubs: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@club_management.route('/api/super-admin/switch-club', methods=['POST'])
+@login_required
+def switch_club_api():
+    """API endpoint to switch the current club for super admin"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    data = request.get_json()
+    club_id = data.get('club_id')
+    
+    if not club_id:
+        return jsonify({'error': 'Missing club_id parameter'}), 400
+    
+    try:
+        # Verify club exists
+        club = TennisClub.query.get(club_id)
+        if not club:
+            return jsonify({'error': 'Tennis club not found'}), 404
+        
+        # Update the super admin's tennis_club_id
+        current_user.tennis_club_id = club_id
+        db.session.commit()
+        
+        return jsonify({
+            'message': f'Now viewing {club.name}',
+            'club': {
+                'id': club.id,
+                'name': club.name,
+                'subdomain': club.subdomain
+            }
+        })
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error switching club: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+    
+@club_management.route('/api/debug-routes', methods=['GET'])
+@login_required
+def debug_routes():
+    """Return all registered routes for debugging"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    routes = []
+    for rule in current_app.url_map.iter_rules():
+        routes.append({
+            'endpoint': rule.endpoint,
+            'methods': [m for m in rule.methods if m not in ('HEAD', 'OPTIONS')],
+            'rule': str(rule)
+        })
+    
+    return jsonify(routes)
+
+
+
+@club_management.route('/api/super-admin/load-data', methods=['POST'])
+@login_required
+def load_club_data():
+    """API endpoint to load default data for a club"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    data = request.get_json()
+    club_id = data.get('club_id')
+    data_type = data.get('data_type')
+    
+    if not club_id or not data_type:
+        return jsonify({'error': 'Missing required parameters'}), 400
+    
+    try:
+        # Verify club exists
+        club = TennisClub.query.get(club_id)
+        if not club:
+            return jsonify({'error': 'Tennis club not found'}), 404
+        
+        # Handle different data loading options
+        if data_type == 'default_groups':
+            setup_default_groups(club_id)
+            db.session.commit()
+            return jsonify({'message': 'Default groups created successfully'})
+        
+        elif data_type == 'initial_period':
+            setup_initial_teaching_period(club_id)
+            db.session.commit()
+            return jsonify({'message': 'Initial teaching period created successfully'})
+        
+        else:
+            return jsonify({'error': 'Invalid data type'}), 400
+            
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error loading data: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+    
+@club_management.route('/api/super-admin/invite-club', methods=['POST'])
+@login_required
+def invite_club():
+    """API endpoint for super admins to invite new tennis clubs"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized. Super admin privileges required.'}), 403
+    
+    try:
+        # Get request data
+        data = request.get_json()
+        if not data or 'email' not in data:
+            return jsonify({'error': 'Email address is required'}), 400
+            
+        email = data['email'].strip()
+        if not email or '@' not in email:
+            return jsonify({'error': 'Valid email address is required'}), 400
+        
+        # Create a new invitation record
+        invitation = ClubInvitation.create_invitation(
+            email=email,
+            invited_by_id=current_user.id,
+            expiry_hours=48  # Expire after 48 hours
+        )
+        
+        # Add to database session
+        db.session.add(invitation)
+        db.session.flush()  # Get the ID without committing yet
+        
+        # Use the EmailService to send the invitation
+        email_service = EmailService()
+        
+        # Prepare the club name
+        club_name = "CourtFlow Tennis Management"
+        
+        # In your invite_club function
+        invite_url = url_for('club_management.accept_club_invitation', 
+                            token=invitation.token,
+                            _external=True)
+
+        # Add a query parameter to bypass client-side routing
+        invite_url += "&server_route=true"
+        
+        # Create HTML content
+        html_content = f"""
+        <html>
+            <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto;">
+                    <div style="margin-bottom: 30px;">
+                        <h2>Welcome to CourtFlow!</h2>
+                        <p>You have been invited to set up a new tennis club on our platform.</p>
+                        <p>Click the link below to get started:</p>
+                        <p><a href="{invite_url}" style="background-color: #4CAF50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">Set Up Your Tennis Club</a></p>
+                        <p>This invitation is valid for 48 hours. If you have any questions, please contact support.</p>
+                    </div>
+                    <div style="font-size: 0.9em; color: #666; border-top: 1px solid #eee; padding-top: 15px;">
+                        <p>Thank you,<br>CourtFlow Team</p>
+                        <p>Please do not reply to this email.</p>
+                    </div>
+                </div>
+            </body>
+        </html>
+        """
+        
+        # Send the email using the new generic method
+        success, message_id = email_service.send_generic_email(
+            recipient_email=email,
+            subject="Invitation to set up your Tennis Club on CourtFlow",
+            html_content=html_content,
+            sender_name=club_name
+        )
+        
+        if success:
+            # Commit the invitation to database
+            db.session.commit()
+            return jsonify({'message': f'Invitation sent successfully to {email}'}), 200
+        else:
+            # Rollback if email sending fails
+            db.session.rollback()
+            current_app.logger.error(f"Failed to send email: {message_id}")
+            return jsonify({'error': f'Failed to send invitation email: {message_id}'}), 500
+            
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error sending club invitation: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': 'An unexpected error occurred while sending the invitation'}), 500
+
+@club_management.route('/accept-club-invitation/<token>')
+def accept_club_invitation(token):
+    """Handle a tennis club admin accepting an invitation"""
+    current_app.logger.info(f"Processing club invitation with token: {token}")
+    
+    try:
+        # Get invitation and validate
+        invitation = ClubInvitation.query.filter_by(token=token, used=False).first()
+        
+        if not invitation:
+            current_app.logger.warning(f"Invalid invitation token: {token}")
+            flash('Invalid invitation link. This invitation may have already been used.', 'error')
+            return redirect(url_for('main.index'))
+        
+        if invitation.is_expired:
+            current_app.logger.warning(f"Expired invitation token: {token}")
+            db.session.delete(invitation)
+            db.session.commit()
+            flash('This invitation has expired. Please request a new invitation.', 'error')
+            return redirect(url_for('main.index'))
+
+        # Store invitation info in session
+        session['club_invitation'] = {
+            'token': token,
+            'email': invitation.email
+        }
+        current_app.logger.info(f"Successfully stored club invitation in session, redirecting to onboarding")
+        
+        # Make sure onboarding page doesn't require authentication
+        return redirect(url_for('club_management.onboard_club'))
+        
+    except Exception as e:
+        current_app.logger.error(f"Error processing club invitation: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        flash('An error occurred while processing the invitation.', 'error')
+        return redirect(url_for('main.index'))
+    
+@club_management.route('/api/clubs/<int:club_id>/users', methods=['GET'])
+@login_required
+def get_club_users(club_id):
+    """API endpoint to get all users in a club for super admin"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    try:
+        # Verify club exists
+        club = TennisClub.query.get(club_id)
+        if not club:
+            return jsonify({'error': 'Tennis club not found'}), 404
+        
+        # Get all users in the club
+        users = User.query.filter_by(tennis_club_id=club_id).order_by(User.name).all()
+        
+        result = [{
+            'id': user.id,
+            'name': user.name,
+            'email': user.email,
+            'role': user.role.name
+        } for user in users]
+        
+        return jsonify(result)
+    except Exception as e:
+        current_app.logger.error(f"Error fetching club users: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@club_management.route('/api/super-admin/update-user-role', methods=['POST'])
+@login_required
+def update_user_role():
+    """API endpoint to update a user's role (e.g., promote a coach to admin)"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized. Super admin privileges required.'}), 403
+    
+    data = request.get_json()
+    user_id = data.get('user_id')
+    new_role = data.get('role')
+    
+    if not user_id or not new_role:
+        return jsonify({'error': 'Missing required parameters (user_id and role)'}), 400
+    
+    try:
+        # Verify user exists
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Check if role is valid
+        try:
+            role = UserRole[new_role.upper()]
+        except KeyError:
+            valid_roles = [r.name for r in UserRole]
+            return jsonify({'error': f'Invalid role. Must be one of: {", ".join(valid_roles)}'}), 400
+        
+        # Don't allow changing SUPER_ADMIN roles
+        if user.role == UserRole.SUPER_ADMIN:
+            return jsonify({'error': 'Cannot modify a Super Admin role'}), 400
+            
+        # Update user role
+        user.role = role
+        db.session.commit()
+        
+        current_app.logger.info(f"User {user.id} ({user.email}) role updated to {role.name}")
+        
+        return jsonify({
+            'message': f'User role updated successfully to {role.name}',
+            'user': {
+                'id': user.id,
+                'name': user.name,
+                'email': user.email,
+                'role': role.name
+            }
+        })
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating user role: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
