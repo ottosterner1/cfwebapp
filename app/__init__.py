@@ -324,8 +324,11 @@ def create_app(config_class=Config):
     def handle_exception(e):
         """General exception handler for API routes"""
         # Always rollback any pending database changes on exceptions
-        if db.session.in_transaction():
+        try:
+            # Try to rollback transaction regardless of SQLAlchemy version
             db.session.rollback()
+        except Exception as rollback_error:
+            app.logger.error(f"Error during session rollback: {str(rollback_error)}")
             
         if request.path.startswith('/api/') or request.path.startswith('/clubs/api/'):
             # Log the error with traceback

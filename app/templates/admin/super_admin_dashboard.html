@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Super Admin Dashboard{% endblock %}
+
+{% block content %}
+<div id="super-admin-root">
+    <!-- React Super Admin Dashboard will render here -->
+</div>
+
+{% if config['DEBUG'] %}
+    <script type="module">
+        import RefreshRuntime from 'http://localhost:5173/@react-refresh'
+        RefreshRuntime.injectIntoGlobalHook(window)
+        window.$RefreshReg$ = () => {}
+        window.$RefreshSig$ = () => (type) => type
+        window.__vite_plugin_react_preamble_installed__ = true
+    </script>
+    <script type="module" src="http://localhost:5173/@vite/client"></script>
+    <script type="module" src="http://localhost:5173/src/entry/super_admin_dashboard.tsx"></script>
+{% else %}
+    <script type="module" src="{{ url_for('static', filename='dist/' + get_asset_path('src/entry/super_admin_dashboard.tsx')) }}"></script>
+{% endif %}
+{% endblock %}

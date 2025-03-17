@@ -485,6 +485,37 @@ class CoachInvitation(db.Model):
         now = datetime.now(timezone.utc)
         expires_at = self.expires_at.replace(tzinfo=timezone.utc) if self.expires_at.tzinfo is None else self.expires_at
         return now > expires_at
+
+class ClubInvitation(db.Model):
+    """Model for tracking invitations to create new tennis clubs"""
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), nullable=False)
+    token = db.Column(db.String(64), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used = db.Column(db.Boolean, default=False)
+    invited_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    
+    # Relationships
+    invited_by = db.relationship('User', backref=db.backref('club_invitations_sent', lazy='dynamic'))
+    
+    @property
+    def is_expired(self):
+        """Check if the invitation has expired"""
+        return datetime.now(timezone.utc) > self.expires_at
+    
+    @classmethod
+    def create_invitation(cls, email, invited_by_id, expiry_hours=48):
+        """Create a new club invitation"""
+        token = secrets.token_urlsafe(32)
+        expires_at = datetime.now(timezone.utc) + timedelta(hours=expiry_hours)
+        
+        return cls(
+            email=email,
+            token=token,
+            expires_at=expires_at,
+            invited_by_id=invited_by_id
+        )
     
 class ReportTemplate(db.Model):
     __tablename__ = 'report_template'
