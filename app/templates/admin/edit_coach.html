@@ -70,6 +70,22 @@
                     {{ form_date("safeguarding_expiry", "Safeguarding Expiry", details.safeguarding_expiry if details else None) }}
                 </div>
             </div>
+            
+            <!-- Pediatric First Aid -->
+            <div class="space-y-4">
+                <h2 class="text-lg font-medium text-gray-900">Pediatric First Aid</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="form-group">
+                        <label for="pediatric_first_aid" class="block text-sm font-medium text-gray-700">Has Pediatric First Aid</label>
+                        <div class="mt-1 flex items-center">
+                            <input type="checkbox" id="pediatric_first_aid" name="pediatric_first_aid" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                                {% if details and details.pediatric_first_aid %}checked{% endif %}>
+                            <span class="ml-2 text-sm text-gray-500">Check if coach has pediatric first aid qualification</span>
+                        </div>
+                    </div>
+                    {{ form_date("pediatric_first_aid_expiry", "Pediatric First Aid Expiry", details.pediatric_first_aid_expiry if details else None) }}
+                </div>
+            </div>
 
             <div class="flex justify-end space-x-3 pt-5">
                 <a href="{{ url_for('club_management.manage_coaches', club_id=club.id) }}" 

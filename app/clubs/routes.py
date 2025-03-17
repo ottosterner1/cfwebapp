@@ -788,6 +788,10 @@ def edit_coach(club_id, coach_id):
             details.first_aid_expiry = parse_date(request.form.get('first_aid_expiry'))
             details.safeguarding_expiry = parse_date(request.form.get('safeguarding_expiry'))
             
+            # Handle pediatric first aid fields
+            details.pediatric_first_aid = 'pediatric_first_aid' in request.form
+            details.pediatric_first_aid_expiry = parse_date(request.form.get('pediatric_first_aid_expiry'))
+            
             # Update other fields
             fields = [
                 'contact_number', 'emergency_contact_name', 'emergency_contact_number',
