@@ -45,6 +45,7 @@ export default defineConfig({
         programme_management: path.resolve(__dirname, 'src/entry/programme_management.tsx'),
         edit_programme_player: path.resolve(__dirname, 'src/entry/edit_programme_player.tsx'),
         add_programme_player: path.resolve(__dirname, 'src/entry/add_programme_player.tsx'),
+        super_admin_dashboard: path.resolve(__dirname, 'src/entry/super_admin_dashboard.tsx')
       }
     }
   }
