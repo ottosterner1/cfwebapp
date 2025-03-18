@@ -46,9 +46,8 @@ const Dashboard = () => {
         const statsData = await statsResponse.json();
         setPeriods(statsData.periods);
         
-        if (!selectedPeriod && statsData.periods.length > 0) {
-          const latestPeriod = statsData.periods[statsData.periods.length - 1];
-          setSelectedPeriod(latestPeriod.id);
+        if (!selectedPeriod && statsData.defaultPeriodId) {
+          setSelectedPeriod(statsData.defaultPeriodId);
           setStats(statsData.stats);
           return;
         }
@@ -84,8 +83,8 @@ const Dashboard = () => {
       alert('Please select a teaching period before sending reports');
       return;
     }
-    if (!stats?.totalReports) {
-      alert('There are no reports available to send');
+    if (!stats?.submittedReports) {
+      alert('There are no finalised reports available to send');
       return;
     }
     setShowBulkEmail(true);
@@ -206,12 +205,18 @@ const Dashboard = () => {
     document.body.removeChild(a);
   };
 
+  // Function to get a count of draft reports
+  const getDraftCount = () => {
+    return players.filter(player => player.has_draft).length;
+  };
+
   if (loading) return <div>Loading...</div>;
   if (error) return <div className="text-red-600">Error: {error}</div>;
   if (!stats || !currentUser) return <div>No data available</div>;
 
   const groupedPlayers = groupPlayersByGroupAndTime(players);
   const isAdmin = currentUser.is_admin || currentUser.is_super_admin;
+  const draftCount = getDraftCount();
 
   return (
     <div className="w-full space-y-6">
@@ -233,6 +238,14 @@ const Dashboard = () => {
           )}
         </div>
 
+        {/* Draft Reports Alert - Show if there are drafts */}
+        {draftCount > 0 && (
+          <div className="bg-indigo-50 border border-indigo-200 p-3 rounded-md text-indigo-800">
+            <span className="font-medium">You have {draftCount} report draft{draftCount !== 1 ? 's' : ''}</span>
+            <span className="ml-2">These reports need to be finalised before they can be sent out.</span>
+          </div>
+        )}
+
         {/* Controls Section */}
         <div className={`flex flex-col md:flex-row gap-4 ${showMobileMenu ? 'block' : 'hidden md:flex'}`}>
           {/* Period Selector - Full width on mobile */}
@@ -251,44 +264,44 @@ const Dashboard = () => {
             <div className="flex flex-col md:flex-row gap-2">
               <button
                 onClick={handleDownloadAllReports}
-                disabled={!selectedPeriod || !stats?.totalReports || downloading}
+                disabled={!selectedPeriod || !stats?.submittedReports || downloading}
                 className="w-full md:w-auto px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 
                          flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Download className="w-4 h-4" />
                 <span className="md:hidden lg:inline">Download All</span>
-                {stats?.totalReports > 0 && !downloading && (
+                {stats?.submittedReports > 0 && !downloading && (
                   <span className="bg-blue-500 px-2 py-0.5 rounded-full text-sm">
-                    {stats.totalReports}
+                    {stats.submittedReports}
                   </span>
                 )}
               </button>
 
               <button
                 onClick={handlePrintAllReports}
-                disabled={!selectedPeriod || !stats?.totalReports || printing}
+                disabled={!selectedPeriod || !stats?.submittedReports || printing}
                 className="w-full md:w-auto px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 
                          flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span>{printing ? 'Preparing...' : 'Print All'}</span>
-                {stats?.totalReports > 0 && !printing && (
+                {stats?.submittedReports > 0 && !printing && (
                   <span className="bg-purple-500 px-2 py-0.5 rounded-full text-sm">
-                    {stats.totalReports}
+                    {stats.submittedReports}
                   </span>
                 )}
               </button>
 
               <button
                 onClick={handleSendReportsClick}
-                disabled={!selectedPeriod || !stats?.totalReports}
+                disabled={!selectedPeriod || !stats?.submittedReports}
                 className="w-full md:w-auto px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 
                          flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Send className="w-4 h-4" />
                 <span className="md:hidden lg:inline">Send Reports</span>
-                {stats?.totalReports > 0 && (
+                {stats?.submittedReports > 0 && (
                   <span className="bg-green-500 px-2 py-0.5 rounded-full text-sm">
-                    {stats.totalReports}
+                    {stats.submittedReports}
                   </span>
                 )}
               </button>
@@ -322,7 +335,14 @@ const Dashboard = () => {
                 >
                   <div className="flex justify-between items-center">
                     <span className="font-medium text-gray-900">{group.name}</span>
-                    <span className="text-sm text-gray-500">{group.count} players</span>
+                    <div className="text-sm text-gray-500">
+                      <span>{group.count} players</span>
+                      {group.reports_draft > 0 && (
+                        <span className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs">
+                          {group.reports_draft} drafts
+                        </span>
+                      )}  
+                    </div>
                   </div>
                   <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
                     <div 
@@ -349,9 +369,16 @@ const Dashboard = () => {
                 >
                   <div className="flex justify-between items-center">
                     <span className="font-medium text-gray-900">{coach.name}</span>
-                    <span className="text-sm text-gray-500">
-                      {coach.reports_completed}/{coach.total_assigned}
-                    </span>
+                    <div className="text-sm text-gray-500">
+                      <span>
+                        {coach.reports_completed}/{coach.total_assigned}
+                      </span>
+                      {coach.reports_draft > 0 && (
+                        <span className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs">
+                          {coach.reports_draft} drafts
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
                     <div 
@@ -400,9 +427,27 @@ const Dashboard = () => {
 
       {/* Reports Management Section */}
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-6">
-          {isAdmin ? 'All Reports' : 'My Reports'}
-        </h2>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-lg font-medium text-gray-900">
+            {isAdmin ? 'All Reports' : 'My Reports'}
+          </h2>
+          
+          {/* Report Status Filter */}
+          <div className="flex space-x-3">
+            <div className="flex items-center space-x-1">
+              <div className="w-3 h-3 rounded-full bg-green-500"></div>
+              <span className="text-sm text-gray-600">Submitted</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <div className="w-3 h-3 rounded-full bg-indigo-500"></div>
+              <span className="text-sm text-gray-600">Draft</span>
+            </div>
+            <div className="flex items-center space-x-1">
+              <div className="w-3 h-3 rounded-full bg-gray-300"></div>
+              <span className="text-sm text-gray-600">Pending</span>
+            </div>
+          </div>
+        </div>
         
         {Object.keys(groupedPlayers).length === 0 ? (
           <p className="text-gray-500">No reports available for this period.</p>
@@ -425,6 +470,7 @@ const Dashboard = () => {
                         <h4 className="font-medium text-gray-900">{timeSlot}</h4>
                         <span className="text-sm text-gray-500">
                           {players.filter(p => p.report_submitted).length}/{players.length} reports completed
+                          {players.filter(p => p.has_draft).length > 0 && ` (${players.filter(p => p.has_draft).length} drafts)`}
                         </span>
                       </div>
                       
@@ -433,16 +479,34 @@ const Dashboard = () => {
                           .sort((a, b) => a.student_name.localeCompare(b.student_name))
                           .map((player) => (
                           <div key={player.id} className="p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                            <div>
-                              <h3 className="font-medium">{player.student_name}</h3>
-                              {player.report_submitted ? (
-                                <span className="text-sm text-green-600">Report submitted</span>
-                              ) : (
-                                <span className="text-sm text-amber-600">Report pending</span>
-                              )}
+                            <div className="flex items-center gap-2">
+                              <div className={`w-3 h-3 rounded-full ${
+                                player.report_submitted ? 'bg-green-500' : 
+                                player.has_draft ? 'bg-amber-500' : 'bg-gray-300'
+                              }`}></div>
+                              <div>
+                                <h3 className="font-medium">{player.student_name}</h3>
+                                {player.report_submitted ? (
+                                  <span className="text-sm text-green-600 font-medium flex items-center">
+                                    <div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div>
+                                    Report submitted
+                                  </span>
+                                ) : player.has_draft ? (
+                                  <span className="text-sm text-indigo-600 font-medium flex items-center">
+                                    <div className="w-2 h-2 rounded-full bg-indigo-500 mr-2"></div>
+                                    Draft saved
+                                  </span>
+                                ) : (
+                                  <span className="text-sm text-gray-600 flex items-center">
+                                    <div className="w-2 h-2 rounded-full bg-gray-300 mr-2"></div>
+                                    Report pending
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             <div className="flex gap-2">
-                              {player.report_submitted ? (
+                              {player.report_id ? (
+                                // For reports that exist (either draft or submitted)
                                 <>
                                   <a 
                                     href={`/reports/${player.report_id}`}
@@ -451,15 +515,20 @@ const Dashboard = () => {
                                     View
                                   </a>
                                   {player.can_edit && (
-                                    <a
-                                      href={`/reports/${player.report_id}/edit`}
-                                      className="inline-flex items-center px-3 py-2 border border-blue-300 shadow-sm text-sm font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50"
-                                    >
-                                      Edit
-                                    </a>
-                                  )}
+                                  <a
+                                    href={`/reports/${player.report_id}/edit`}
+                                    className={`inline-flex items-center px-3 py-2 border shadow-sm text-sm font-medium rounded-md bg-white ${
+                                      player.has_draft 
+                                        ? 'border-indigo-300 text-indigo-700 hover:bg-indigo-50' 
+                                        : 'border-blue-300 text-blue-700 hover:bg-blue-50'
+                                    }`}
+                                  >
+                                    {player.has_draft ? 'Continue Draft' : 'Edit'}
+                                  </a>
+                                )}
                                 </>
                               ) : (
+                                // For reports that don't exist yet
                                 player.can_edit && player.has_template ? (
                                   <a 
                                     href={`/report/new/${player.id}`}
@@ -469,7 +538,7 @@ const Dashboard = () => {
                                   </a>
                                 ) : (
                                   <span className="text-sm text-gray-500 italic">
-                                    No report has been assigned to this group
+                                    No report template has been assigned to this group
                                   </span>
                                 )
                               )}
