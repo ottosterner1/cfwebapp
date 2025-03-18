@@ -31,7 +31,7 @@ from io import BytesIO
 import zipfile
 from app.config.clubs import get_club_from_email, TENNIS_CLUBS
 from flask_cors import CORS, cross_origin
-from sqlalchemy import func, distinct, and_, or_
+from sqlalchemy import case, func, distinct, and_, or_
 from app.services.email_service import EmailService
 import shutil
 
@@ -484,7 +484,7 @@ def dashboard_stats():
         if not selected_period_id and default_period_id:
             selected_period_id = default_period_id
 
-        # Rest of your existing query logic...
+        # Base query for students
         base_query = (ProgrammePlayers.query
             .select_from(ProgrammePlayers)
             .join(TennisGroup, ProgrammePlayers.group_id == TennisGroup.id)
@@ -506,7 +506,7 @@ def dashboard_stats():
             
         total_students = base_query.count()
         
-        # Get reports
+        # Get reports query for all reports (both draft and final)
         reports_query = (Report.query
             .select_from(Report)
             .join(ProgrammePlayers)
@@ -527,14 +527,19 @@ def dashboard_stats():
         if selected_period_id:
             reports_query = reports_query.filter(Report.teaching_period_id == selected_period_id)
             
+        # Count both submitted and draft reports
         total_reports = reports_query.count()
-        completion_rate = round((total_reports / total_students * 100) if total_students > 0 else 0, 1)
+        submitted_reports = reports_query.filter(Report.is_draft == False).count()
+        draft_reports = reports_query.filter(Report.is_draft == True).count()
         
-        # Get group stats
+        completion_rate = round((submitted_reports / total_students * 100) if total_students > 0 else 0, 1)
+        
+        # Get group stats including draft status
         group_stats_query = (db.session.query(
             TennisGroup.name,
             func.count(distinct(ProgrammePlayers.id)).label('count'),
-            func.count(distinct(Report.id)).label('reports_completed')
+            func.sum(case((Report.is_draft == False, 1), else_=0)).label('reports_completed'),
+            func.sum(case((Report.is_draft == True, 1), else_=0)).label('reports_draft')
         )
         .select_from(TennisGroup)
         .join(GroupTemplate, and_(
@@ -572,16 +577,26 @@ def dashboard_stats():
             for coach in coaches:
                 # Create fresh queries for each coach
                 coach_players = base_query.filter(ProgrammePlayers.coach_id == coach.id).count()
-                coach_reports = reports_query.filter(ProgrammePlayers.coach_id == coach.id).count()
+                
+                coach_draft_reports = reports_query.filter(
+                    ProgrammePlayers.coach_id == coach.id,
+                    Report.is_draft == True
+                ).count()
+                
+                coach_submitted_reports = reports_query.filter(
+                    ProgrammePlayers.coach_id == coach.id,
+                    Report.is_draft == False
+                ).count()
                 
                 coach_summaries.append({
                     'id': coach.id,
                     'name': coach.name,
                     'total_assigned': coach_players,
-                    'reports_completed': coach_reports
+                    'reports_completed': coach_submitted_reports,
+                    'reports_draft': coach_draft_reports
                 })
 
-        # Get group recommendations
+        # Get group recommendations (only consider finalised reports)
         recommendations_query = (db.session.query(
             TennisGroup.name.label('from_group'),
             func.count().label('count'),
@@ -600,7 +615,8 @@ def dashboard_stats():
         ))
         .filter(
             ProgrammePlayers.tennis_club_id == tennis_club_id,
-            Report.recommended_group_id.isnot(None)
+            Report.recommended_group_id.isnot(None),
+            Report.is_draft == False  # Only include finalised reports
         ))
         
         if selected_period_id:
@@ -639,12 +655,15 @@ def dashboard_stats():
             'stats': {
                 'totalStudents': total_students,
                 'totalReports': total_reports,
+                'submittedReports': submitted_reports,
+                'draftReports': draft_reports,
                 'reportCompletion': completion_rate,
                 'currentGroups': [{
                     'name': name,
                     'count': count,
-                    'reports_completed': completed
-                } for name, count, completed in group_stats],
+                    'reports_completed': completed,
+                    'reports_draft': draft
+                } for name, count, completed, draft in group_stats],
                 'coachSummaries': coach_summaries,
                 'groupRecommendations': group_recommendations
             }
@@ -660,6 +679,8 @@ def dashboard_stats():
             'stats': {
                 'totalStudents': 0,
                 'totalReports': 0,
+                'submittedReports': 0,
+                'draftReports': 0,
                 'reportCompletion': 0,
                 'currentGroups': [],
                 'coachSummaries': None,
@@ -801,9 +822,10 @@ def programme_players():
             TennisGroupTimes.day_of_week,
             TennisGroupTimes.start_time,
             TennisGroupTimes.end_time,
-            TennisGroupTimes.capacity,  # Added capacity
+            TennisGroupTimes.capacity,
             Report.id.label('report_id'),
             Report.coach_id,
+            Report.is_draft.label('is_draft'),
             ProgrammePlayers.coach_id.label('assigned_coach_id'),
             func.count(GroupTemplate.id).label('template_count')
         ).group_by(
@@ -816,9 +838,10 @@ def programme_players():
             TennisGroupTimes.day_of_week,
             TennisGroupTimes.start_time,
             TennisGroupTimes.end_time,
-            TennisGroupTimes.capacity,  # Added capacity to group by
+            TennisGroupTimes.capacity,
             Report.id,
             Report.coach_id,
+            Report.is_draft,
             ProgrammePlayers.coach_id
         ).order_by(
             ProgrammePlayers.group_id,
@@ -836,9 +859,11 @@ def programme_players():
                 'day_of_week': player.day_of_week.value if player.day_of_week else None,
                 'start_time': player.start_time.strftime('%H:%M') if player.start_time else None,
                 'end_time': player.end_time.strftime('%H:%M') if player.end_time else None,
-                'capacity': player.capacity  # Added capacity to time_slot object
+                'capacity': player.capacity
             } if player.day_of_week else None,
-            'report_submitted': player.report_id is not None,
+            'report_status': 'draft' if player.is_draft else ('submitted' if player.report_id is not None else 'pending'),
+            'report_submitted': player.report_id is not None and not player.is_draft,
+            'has_draft': player.report_id is not None and player.is_draft,
             'report_id': player.report_id,
             'can_edit': current_user.is_admin or current_user.is_super_admin or 
                        player.coach_id == current_user.id or 
@@ -1032,7 +1057,6 @@ def report_operations(report_id):
         return jsonify({'error': 'Permission denied'}), 403
 
     if request.method == 'GET':
-        
         # Get the template associated with this report
         template = report.template
 
@@ -1049,7 +1073,9 @@ def report_operations(report_id):
             'content': report_content,
             'recommendedGroupId': report.recommended_group_id,
             'submissionDate': report.date.isoformat() if report.date else None,
-            'canEdit': current_user.is_admin or report.coach_id == current_user.id
+            'canEdit': current_user.is_admin or report.coach_id == current_user.id,
+            'isDraft': report.is_draft,
+            'status': report.status
         }
 
         # Serialize the template data
@@ -1087,17 +1113,37 @@ def report_operations(report_id):
             # Update report content - should just be the section data
             report.content = data.get('content', {})
             
+            # Update draft status if provided
+            if 'is_draft' in data:
+                report.is_draft = data['is_draft']
+                
+                # If changing from draft to final, make sure recommendedGroupId is provided
+                if not report.is_draft and not data.get('recommendedGroupId'):
+                    return jsonify({'error': 'Recommended group is required for final submission'}), 400
+                    
+                # Mark programme player as having a submitted report if finalising
+                if not report.is_draft:
+                    programme_player = ProgrammePlayers.query.get(report.programme_player_id)
+                    if programme_player:
+                        programme_player.report_submitted = True
+            
             # Update recommended group
-            report.recommended_group_id = data.get('recommendedGroupId')
+            if 'recommendedGroupId' in data:
+                report.recommended_group_id = data.get('recommendedGroupId')
             
             # Record the update time
-            report.date = datetime.utcnow()
+            report.last_updated = datetime.utcnow()
+            
+            # Only update the submission date if finalising
+            if 'is_draft' in data and not data['is_draft']:
+                report.date = datetime.utcnow()
             
             db.session.commit()
             
             return jsonify({
                 'message': 'Report updated successfully',
-                'report_id': report.id
+                'report_id': report.id,
+                'status': report.status
             })
             
         except Exception as e:
@@ -1827,7 +1873,7 @@ def new_report(player_id):
 @main.route('/api/reports/create/<int:player_id>', methods=['POST'])
 @login_required
 def submit_report(player_id):
-    """Create a new report"""
+    """Create a new report, either as draft or final submission"""
     player = ProgrammePlayers.query.get_or_404(player_id)
     
     # Permission check
@@ -1837,22 +1883,31 @@ def submit_report(player_id):
     try:
         data = request.get_json()
         
-        # Extract and validate recommendedGroupId
+        # Check if this is a draft or final submission
+        is_draft = data.get('is_draft', False)
+        
+        # For drafts, the recommended group is optional
         recommended_group_id = data.get('recommendedGroupId')
         
-        if not recommended_group_id:
-            return jsonify({'error': 'Recommended group is required'}), 400
-
-        # Validate that the recommended group exists and belongs to the same club
-        recommended_group = TennisGroup.query.filter_by(
-            id=recommended_group_id,
-            tennis_club_id=player.tennis_club_id
-        ).first()
+        # If recommendedGroupId is 0 or empty string, treat it as NULL
+        if recommended_group_id == 0 or recommended_group_id == '':
+            recommended_group_id = None
         
-        if not recommended_group:
-            return jsonify({'error': 'Invalid recommended group'}), 400
+        # Only validate recommended group for final submissions
+        if not is_draft and not recommended_group_id:
+            return jsonify({'error': 'Recommended group is required for final submission'}), 400
 
-        # Create report with simplified content structure
+        # Validate that the recommended group exists if provided
+        if recommended_group_id:
+            recommended_group = TennisGroup.query.filter_by(
+                id=recommended_group_id,
+                tennis_club_id=player.tennis_club_id
+            ).first()
+            
+            if not recommended_group:
+                return jsonify({'error': 'Invalid recommended group'}), 400
+
+        # Create report with draft status
         report = Report(
             student_id=player.student_id,
             coach_id=current_user.id,
@@ -1860,25 +1915,92 @@ def submit_report(player_id):
             teaching_period_id=player.teaching_period_id,
             programme_player_id=player.id,
             template_id=data['template_id'],
-            content=data['content'],  # Just the section data
-            recommended_group_id=recommended_group_id,
-            date=datetime.utcnow()
+            content=data['content'],
+            recommended_group_id=recommended_group_id,  # Can be None for drafts
+            date=datetime.utcnow(),
+            is_draft=is_draft,
+            last_updated=datetime.utcnow()
         )
         
-        player.report_submitted = True
+        # Only mark as submitted if it's not a draft
+        if not is_draft:
+            player.report_submitted = True
+        
         db.session.add(report)
         db.session.commit()
         
         return jsonify({
-            'message': 'Report submitted successfully',
+            'message': 'Report saved successfully' if is_draft else 'Report submitted successfully',
+            'report_id': report.id,
+            'status': 'draft' if is_draft else 'submitted'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error saving report: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 400
+
+@main.route('/api/reports/<int:report_id>/finalise', methods=['PUT'])
+@login_required
+@verify_club_access()
+def finalise_report(report_id):
+    """Convert a draft report to a final submission"""
+    report = Report.query.get_or_404(report_id)
+    
+    # Check permissions
+    if not current_user.is_admin and report.coach_id != current_user.id:
+        return jsonify({'error': 'Permission denied'}), 403
+        
+    if not report.is_draft:
+        return jsonify({'error': 'This report is already finalised'}), 400
+        
+    try:
+        data = request.get_json()
+        
+        # Extract and validate recommendedGroupId
+        recommended_group_id = data.get('recommendedGroupId')
+        
+        if not recommended_group_id:
+            return jsonify({'error': 'Recommended group is required'}), 400
+            
+        # Validate that the recommended group exists and belongs to the same club
+        recommended_group = TennisGroup.query.filter_by(
+            id=recommended_group_id,
+            tennis_club_id=report.student.tennis_club_id
+        ).first()
+        
+        if not recommended_group:
+            return jsonify({'error': 'Invalid recommended group'}), 400
+            
+        # Update report content if provided
+        if 'content' in data:
+            report.content = data['content']
+            
+        # Update recommended group
+        report.recommended_group_id = recommended_group_id
+        
+        # Mark as final submission
+        report.is_draft = False
+        report.date = datetime.utcnow()
+        
+        # Mark the programme player as having a submitted report
+        programme_player = ProgrammePlayers.query.get(report.programme_player_id)
+        if programme_player:
+            programme_player.report_submitted = True
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Report finalised successfully',
             'report_id': report.id
         })
         
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"Error submitting report: {str(e)}")
+        current_app.logger.error(f"Error finalising report: {str(e)}")
         current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 400
+        return jsonify({'error': str(e)}), 500
 
 
 def calculate_age(birth_date):

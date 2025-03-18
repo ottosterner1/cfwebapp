@@ -68,6 +68,8 @@ interface GroupRecommendation {
 export interface DashboardMetrics {
   totalStudents: number;
   totalReports: number;
+  submittedReports: number;
+  draftReports: number;
   reportCompletion: number;
   currentGroups: GroupProgress[];
   coachSummaries?: CoachSummary[];
@@ -78,6 +80,7 @@ export interface GroupProgress {
   name: string;
   count: number;
   reports_completed: number;
+  reports_draft: number;
 }
 
 export interface CoachSummary {
@@ -85,6 +88,7 @@ export interface CoachSummary {
   name: string;
   total_assigned: number;
   reports_completed: number;
+  reports_draft: number;
 }
 
 interface TimeSlot {
@@ -100,7 +104,9 @@ export interface ProgrammePlayer {
   group_id: number;
   group_time_id: number | null;
   time_slot: TimeSlot | null;
+  report_status: 'pending' | 'draft' | 'submitted';
   report_submitted: boolean;
+  has_draft: boolean;
   report_id?: number;
   can_edit: boolean;
   has_template: boolean;
@@ -143,25 +149,35 @@ export interface Template {
 export interface DynamicReportFormProps {
   template: Template;
   studentName: string;
-  dateOfBirth?: string;  // New field
-  age?: number;          // New field
+  dateOfBirth?: string;
+  age?: number;
   groupName: string;
   initialData?: {
     content: Record<string, Record<string, string>>;
-    recommendedGroupId: number;
+    recommendedGroupId: number | null;  // Update to allow null
     id?: number;
     submissionDate?: string;
     canEdit?: boolean;
+    isDraft?: boolean;
+    lastUpdated?: string;
   };
   onSubmit: (data: {
-    content: Record<string, Record<string, string>>;
-    recommendedGroupId: number;
+    content: Record<string, Record<string, any>>;
+    recommendedGroupId: number | null;  // Update to allow null
     template_id: number;
+    is_draft: boolean;
   }) => Promise<void>;
   onCancel: () => void;
   isSubmitting?: boolean;
-  onSaveAndNext?: (data: any) => Promise<void>; 
+  onSaveAndNext?: (data: {
+    content: Record<string, Record<string, any>>;
+    recommendedGroupId: number | null;  // Update to allow null
+    template_id: number;
+    is_draft: boolean;
+  }) => Promise<void>;
+  isDraftMode?: boolean;
 }
+
 
 export interface ProgressOptionsProps {
   value: string;
