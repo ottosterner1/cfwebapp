@@ -39,6 +39,14 @@ interface Report {
   content: Record<string, Record<string, any>>;
   submissionDate: string;
   canEdit: boolean;
+  isDraft: boolean;
+  lastUpdated?: string;
+}
+
+interface SubmissionResult {
+  message: string;
+  report_id: number;
+  status: 'draft' | 'submitted';
 }
 
 const EditReportApp: React.FC = () => {
@@ -47,6 +55,8 @@ const EditReportApp: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionResult, setSubmissionResult] = useState<SubmissionResult | null>(null);
 
   const rootElement = document.getElementById('edit-report-root');
   const reportId = rootElement?.dataset.reportId;
@@ -80,6 +90,7 @@ const EditReportApp: React.FC = () => {
   // Handle form submission
   const handleSubmit = async (formData: Record<string, any>): Promise<void> => {
     try {
+      setIsSubmitting(true);
       if (!reportId) throw new Error('Report ID not found');
 
       const response = await fetch(`/api/reports/${reportId}`, {
@@ -95,10 +106,20 @@ const EditReportApp: React.FC = () => {
         throw new Error(errorData.error || 'Failed to update report');
       }
 
-      window.location.href = `/reports/${reportId}`;
+      const result = await response.json();
+      setSubmissionResult(result);
+
+      // If not a draft, redirect to view page after a short delay
+      if (!formData.is_draft) {
+        setTimeout(() => {
+          window.location.href = `/reports/${reportId}`;
+        }, 1500);
+      }
     } catch (err) {
       console.error('Error updating report:', err);
       throw err;
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -134,10 +155,51 @@ const EditReportApp: React.FC = () => {
     return <div className="p-4">No report available</div>;
   }
 
+  // Show success message after submission
+  if (submissionResult) {
+    return (
+      <div className="max-w-4xl mx-auto p-6 bg-white rounded-lg shadow">
+        <div className={`p-4 mb-4 rounded-lg ${submissionResult.status === 'draft' ? 'bg-amber-50 border border-amber-200' : 'bg-green-50 border border-green-200'}`}>
+          <h2 className={`text-xl font-bold ${submissionResult.status === 'draft' ? 'text-amber-700' : 'text-green-700'}`}>
+            {submissionResult.status === 'draft' ? 'Draft Saved Successfully' : 'Report finalised Successfully'}
+          </h2>
+          <p className="mt-2">{submissionResult.message}</p>
+        </div>
+        
+        <div className="mt-6 flex gap-4">
+          <a 
+            href={`/reports/${submissionResult.report_id}`} 
+            className={`px-4 py-2 rounded-md ${submissionResult.status === 'draft' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}
+          >
+            View Report
+          </a>
+          {submissionResult.status === 'draft' && (
+            <a 
+              href={`/reports/${submissionResult.report_id}/edit`} 
+              className="px-4 py-2 bg-blue-100 text-blue-800 rounded-md"
+            >
+              Continue Editing
+            </a>
+          )}
+          <a 
+            href="/dashboard" 
+            className="px-4 py-2 bg-gray-100 text-gray-800 rounded-md"
+          >
+            Back to Dashboard
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   // Structure the form data to match what DynamicReportForm expects
   const initialFormData = {
-    content: report.content, // Ensure this is `Record<string, Record<string, string>>`
-    recommendedGroupId: report.recommendedGroupId, // Ensure this is a number
+    content: report.content,
+    recommendedGroupId: report.recommendedGroupId,
+    isDraft: report.isDraft,
+    submissionDate: report.submissionDate,
+    id: report.id,
+    lastUpdated: report.lastUpdated
   };
 
   console.log('Initial form data:', initialFormData); // Debug log
@@ -145,7 +207,10 @@ const EditReportApp: React.FC = () => {
   return (
     <div className="p-4">
       <div className="mb-4 flex justify-between items-center">
-        <h1 className="text-2xl font-bold">Edit Report</h1>
+        <h1 className="text-2xl font-bold">
+          {report.isDraft ? 'Edit Draft Report' : 'Edit Report'}
+        </h1>
+        
         <button
           onClick={() => setShowDeleteDialog(true)}
           className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
@@ -153,6 +218,20 @@ const EditReportApp: React.FC = () => {
           Delete Report
         </button>
       </div>
+
+      {/* Draft Status Banner */}
+      {report.isDraft && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-md">
+          <p className="text-amber-800">
+            <span className="font-medium">Draft Mode:</span> This report has not been finalised and is not visible to students.
+            {report.lastUpdated && (
+              <span className="block mt-1 text-sm">
+                Last saved: {new Date(report.lastUpdated).toLocaleString()}
+              </span>
+            )}
+          </p>
+        </div>
+      )}
 
       {showDeleteDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
@@ -184,6 +263,8 @@ const EditReportApp: React.FC = () => {
         initialData={initialFormData}
         onSubmit={handleSubmit}
         onCancel={() => window.location.href = `/dashboard`}
+        isSubmitting={isSubmitting}
+        isDraftMode={report.isDraft}
       />
     </div>
   );

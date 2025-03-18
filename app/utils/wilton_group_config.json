@@ -8,13 +8,92 @@
         },
         "page2": {
             "sections": {
-                "RULES OF TENNIS": { "start_y": 575, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RACKET SKILLS": { "start_y": 530, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "THROWING AND CATCHING SKILLS": { "start_y": 490, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GROUNDSTROKES": { "start_y": 445, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "SERVE": { "start_y": 330, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RALLYING": { "start_y": 263, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "COMPETITION": { "start_y": 175, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+                "RULES OF TENNIS": { 
+                    "start_y": 575, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I know what's in and out",
+                        "I know what all of the lines on the court are called"
+                    ]
+                },
+                "RACKET SKILLS": { 
+                    "start_y": 530, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I can do 10 tap-ups with one bounce",
+                        "I can do 10 tap-downs with one bounce"
+                    ]
+                },
+                "THROWING AND CATCHING SKILLS": { 
+                    "start_y": 490, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I can consistently catch when a ball is thrown to me",
+                        "I can consistently throw a ball overarm over the net"
+                    ]
+                },
+                "GROUNDSTROKES": { 
+                    "start_y": 445, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I play my forehands and backhands close to the net",
+                        "I play my forehands and backhands from the middle of the court",
+                        "I play my forehands and backhands from the back of the court",
+                        "I can push my forehand and freeze",
+                        "I can push my backhand and freeze",
+                        "I follow through on to my shoulder on my forehand",
+                        "I follow through on to my shoulder on my backhand"
+                    ]
+                },
+                "SERVE": { 
+                    "start_y": 330, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I serve from close to the net with the coach throwing the ball",
+                        "I serve from close to the net and I do the ball toss",
+                        "I serve from the middle of the court over the net and crosscourt",
+                        "I serve from the back of the court and crosscourt"
+                    ]
+                },
+                "RALLYING": { 
+                    "start_y": 263, 
+                    "spacing": 15, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I can push rally to 5 with my coach on my forehand",
+                        "I can push rally to 5 with my coach on my backhand",
+                        "I can push rally to 10 with my coach on my forehand",
+                        "I can push rally to 10 with my coach on my backhand",
+                        "I can push rally to 10 with my coach on my forehand and backhand combined"
+                    ]
+                },
+                "COMPETITION": { 
+                    "start_y": 175, 
+                    "spacing": 15, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I fully understand all the competitive games that we play"
+                    ]
+                }
             },
             "group_recommendation": { "red_x": 338, "orange_x": 418, "y": 155 },
             "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 133},
@@ -33,13 +112,92 @@
         },
         "page2": {
             "sections": {
-                "RULES OF TENNIS": { "start_y": 575, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RACKET SKILLS": { "start_y": 530, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "THROWING AND CATCHING SKILLS": { "start_y": 490, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GROUNDSTROKES": { "start_y": 445, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "SERVE": { "start_y": 330, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RALLYING": { "start_y": 263, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "COMPETITION": { "start_y": 175, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+                "RULES OF TENNIS": { 
+                    "start_y": 575, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I know what's in and out",
+                        "I know what all of the lines on the court are called"
+                    ]
+                },
+                "RACKET SKILLS": { 
+                    "start_y": 530, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I can do 10 tap-ups with one bounce",
+                        "I can do 10 tap-downs with one bounce"
+                    ]
+                },
+                "THROWING AND CATCHING SKILLS": { 
+                    "start_y": 490, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I can consistently catch when a ball is thrown to me",
+                        "I can consistently throw a ball overarm over the net"
+                    ]
+                },
+                "GROUNDSTROKES": { 
+                    "start_y": 445, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I play my forehands and backhands close to the net",
+                        "I play my forehands and backhands from the middle of the court",
+                        "I play my forehands and backhands from the back of the court",
+                        "I can push my forehand and freeze",
+                        "I can push my backhand and freeze",
+                        "I follow through on to my shoulder on my forehand",
+                        "I follow through on to my shoulder on my backhand"
+                    ]
+                },
+                "SERVE": { 
+                    "start_y": 330, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I serve from close to the net with the coach throwing the ball",
+                        "I serve from close to the net and I do the ball toss",
+                        "I serve from the middle of the court over the net and crosscourt",
+                        "I serve from the back of the court and crosscourt"
+                    ]
+                },
+                "RALLYING": { 
+                    "start_y": 263, 
+                    "spacing": 15, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I can push rally to 5 with my coach on my forehand",
+                        "I can push rally to 5 with my coach on my backhand",
+                        "I can push rally to 10 with my coach on my forehand",
+                        "I can push rally to 10 with my coach on my backhand",
+                        "I can push rally to 10 with my coach on my forehand and backhand combined"
+                    ]
+                },
+                "COMPETITION": { 
+                    "start_y": 175, 
+                    "spacing": 15, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I fully understand all the competitive games that we play"
+                    ]
+                }
             },
             "group_recommendation": { "red_x": 338, "orange_x": 418, "y": 155 },
             "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 133},
@@ -57,13 +215,90 @@
         },
         "page2": {
             "sections": {
-                "RULES OF TENNIS": { "start_y": 563, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "THROWING AND CATCHING SKILLS": { "start_y": 507, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GROUNDSTROKES": { "start_y": 435, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "VOLLEYS": { "start_y": 391, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "SERVE": { "start_y": 348, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RALLYING": { "start_y": 278, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "COMPETITION": { "start_y": 225, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+                "RULES OF TENNIS": { 
+                    "start_y": 563, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I keep the score well when playing a match",
+                        "I understand which side I should be serving from during a match",
+                        "I fully understand how to play an official match without assistance"
+                    ]
+                },
+                "THROWING AND CATCHING SKILLS": { 
+                    "start_y": 507, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I can catch the ball with my playing hand",
+                        "I can catch the ball with my non-playing hand",
+                        "I can throw the ball over the net overarm with my playing hand",
+                        "I can throw the ball over the net with my non-playing hand"
+                    ]
+                },
+                "GROUNDSTROKES": { 
+                    "start_y": 435, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I regularly swing over my shoulder on my forehand and have good balance",
+                        "I regularly swing over my shoulder on my backhand and have good balance"
+                    ]
+                },
+                "VOLLEYS": { 
+                    "start_y": 391, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "In a rally / point, I can approach the net and play volleys",
+                        "In a point, I can get to the net and hit winning volleys"
+                    ]
+                },
+                "SERVE": { 
+                    "start_y": 348, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I serve with half a swing",
+                        "I serve with a full swing",
+                        "My second serve goes upwards off my racket",
+                        "My first serve goes downwards off my racket with power"
+                    ]
+                },
+                "RALLYING": { 
+                    "start_y": 278, 
+                    "spacing": 15, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I can rally to 10 with a partner",
+                        "I can rally to 15 with a partner",
+                        "I can rally to 20 with a partner"
+                    ]
+                },
+                "COMPETITION": { 
+                    "start_y": 225, 
+                    "spacing": 15, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I am ready to play tournaments (sign up for a rating on the LTA website)",
+                        "I can accept both winning and losing",
+                        "I compete fairly"
+                    ]
+                }
             },
             "group_recommendation": { "red_x": 338, "orange_x": 418, "y": 170 },
             "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 147},
@@ -81,12 +316,81 @@
         },
         "page2": {
             "sections": {
-                "RULES OF TENNIS": { "start_y": 563, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GROUNDSTROKES": { "start_y": 505, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "VOLLEYS": { "start_y": 450, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "SERVE": { "start_y": 406, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RALLYING": { "start_y": 320, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "COMPETITION": { "start_y": 252, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+                "RULES OF TENNIS": { 
+                    "start_y": 563, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I know what's in and out",
+                        "I know the difference between 1st & 2nd bounce",
+                        "I know the names of all the lines on the court"
+                    ]
+                },
+                "GROUNDSTROKES": { 
+                    "start_y": 505, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I play my forehands and backhands from the service line",
+                        "I play my forehands and backhands from the orange court baseline",
+                        "I can get most forehands and backhands in with basket drills"
+                    ]
+                },
+                "VOLLEYS": { 
+                    "start_y": 450, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I play my forehand volley with one hand",
+                        "I play my backhand volley with two hands"
+                    ]
+                },
+                "SERVE": { 
+                    "start_y": 406, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I serve with half a swing",
+                        "I serve with a full swing",
+                        "I serve from the middle of the court and crosscourt",
+                        "I serve from the back of the court and crosscourt",
+                        "I can get my serve in over 50% of the time"
+                    ]
+                },
+                "RALLYING": { 
+                    "start_y": 320, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I can push rally to 10 with my coach",
+                        "I can push rally to 15 with my coach",
+                        "I can push rally to 10 with another player",
+                        "I can push rally to 15 with another player"
+                    ]
+                },
+                "COMPETITION": { 
+                    "start_y": 252, 
+                    "spacing": 15, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I fully understand all the competitive games that we play",
+                        "I can play points when we start without the serve",
+                        "I can play points when we start with the serve",
+                        "I fully understand all of the competitive games that we play"
+                    ]
+                }
             },
             "group_recommendation": { "orange_x": 349, "green_x": 418, "y": 179 },
             "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 157},
@@ -105,12 +409,82 @@
         },
         "page2": {
             "sections": {
-                "RULES OF TENNIS": { "start_y": 559, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GROUNDSTROKES": { "start_y": 502, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "VOLLEYS": { "start_y": 417, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "SERVE": { "start_y": 360, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RALLYING": { "start_y": 276, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "COMPETITION": { "start_y": 220, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+                "RULES OF TENNIS": { 
+                    "start_y": 559, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I keep the score well when playing a match",
+                        "I understand which side I should be serving from during a match",
+                        "I fully understand how to play an official match without assistance"
+                    ]
+                },
+                "GROUNDSTROKES": { 
+                    "start_y": 502, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I regularly swing over my shoulder on my forehand and have good balance",
+                        "I play my forehand with topspin",
+                        "I regularly swing over my shoulder on my backhand and have good balance",
+                        "I play my backhand with topspin",
+                        "I use a different grip for my forehand and backhand"
+                    ]
+                },
+                "VOLLEYS": { 
+                    "start_y": 417, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "In a rally / point, I can approach the net and play volleys",
+                        "I can hit my approach shot to one side and volley to the space",
+                        "In a point, I can get to the net and hit winning volleys"
+                    ]
+                },
+                "SERVE": { 
+                    "start_y": 360, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I Serve with half a swing",
+                        "I serve with a full swing",
+                        "My second serve goes upwards off my racket",
+                        "My first serve goes downwards",
+                        "My first serve has power"
+                    ]
+                },
+                "RALLYING": { 
+                    "start_y": 276, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I can rally to 15 with a partner",
+                        "I can rally to 20 with a partner",
+                        "My groundstrokes are consistent when playing points"
+                    ]
+                },
+                "COMPETITION": { 
+                    "start_y": 220, 
+                    "spacing": 15, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I am ready to play tournaments (sign up for a rating on the LTA website)",
+                        "When competing I regularly play with topspin",
+                        "When competing I use a chopper grip on my serve"
+                    ]
+                }
             },
             "group_recommendation": { "orange_x": 349, "green_x": 418, "y": 160 },
             "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 138},
@@ -122,97 +496,388 @@
     },
     "Orange 3": {
         "page1": {
-            "player_name": [250, 205],
-            "coach_name": [250, 162],
-            "term": [250, 128]
+          "player_name": [250, 205],
+          "coach_name": [250, 162],
+          "term": [250, 128]
         },
         "page2": {
-            "sections": {
-                "GRIPS": { "start_y": 560, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GROUNDSTROKES": { "start_y": 474, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "VOLLEYS": { "start_y": 390, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "SERVE": { "start_y": 333, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RALLYING AND POINTS": { "start_y": 275, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "COMPETITION": { "start_y": 205, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+          "sections": {
+            "GRIPS": { 
+              "start_y": 560, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I always change to chopper grip for a drop shot",
+                "I can disguise my dropshot using chopper grip",
+                "I always use chopper grip for my 1st and 2nd serve",
+                "I always use a semi western grip for my forehand",
+                "I always change my grip correctly when hitting a backhand"
+              ]
             },
-            "group_recommendation": { "orange_x": 349, "green_x": 418, "y": 157 },
-            "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 134},
-            "teaching_period_dates": {
-                "next_term_start": {"x": 340, "y": 100},
-                "bookings_open": {"x": 340, "y": 75}
+            "GROUNDSTROKES": { 
+              "start_y": 474, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I can use open stance when hitting",
+                "I can use a pivot when hitting",
+                "I can hit off the correct foot",
+                "I can loop on my forehand",
+                "I can loop on my backhand"
+              ]
+            },
+            "VOLLEYS": { 
+              "start_y": 390, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "In a rally / point, I can approach the net and play volleys",
+                "I can hit my approach shot to one side and volley to the space",
+                "In a point, I can get to the net and hit winning volleys"
+              ]
+            },
+            "SERVE": { 
+              "start_y": 333, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I can serve in chopper grip",
+                "I can serve with slice",
+                "I can pronate my hand in chopper grip"
+              ]
+            },
+            "RALLYING AND POINTS": { 
+              "start_y": 275, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I know when to change down the line when playing points",
+                "I can rally consistently cross court on my backhand",
+                "I can rally consistently cross court on my forehand",
+                "I know when to trade, attack and defend in a point situation"
+              ]
+            },
+            "COMPETITION": { 
+              "start_y": 205, 
+              "spacing": 15, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "When playing points I maintain my technique",
+                "When playing points I am able to apply tactics",
+                "Are you competing enough"
+              ]
             }
+          },
+          "group_recommendation": { "orange_x": 349, "green_x": 418, "y": 157 },
+          "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 134},
+          "teaching_period_dates": {
+            "next_term_start": {"x": 340, "y": 100},
+            "bookings_open": {"x": 340, "y": 75}
+          }
         }
-    },
-    "Green 1": {
+      },
+      "Green 1": {
         "page1": {
-            "player_name": [250, 205],
-            "coach_name": [250, 162],
-            "term": [250, 128]
+          "player_name": [250, 205],
+          "coach_name": [250, 162],
+          "term": [250, 128]
         },
         "page2": {
-            "sections": {
-                "RULES OF TENNIS": { "start_y": 574, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GROUNDSTROKES": { "start_y": 515, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "VOLLEYS": { "start_y": 446, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "SERVE": { "start_y": 401, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RALLYING": { "start_y": 304, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "COMPETITION": { "start_y": 234, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+          "sections": {
+            "RULES OF TENNIS": { 
+              "start_y": 574, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I know what's in and out",
+                "I know the difference between 1st & 2nd bounce",
+                "I know the names of all the lines on the court"
+              ]
             },
-            "group_recommendation": { "green_x": 348, "yellow_x": 418, "y": 169 },
-            "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 147},
-            "teaching_period_dates": {
-                "next_term_start": {"x": 340, "y": 100},
-                "bookings_open": {"x": 340, "y": 75}
+            "GROUNDSTROKES": { 
+              "start_y": 515, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I play my forehands and backhands from the middle of the court",
+                "I play my forehands and backhands from three quarters of the court",
+                "I play my forehands and backhands from the back of the court",
+                "I can get most forehands and backhands in with basket drills"
+              ]
+            },
+            "VOLLEYS": { 
+              "start_y": 446, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I play my forehand volley with one hand",
+                "I play my backhand volley with two hands"
+              ]
+            },
+            "SERVE": { 
+              "start_y": 401, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I serve with half a swing",
+                "I serve with a full swing",
+                "I serve from three quarters of the court and over the net",
+                "I serve from three quarters of the court and crosscourt",
+                "I serve from the back of the court and crosscourt",
+                "I can get my serve in over 50% of the time"
+              ]
+            },
+            "RALLYING": { 
+              "start_y": 304, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I can push rally to 10 with my coach",
+                "I can push rally to 15 with my coach",
+                "I can push rally to 10 with another player",
+                "I can push rally to 15 with another player"
+              ]
+            },
+            "COMPETITION": { 
+              "start_y": 234, 
+              "spacing": 15, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I fully understand all the competitive games that we play",
+                "I can play points when we start without the serve",
+                "I can play points when we start with the serve"
+              ]
             }
+          },
+          "group_recommendation": { "green_x": 348, "yellow_x": 418, "y": 169 },
+          "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 147},
+          "teaching_period_dates": {
+            "next_term_start": {"x": 340, "y": 100},
+            "bookings_open": {"x": 340, "y": 75}
+          }
         }
-    },
-    "Green 2": {
+      },
+      "Green 2": {
         "page1": {
-            "player_name": [250, 205],
-            "coach_name": [250, 162],
-            "term": [250, 128]
+          "player_name": [250, 205],
+          "coach_name": [250, 162],
+          "term": [250, 128]
         },
         "page2": {
-            "sections": {
-                "RULES OF TENNIS": { "start_y": 573, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GRIPS": { "start_y": 515, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GROUNDSTROKES": { "start_y": 460, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "VOLLEYS": { "start_y": 388, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "SERVE": { "start_y": 332, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RALLYING": { "start_y": 276, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "COMPETITION": { "start_y": 234, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+          "sections": {
+            "RULES OF TENNIS": { 
+              "start_y": 573, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I keep the score well when playing a match",
+                "I understand which side I should be serving from during a match",
+                "I fully understand how to play a match without assistance"
+              ]
             },
-            "group_recommendation": { "green_x": 348, "yellow_x": 418, "y": 169 },
-            "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 147},
-            "teaching_period_dates": {
-                "next_term_start": {"x": 340, "y": 100},
-                "bookings_open": {"x": 340, "y": 75}
+            "GRIPS": { 
+              "start_y": 515, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I can change between my forehand and backhand grip",
+                "I can change to a chopper grip to hit a dropshot",
+                "I use a chopper grip on my serve"
+              ]
+            },
+            "GROUNDSTROKES": { 
+              "start_y": 460, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I regularly swing over my shoulder on my forehand and have good balance",
+                "I play my forehand with topspin",
+                "I regularly swing over my shoulder on my backhand and have good balance",
+                "I play my backhand with topspin"
+              ]
+            },
+            "VOLLEYS": { 
+              "start_y": 388, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "In a rally / point, I can approach the net and play volleys",
+                "I can hit my approach shot to one side and volley to the space",
+                "In a point, I can get to the net and hit winning volleys"
+              ]
+            },
+            "SERVE": { 
+              "start_y": 332, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I can hit my first serve with power",
+                "I can hit slice on my second serve",
+                "I have an accurate aim on my serve"
+              ]
+            },
+            "RALLYING": { 
+              "start_y": 276, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I can rally to 20 with a partner",
+                "My groundstrokes are consistent when playing points"
+              ]
+            },
+            "COMPETITION": { 
+              "start_y": 234, 
+              "spacing": 15, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I am ready to play tournaments (sign up for a rating on the LTA website)",
+                "When competing I regularly play with topspin",
+                "When competing I use a chopper grip on my serve"
+              ]
             }
+          },
+          "group_recommendation": { "green_x": 348, "yellow_x": 418, "y": 169 },
+          "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 147},
+          "teaching_period_dates": {
+            "next_term_start": {"x": 340, "y": 100},
+            "bookings_open": {"x": 340, "y": 75}
+          }
         }
-    },
-    "Green 3": {
+      },
+      "Green 3": {
         "page1": {
-            "player_name": [250, 205],
-            "coach_name": [250, 162],
-            "term": [250, 128]
+          "player_name": [250, 205],
+          "coach_name": [250, 162],
+          "term": [250, 128]
         },
         "page2": {
-            "sections": {
-                "GRIPS": { "start_y": 573, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GROUNDSTROKES": { "start_y": 488, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "VOLLEYS": { "start_y": 403, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "SERVE": { "start_y": 346, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RALLYING & POINTS": { "start_y": 261, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "COMPETITION": { "start_y": 191, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+          "sections": {
+            "GRIPS": { 
+              "start_y": 573, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I always change to chopper grip for a drop shot",
+                "I can disguise my dropshot using chopper grip",
+                "I always use chopper grip for my 1st and 2nd serve",
+                "I always use a semi western grip for my forehand",
+                "I always change my grip correctly when hitting a backhand"
+              ]
             },
-            "group_recommendation": { "green_x": 348, "yellow_x": 418, "y": 141 },
-            "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 118},
-            "teaching_period_dates": {
-                "next_term_start": {"x": 340, "y": 91},
-                "bookings_open": {"x": 340, "y": 68}
+            "GROUNDSTROKES": { 
+              "start_y": 488, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I can use open stance when hitting",
+                "I can use a pivot when hitting",
+                "I can hit off the correct foot",
+                "I can loop on my forehand",
+                "I can loop on my backhand"
+              ]
+            },
+            "VOLLEYS": { 
+              "start_y": 403, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "In a rally / point, I can approach the net and play volleys",
+                "I can hit my approach shot to one side and volley to the space",
+                "In a point, I can get to the net and hit winning volleys"
+              ]
+            },
+            "SERVE": { 
+              "start_y": 346, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I can direct a flat 1st serve",
+                "I can direct slice 1st serve on my serve",
+                "I can use topspin / slice on my 2nd serve",
+                "My 1st serve is powerful",
+                "My 2nd serve is consistent"
+              ]
+            },
+            "RALLYING & POINTS": { 
+              "start_y": 261, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I can rally consistently cross court on my forehand",
+                "I can rally consistently cross court on my backhand",
+                "I know when to change down the line when playing points",
+                "I know when to trade, attack and defend in a point situation"
+              ]
+            },
+            "COMPETITION": { 
+              "start_y": 191, 
+              "spacing": 15, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "When playing points I maintain my technique",
+                "When playing points I am able to apply tactics",
+                "Are you competing enough?"
+              ]
             }
+          },
+          "group_recommendation": { "green_x": 348, "yellow_x": 418, "y": 141 },
+          "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 118},
+          "teaching_period_dates": {
+            "next_term_start": {"x": 340, "y": 91},
+            "bookings_open": {"x": 340, "y": 68}
+          }
         }
-    },
+      },
     "Yellow 1": {
         "page1": {
             "player_name": [250, 205],
@@ -221,12 +886,81 @@
         },
         "page2": {
             "sections": {
-                "RULES OF TENNIS": { "start_y": 562, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GROUNDSTROKES": { "start_y": 505, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "VOLLEYS": { "start_y": 435, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "SERVE": { "start_y": 392, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RALLYING": { "start_y": 307, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "COMPETITION": { "start_y": 237, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+                "RULES OF TENNIS": { 
+                    "start_y": 562, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I know what is in and out",
+                        "I know the difference between 1st & 2nd bounce",
+                        "I know the names of all the lines on the court"
+                    ]
+                },
+                "GROUNDSTROKES": { 
+                    "start_y": 505, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I play my forehands and backhands from the middle of the court",
+                        "I play my forehands and backhands from three quarters of the court",
+                        "I play my forehands and backhands from the back of the court",
+                        "I can get most forehands and backhands in with basket drills"
+                    ]
+                },
+                "VOLLEYS": { 
+                    "start_y": 435, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I play my forehand volley with one hand",
+                        "I play my backhand volley with two hands"
+                    ]
+                },
+                "SERVE": { 
+                    "start_y": 392, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I serve with half a swing",
+                        "I serve with a full swing",
+                        "I serve from three quarters of the court and crosscourt",
+                        "I serve from the back of the court and crosscourt",
+                        "I can get my serve in over 50% of the time"
+                    ]
+                },
+                "RALLYING": { 
+                    "start_y": 307, 
+                    "spacing": 14, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I can push rally to 10 with my coach",
+                        "I can push rally to 15 with my coach",
+                        "I can push rally to 10 with another player",
+                        "I can push rally to 15 with another player"
+                    ]
+                },
+                "COMPETITION": { 
+                    "start_y": 237, 
+                    "spacing": 15, 
+                    "yes_x": 385, 
+                    "nearly_x": 405, 
+                    "not_yet_x": 425,
+                    "skills_order": [
+                        "I can play points when we start without the serve",
+                        "I can play points when we start with the serve",
+                        "I fully understand all the competitive games that we play"
+                    ]
+                }
             },
             "group_recommendation": { "yellow_x": 331, "performance_x": 427, "y": 169 },
             "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 147},
@@ -238,27 +972,104 @@
     },
     "Yellow 2": {
         "page1": {
-            "player_name": [250, 205],
-            "coach_name": [250, 162],
-            "term": [250, 128],
-            "group": [400, 193]
+          "player_name": [250, 205],
+          "coach_name": [250, 162],
+          "term": [250, 128],
+          "group": [400, 193]
         },
         "page2": {
-            "sections": {
-                "RULES OF TENNIS": { "start_y": 572, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GRIPS": { "start_y": 515, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GROUNDSTROKES": { "start_y": 459, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "VOLLEYS": { "start_y": 388, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "SERVE": { "start_y": 332, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RALLYING": { "start_y": 274, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "COMPETITION": { "start_y": 232, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+          "sections": {
+            "RULES OF TENNIS": { 
+              "start_y": 572, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I keep the score well when playing a match",
+                "I understand which side I should be serving from during a match",
+                "I fully understand how to play a match without assistance"
+              ]
             },
-            "group_recommendation": { "yellow_x": 330, "performance_x": 427, "y": 169 },
-            "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 147},
-            "teaching_period_dates": {
-                "next_term_start": {"x": 340, "y": 100},
-                "bookings_open": {"x": 340, "y": 75}
+            "GRIPS": { 
+              "start_y": 515, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I can change between my forehand and backhand grip",
+                "I can change to a chopper grip to hit a dropshot",
+                "I use a chopper grip on my serve"
+              ]
+            },
+            "GROUNDSTROKES": { 
+              "start_y": 459, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I regularly swing over my shoulder on my forehand and have good balance",
+                "I play my forehand with topspin",
+                "I regularly swing over my shoulder on my backhand and have good balance",
+                "I play my backhand with topspin"
+              ]
+            },
+            "VOLLEYS": { 
+              "start_y": 388, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "In a rally / point, I can approach the net and play volleys",
+                "I can hit my approach shot to one side and volley to the space",
+                "In a point, I can get to the net and hit winning volleys"
+              ]
+            },
+            "SERVE": { 
+              "start_y": 332, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I can hit my first serve with power",
+                "I can hit slice on my second serve",
+                "I can accuratley aim my serve"
+              ]
+            },
+            "RALLYING": { 
+              "start_y": 274, 
+              "spacing": 14, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I can rally to 20 with a partner",
+                "My groundstrokes are consistent when playing points"
+              ]
+            },
+            "COMPETITION": { 
+              "start_y": 232, 
+              "spacing": 15, 
+              "yes_x": 385, 
+              "nearly_x": 405, 
+              "not_yet_x": 425,
+              "skills_order": [
+                "I am ready to play tournaments (sign up for a rating on the LTA website)",
+                "When competing I regularly play with topspin",
+                "When competing I use a chopper grip on my serve"
+              ]
             }
+          },
+          "group_recommendation": { "yellow_x": 330, "performance_x": 427, "y": 169 },
+          "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 147},
+          "teaching_period_dates": {
+            "next_term_start": {"x": 340, "y": 100},
+            "bookings_open": {"x": 340, "y": 75}
+          }
         }
     },
     "Yellow 3": {
@@ -270,19 +1081,96 @@
         },
         "page2": {
             "sections": {
-                "RULES OF TENNIS": { "start_y": 572, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GRIPS": { "start_y": 515, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GROUNDSTROKES": { "start_y": 459, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "VOLLEYS": { "start_y": 388, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "SERVE": { "start_y": 332, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RALLYING": { "start_y": 274, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "COMPETITION": { "start_y": 232, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+            "RULES OF TENNIS": { 
+                "start_y": 572, 
+                "spacing": 14, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "I keep the score well when playing a match",
+                "I understand which side I should be serving from during a match",
+                "I fully understand how to play a match without assistance"
+                ]
+            },
+            "GRIPS": { 
+                "start_y": 515, 
+                "spacing": 14, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "I can change between my forehand and backhand grip",
+                "I can change to a chopper grip to hit a dropshot",
+                "I use a chopper grip on my serve"
+                ]
+            },
+            "GROUNDSTROKES": { 
+                "start_y": 459, 
+                "spacing": 14, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "I regularly swing over my shoulder on my forehand and have good balance",
+                "I play my forehand with topspin",
+                "I regularly swing over my shoulder on my backhand and have good balance",
+                "I play my backhand with topspin"
+                ]
+            },
+            "VOLLEYS": { 
+                "start_y": 388, 
+                "spacing": 14, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "In a rally / point, I can approach the net and play volleys",
+                "I can hit my approach shot to one side and volley to the space",
+                "In a point, I can get to the net and hit winning volleys"
+                ]
+            },
+            "SERVE": { 
+                "start_y": 332, 
+                "spacing": 14, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "I can hit my first serve with power",
+                "I can hit slice on my second serve",
+                "I can accuratley aim my serve"
+                ]
+            },
+            "RALLYING": { 
+                "start_y": 274, 
+                "spacing": 14, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "I can rally to 20 with a partner",
+                "My groundstrokes are consistent when playing points"
+                ]
+            },
+            "COMPETITION": { 
+                "start_y": 232, 
+                "spacing": 15, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "I am ready to play tournaments (sign up for a rating on the LTA website)",
+                "When competing I regularly play with topspin",
+                "When competing I use a chopper grip on my serve"
+                ]
+            }
             },
             "group_recommendation": { "yellow_x": 330, "performance_x": 427, "y": 169 },
             "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 147},
             "teaching_period_dates": {
-                "next_term_start": {"x": 340, "y": 100},
-                "bookings_open": {"x": 340, "y": 75}
+            "next_term_start": {"x": 340, "y": 100},
+            "bookings_open": {"x": 340, "y": 75}
             }
         }
     },
@@ -294,20 +1182,102 @@
         },
         "page2": {
             "sections": {
-                "RULES OF TENNIS": { "start_y": 563, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "THROWING AND CATCHING SKILLS": { "start_y": 520, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RACKETS SKILLS": { "start_y": 477, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "GROUNDSTROKES": { "start_y": 434, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "VOLLEYS": { "start_y": 337, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "SERVE": { "start_y": 294, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "RALLYING": { "start_y": 265, "spacing": 14, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 },
-                "COMPETITION": { "start_y": 237, "spacing": 15, "yes_x": 385, "nearly_x": 405, "not_yet_x": 425 }
+            "RULES OF TENNIS": { 
+                "start_y": 563, 
+                "spacing": 14, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "I know what's in and out",
+                "I know the difference between 1st & 2nd bounce"
+                ]
+            },
+            "THROWING AND CATCHING SKILLS": { 
+                "start_y": 520, 
+                "spacing": 14, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "I can catch the ball after one bounce when dropping it",
+                "I can throw the ball overarm over the net"
+                ]
+            },
+            "RACKETS SKILLS": { 
+                "start_y": 477, 
+                "spacing": 14, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "I can balance the bean bag on the racket in a race",
+                "I can balance a tennis ball on the racket whilst moving"
+                ]
+            },
+            "GROUNDSTROKES": { 
+                "start_y": 434, 
+                "spacing": 14, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "I can get in my forehand position when asked to without help",
+                "I can get in my backhand position when asked to without help",
+                "I can change between my forehand and backhand without help",
+                "I can hit the ball after one bounce regularly",
+                "I hit over 50% of my forehands over the net",
+                "I hit over 50% of my backhands over the net"
+                ]
+            },
+            "VOLLEYS": { 
+                "start_y": 337, 
+                "spacing": 14, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "I contact the ball for most of my volleys",
+                "I hit most of my volleys over the net"
+                ]
+            },
+            "SERVE": { 
+                "start_y": 294, 
+                "spacing": 14, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "When the coach throws the ball, I can make contact above my head"
+                ]
+            },
+            "RALLYING": { 
+                "start_y": 265, 
+                "spacing": 14, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "I can play floor tennis with a partner"
+                ]
+            },
+            "COMPETITION": { 
+                "start_y": 237, 
+                "spacing": 15, 
+                "yes_x": 385, 
+                "nearly_x": 405, 
+                "not_yet_x": 425,
+                "skills_order": [
+                "I fully understand the games we play and understand the rules",
+                "I always listen and follow the coaches instruction"
+                ]
+            }
             },
             "group_recommendation": { "tots_x": 344, "red_x": 418, "y": 189 },
             "next_term": {"autumn_x": 165, "spring_x": 265, "summer_x": 369, "y": 167},
             "teaching_period_dates": {
-                "next_term_start": {"x": 340, "y": 119},
-                "bookings_open": {"x": 340, "y": 94}
+            "next_term_start": {"x": 340, "y": 119},
+            "bookings_open": {"x": 340, "y": 94}
             }
         }
     }

@@ -233,7 +233,7 @@ class EnhancedWiltonReportGenerator:
             self.draw_checkbox(c, rec_coords[f'{best_match}_x'], rec_coords['y'], True)
 
     def generate_page_overlay(self, data, config, page_num):
-        """Generate a single page overlay."""
+        """Generate a single page overlay with improved skill matching that's robust to text encoding differences."""
         packet = BytesIO()
         c = canvas.Canvas(packet, pagesize=A4)
         c.setFont("Helvetica-BoldOblique", 12)
@@ -264,27 +264,60 @@ class EnhancedWiltonReportGenerator:
             # Process each section that exists in both config and content
             for section_name, section_coords in sections.items():
                 if section_name in content:
-                    y_pos = section_coords['start_y']
+                    # Use skills_order if defined, otherwise fall back to default behavior
+                    skills_order = section_coords.get('skills_order', [])
                     
-                    # Process each question in the section
-                    for value in content[section_name].values():
-                        if value == 'Yes':
-                            self.draw_checkbox(c, section_coords['yes_x'], y_pos, True)
-                        elif value == 'Nearly':
-                            self.draw_checkbox(c, section_coords['nearly_x'], y_pos, True)
-                        elif value == 'Not Yet':
-                            self.draw_checkbox(c, section_coords['not_yet_x'], y_pos, True)
-                        y_pos -= section_coords['spacing']
+                    if skills_order:
+                        # Process each skill in the defined order
+                        for i, skill_text in enumerate(skills_order):
+                            # Calculate position based on index in the ordered list
+                            y_pos = section_coords['start_y'] - (i * section_coords['spacing'])
+                            
+                            # Normalized lookup instead of direct match
+                            matched_key = None
+                            skill_value = None
+                            
+                            # Normalize the config skill text for comparison (remove all special chars)
+                            norm_skill_text = ''.join(c.lower() for c in skill_text if c.isalnum() or c.isspace()).strip()
+                            
+                            # Look for a matching skill in the content
+                            for content_key, content_value in content[section_name].items():
+                                # Normalize the content key for comparison
+                                norm_content_key = ''.join(c.lower() for c in content_key if c.isalnum() or c.isspace()).strip()
+                                
+                                # Check if the normalized versions match
+                                if norm_skill_text == norm_content_key:
+                                    matched_key = content_key
+                                    skill_value = content_value
+                                    break
+                            
+                            # If we found a match, draw the checkbox
+                            if matched_key and skill_value:
+                                if skill_value == 'Yes':
+                                    self.draw_checkbox(c, section_coords['yes_x'], y_pos, True)
+                                elif skill_value == 'Nearly':
+                                    self.draw_checkbox(c, section_coords['nearly_x'], y_pos, True)
+                                elif skill_value == 'Not Yet':
+                                    self.draw_checkbox(c, section_coords['not_yet_x'], y_pos, True)
+                    else:
+                        # Fall back to original implementation if no skills_order defined
+                        y_pos = section_coords['start_y']
+                        for skill_value in content[section_name].values():
+                            if skill_value == 'Yes':
+                                self.draw_checkbox(c, section_coords['yes_x'], y_pos, True)
+                            elif skill_value == 'Nearly':
+                                self.draw_checkbox(c, section_coords['nearly_x'], y_pos, True)
+                            elif skill_value == 'Not Yet':
+                                self.draw_checkbox(c, section_coords['not_yet_x'], y_pos, True)
+                            y_pos -= section_coords['spacing']
             
             # Add group recommendation checkbox
             rec_coords = config.get('page2', {}).get('group_recommendation')
-
             if rec_coords:
                 self.draw_group_recommendation_checkbox(c, data, rec_coords)
 
             # Add next term checkboxes
             next_term_coords = config.get('page2', {}).get('next_term')
-
             if next_term_coords:
                 current_term = data.get('term', '')
                 next_term = self.get_next_term(current_term)

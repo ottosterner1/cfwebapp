@@ -285,6 +285,8 @@ class Report(db.Model):
     content = db.Column(JSONB, nullable=False)  # Structured report data
     date = db.Column(db.DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
     created_at = db.Column(db.DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
+    is_draft = db.Column(db.Boolean, default=False)
+    last_updated = db.Column(db.DateTime(timezone=True), onupdate=text('CURRENT_TIMESTAMP'))
 
     # Enhanced email tracking fields
     email_sent = db.Column(db.Boolean, default=False)
@@ -320,6 +322,13 @@ class Report(db.Model):
             return False, "Report has already been sent"
             
         return True, "OK"
+
+    @property
+    def status(self):
+        if self.is_draft:
+            return 'draft'
+        else:
+            return 'submitted'
 
     def record_email_attempt(self, status: str, recipients: list, subject: str, 
                            message_id: str = None, error: str = None):

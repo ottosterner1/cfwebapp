@@ -18,7 +18,7 @@ const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
   onSubmit,
   onCancel,
   isSubmitting = false,
-  onSaveAndNext // New prop for handling save and next
+  onSaveAndNext
 }) => {
   const [formData, setFormData] = useState<Record<string, Record<string, any>>>({});
   const [errors, setErrors] = useState<string[]>([]);
@@ -26,6 +26,8 @@ const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
   const [groups, setGroups] = useState<Group[]>([]);
   const [recommendedGroupId, setRecommendedGroupId] = useState<number | string>('');
   const [isSavingAndNext, setIsSavingAndNext] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isDraft, setIsDraft] = useState(initialData?.isDraft || false);
 
   // Fetch available groups
   useEffect(() => {
@@ -73,6 +75,7 @@ const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
     setFormData(initializedFormData);
     setTouched(initializedTouchedFields);
     setRecommendedGroupId(initialData?.recommendedGroupId || '');
+    setIsDraft(initialData?.isDraft || false);
   }, [initialData, template]);
 
   const handleFieldChange = (sectionName: string, fieldName: string, value: any) => {
@@ -124,52 +127,89 @@ const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
     return null;
   };
 
-  const validateForm = (): boolean => {
+  const validateForm = (asDraft: boolean = false): boolean => {
     const newErrors: string[] = [];
 
-    template.sections.forEach(section => {
-      section.fields.forEach(field => {
-        const error = validateField(section, field);
-        if (error) {
-          newErrors.push(error);
-        }
+    // When saving as draft, we don't need to validate required fields
+    if (!asDraft) {
+      template.sections.forEach(section => {
+        section.fields.forEach(field => {
+          const error = validateField(section, field);
+          if (error) {
+            newErrors.push(error);
+          }
+        });
       });
-    });
 
-    if (!recommendedGroupId) {
-      newErrors.push('Please select a recommended group');
+      if (!recommendedGroupId) {
+        newErrors.push('Please select a recommended group');
+      }
+    } else if (asDraft && Object.keys(formData).every(sectionName => 
+      Object.keys(formData[sectionName]).every(fieldName => 
+        !formData[sectionName][fieldName]))) {
+      // Check that at least some data has been entered for a draft
+      newErrors.push('Please fill in at least one field to save as draft');
     }
 
     setErrors(newErrors);
     return newErrors.length === 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent, saveAndNext: boolean = false) => {
+  const handleSubmit = async (e: React.FormEvent, saveAndNext: boolean = false, asDraft: boolean = false) => {
     e.preventDefault();
     
-    if (!validateForm()) {
+    if (!validateForm(asDraft)) {
       return;
     }
-
-    setIsSavingAndNext(saveAndNext);
-
+  
+    if (saveAndNext) {
+      setIsSavingAndNext(true);
+    } else if (asDraft) {
+      setIsSavingDraft(true);
+    }
+  
     try {
+      // For drafts, we want to send null or undefined if no group is selected
+      // For final submissions, we need a valid group ID
+      let finalRecommendedGroupId: number | null = null;
+      
+      if (!recommendedGroupId || recommendedGroupId === '') {
+        // Empty selection
+        if (asDraft) {
+          // For drafts, this is fine - leave it as null
+          finalRecommendedGroupId = null;
+        } else {
+          // For final submissions, we need a value - prefer one from the group list
+          if (groups.length > 0) {
+            finalRecommendedGroupId = groups[0].id;
+          } else {
+            // If no groups available, this will likely error on the server
+            finalRecommendedGroupId = null;
+          }
+        }
+      } else {
+        // Value is selected, convert to number
+        finalRecommendedGroupId = Number(recommendedGroupId);
+      }
+  
       const submitData = {
         content: formData,
-        recommendedGroupId: Number(recommendedGroupId),
-        template_id: template.id
+        recommendedGroupId: finalRecommendedGroupId,
+        template_id: template.id,
+        is_draft: asDraft
       };
-
+  
       if (saveAndNext) {
-        await onSaveAndNext?.(submitData);
+        await onSaveAndNext?.(submitData as any);
       } else {
-        await onSubmit(submitData);
+        await onSubmit(submitData as any);
       }
     } catch (error) {
       setErrors(prev => [...prev, 'Failed to submit report. Please try again.']);
       console.error('Submit error:', error);
     } finally {
       setIsSavingAndNext(false);
+      setIsSavingDraft(false);
     }
   };
 
@@ -330,10 +370,20 @@ const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
 
   return (
     <Card>
-    <CardHeader className="text-center border-b pb-6">
+      <CardHeader className="text-center border-b pb-6">
         <CardTitle className="text-2xl font-bold">
           {initialData ? 'Edit Report' : 'Create Report'}
         </CardTitle>
+        
+        {isDraft && (
+          <div className="mt-2 bg-amber-50 border border-amber-200 p-2 rounded text-amber-800 text-sm">
+            <span className="font-medium">Draft Mode:</span> This report is saved as a draft and has not been finalised.
+            {initialData?.lastUpdated && (
+              <span className="block mt-1">Last saved: {new Date(initialData.lastUpdated).toLocaleString()}</span>
+            )}
+          </div>
+        )}
+        
         <div className="mt-4 space-y-2">
           <div className="grid grid-cols-2 gap-4 text-left">
             <div className="flex items-center">
@@ -395,7 +445,7 @@ const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
           </Alert>
         )}
 
-        <form onSubmit={(e) => handleSubmit(e, false)} className="space-y-0">
+        <form onSubmit={(e) => handleSubmit(e, false, false)} className="space-y-0">
           {template.sections
             .sort((a, b) => a.order - b.order)
             .map((section) => (
@@ -450,22 +500,44 @@ const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
           </div>
 
           <div className="h-4"></div>
-          <div className="flex justify-end space-x-4">
+          <div className="flex justify-end space-x-4 flex-wrap gap-2">
             <button
               type="button"
               onClick={onCancel}
               className="px-4 py-2 border rounded-md hover:bg-gray-50"
-              disabled={isSubmitting || isSavingAndNext}
+              disabled={isSubmitting || isSavingAndNext || isSavingDraft}
             >
               Cancel
             </button>
+            
+            {/* Save as Draft Button - Changed to a more neutral/distinctive color */}
+            <button
+              type="button"
+              onClick={(e) => handleSubmit(e, false, true)}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 
+                      disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isSubmitting || isSavingAndNext || isSavingDraft}
+            >
+              {isSavingDraft ? (
+                <span className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Saving Draft...
+                </span>
+              ) : (
+                isDraft ? 'Update Draft' : 'Save as Draft'
+              )}
+            </button>
+            
             {onSaveAndNext && (
               <button
                 type="button"
-                onClick={(e) => handleSubmit(e, true)}
-                className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 
-                         disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={isSubmitting || isSavingAndNext}
+                onClick={(e) => handleSubmit(e, true, false)}
+                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 
+                        disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isSubmitting || isSavingAndNext || isSavingDraft}
               >
                 {isSavingAndNext ? (
                   <span className="flex items-center">
@@ -478,11 +550,12 @@ const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
                 ) : 'Save and Next'}
               </button>
             )}
+            
             <button
               type="submit"
-              className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 
-                       disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={isSubmitting || isSavingAndNext}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 
+                      disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isSubmitting || isSavingAndNext || isSavingDraft}
             >
               {isSubmitting ? (
                 <span className="flex items-center">
@@ -492,7 +565,9 @@ const DynamicReportForm: React.FC<DynamicReportFormProps> = ({
                   </svg>
                   Saving...
                 </span>
-              ) : (initialData ? 'Update Report' : 'Save and Close')}
+              ) : (
+                isDraft ? 'finalise Report' : (initialData ? 'Update Report' : 'Submit Report')
+              )}
             </button>
           </div>
         </form>
