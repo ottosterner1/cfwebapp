@@ -124,6 +124,27 @@ const Dashboard = () => {
     }
   };
 
+  // TypeScript-safe function to handle single report downloads
+  const handleSingleReportDownload = (reportId: number | undefined): void => {
+    if (!reportId) {
+      console.error('No report ID provided');
+      return;
+    }
+
+    try {
+      // Simply open the PDF in a new tab - most reliable cross-browser approach
+      window.open(`/download_single_report/${reportId}`, '_blank');
+    } catch (error: unknown) {
+      console.error('Error opening report:', error);
+      // TypeScript-safe error handling
+      let errorMessage = 'Unknown error occurred';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      alert(`Error opening report: ${errorMessage}`);
+    }
+  };
+
   const handlePrintAllReports = async () => {
     if (!selectedPeriod) {
       alert('Please select a teaching period');
@@ -404,9 +425,9 @@ const Dashboard = () => {
                     acc[rec.to_group] = (acc[rec.to_group] || 0) + rec.count;
                     return acc;
                   }, {} as Record<string, number>)
-                ).map(([group, count]) => (
+                ).map(([group, count], index) => (
                   <div 
-                    key={group} 
+                    key={`group-rec-${index}`} 
                     className="p-3 bg-gray-50 rounded-lg flex justify-between items-center"
                   >
                     <span className="font-medium text-gray-900">{group}</span>
@@ -455,8 +476,8 @@ const Dashboard = () => {
           <div className="space-y-8">
             {Object.entries(groupedPlayers)
               .sort(([aName], [bName]) => aName.localeCompare(bName))
-              .map(([groupName, group]) => (
-              <div key={groupName} className="space-y-4">
+              .map(([groupName, group], groupIndex) => (
+              <div key={`group-${groupIndex}`} className="space-y-4">
                 <div className="border-b pb-2">
                   <h3 className="text-xl font-medium text-gray-900">{groupName}</h3>
                 </div>
@@ -464,8 +485,8 @@ const Dashboard = () => {
                 <div className="space-y-6">
                   {Object.entries(group.timeSlots)
                     .sort(([aTime], [bTime]) => aTime.localeCompare(bTime))
-                    .map(([timeSlot, players]) => (
-                    <div key={timeSlot} className="bg-gray-50 rounded-lg p-4">
+                    .map(([timeSlot, players], timeIndex) => (
+                    <div key={`time-${groupIndex}-${timeIndex}`} className="bg-gray-50 rounded-lg p-4">
                       <div className="flex justify-between items-center mb-4">
                         <h4 className="font-medium text-gray-900">{timeSlot}</h4>
                         <span className="text-sm text-gray-500">
@@ -477,8 +498,8 @@ const Dashboard = () => {
                       <div className="bg-white rounded-lg divide-y">
                         {players
                           .sort((a, b) => a.student_name.localeCompare(b.student_name))
-                          .map((player) => (
-                          <div key={player.id} className="p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                          .map((player, playerIndex) => (
+                          <div key={`player-${groupIndex}-${timeIndex}-${playerIndex}`} className="p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                             <div className="flex items-center gap-2">
                               <div className={`w-3 h-3 rounded-full ${
                                 player.report_submitted ? 'bg-green-500' : 
@@ -508,6 +529,15 @@ const Dashboard = () => {
                               {player.report_id ? (
                                 // For reports that exist (either draft or submitted)
                                 <>
+                                  {player.report_submitted && (
+                                    <button 
+                                      onClick={() => handleSingleReportDownload(player.report_id)}
+                                      className="inline-flex items-center px-3 py-2 border border-blue-300 shadow-sm text-sm font-medium rounded-md text-blue-700 bg-white hover:bg-blue-50"
+                                      title="Download Report"
+                                    >
+                                      <Download className="w-4 h-4" />
+                                    </button>
+                                  )}
                                   <a 
                                     href={`/reports/${player.report_id}`}
                                     className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"

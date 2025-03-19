@@ -578,6 +578,10 @@ def dashboard_stats():
                 # Create fresh queries for each coach
                 coach_players = base_query.filter(ProgrammePlayers.coach_id == coach.id).count()
                 
+                # Skip coaches with no assigned players/reports
+                if coach_players == 0:
+                    continue
+                    
                 coach_draft_reports = reports_query.filter(
                     ProgrammePlayers.coach_id == coach.id,
                     Report.is_draft == True
@@ -595,6 +599,9 @@ def dashboard_stats():
                     'reports_completed': coach_submitted_reports,
                     'reports_draft': coach_draft_reports
                 })
+                
+            # Sort coaches by name
+            coach_summaries = sorted(coach_summaries, key=lambda x: x['name'])
 
         # Get group recommendations (only consider finalised reports)
         recommendations_query = (db.session.query(
@@ -1255,27 +1262,111 @@ def download_all_reports(period_id):
 
 @main.route('/download_single_report/<int:report_id>')
 @login_required
+@verify_club_access()
 def download_single_report(report_id):
     """Download a single report as PDF"""
-    report = Report.query.get_or_404(report_id)
-    
-    if report.coach_id != current_user.id:
-        flash('You do not have permission to download this report')
+    try:
+        report = Report.query.get_or_404(report_id)
+        
+        # Allow admins and the coach who created the report to download it
+        if not (current_user.is_admin or current_user.is_super_admin) and report.coach_id != current_user.id:
+            flash('You do not have permission to download this report')
+            return redirect(url_for('main.dashboard'))
+
+        # Get the club name to determine which generator to use
+        club_name = current_user.tennis_club.name
+        
+        # Generate filename
+        filename = f"{report.student.name}_{report.teaching_period.name}_{report.tennis_group.name}.pdf".replace(' ', '_')
+        
+        if 'wilton' in club_name.lower():
+            # Use the Wilton report generator for Wilton clubs
+            try:
+                # Import the Wilton report generator
+                from app.utils.wilton_report_generator import EnhancedWiltonReportGenerator
+                
+                # Get base directory and config path
+                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                config_path = os.path.join(base_dir, 'app', 'utils', 'wilton_group_config.json')
+                
+                # Create a temporary directory for the output
+                import tempfile
+                temp_dir = tempfile.mkdtemp()
+                
+                # Generate the report
+                result = EnhancedWiltonReportGenerator.generate_single_report(
+                    report_id=report.id,
+                    output_dir=temp_dir,
+                    config_path=config_path
+                )
+                
+                # Check if generation was successful
+                if not result.get('success'):
+                    raise Exception("Failed to generate Wilton report")
+                    
+                # Get the output path
+                output_path = result.get('output_path')
+                
+                # Read the file into memory
+                with open(output_path, 'rb') as f:
+                    pdf_data = f.read()
+                    
+                # Clean up the temporary directory
+                import shutil
+                shutil.rmtree(temp_dir)
+                
+                # Create response
+                response = send_file(
+                    BytesIO(pdf_data),
+                    mimetype='application/pdf',
+                    as_attachment=True,
+                    download_name=filename
+                )
+                
+            except Exception as e:
+                # If Wilton report generation fails, fall back to standard report
+                current_app.logger.error(f"Error generating Wilton report: {str(e)}")
+                current_app.logger.error(traceback.format_exc())
+                
+                # Create PDF in memory buffer
+                pdf_buffer = BytesIO()
+                from app.utils.report_generator import create_single_report_pdf
+                create_single_report_pdf(report, pdf_buffer)
+                pdf_buffer.seek(0)
+                
+                response = send_file(
+                    pdf_buffer,
+                    mimetype='application/pdf',
+                    as_attachment=True,
+                    download_name=filename
+                )
+        else:
+            # Use the standard report generator for other clubs
+            pdf_buffer = BytesIO()
+            from app.utils.report_generator import create_single_report_pdf
+            create_single_report_pdf(report, pdf_buffer)
+            pdf_buffer.seek(0)
+            
+            response = send_file(
+                pdf_buffer,
+                mimetype='application/pdf',
+                as_attachment=True,
+                download_name=filename
+            )
+        
+        # Add cache control headers to avoid browser caching issues
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        response.headers["Content-Type"] = "application/pdf"
+        
+        return response
+        
+    except Exception as e:
+        current_app.logger.error(f"Error generating PDF for report {report_id}: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        flash(f"Error generating PDF: {str(e)}", "error")
         return redirect(url_for('main.dashboard'))
-    
-    # Create PDF in memory
-    pdf_buffer = BytesIO()
-    create_single_report_pdf(report, pdf_buffer)
-    
-    # Generate filename
-    filename = f"{report.student.name}_{report.teaching_period.name}_{report.tennis_group.name}.pdf".replace(' ', '_')
-    
-    return send_file(
-        pdf_buffer,
-        mimetype='application/pdf',
-        as_attachment=True,
-        download_name=filename
-    )
 
 @main.route('/admin/coaches', methods=['GET', 'POST'])
 @login_required
