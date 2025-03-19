@@ -17,19 +17,28 @@ interface ExtendedDynamicReportFormProps extends DynamicReportFormProps {
   };
 }
 
-const DynamicReportForm: React.FC<ExtendedDynamicReportFormProps> = ({
-  template,
-  studentName,
-  dateOfBirth,
-  age,
-  groupName,
-  sessionInfo,
-  initialData,
-  onSubmit,
-  onCancel,
-  isSubmitting = false,
-  onSaveAndNext
-}) => {
+const DynamicReportForm: React.FC<ExtendedDynamicReportFormProps> = (props) => {
+  // Log the entire props to debug
+  console.log("DynamicReportForm received props:", props);
+  
+  // Destructure props after logging
+  const {
+    template,
+    studentName,
+    dateOfBirth,
+    age,
+    groupName,
+    sessionInfo,
+    initialData,
+    onSubmit,
+    onCancel,
+    isSubmitting = false,
+    onSaveAndNext
+  } = props;
+  
+  // Log specifically the session info
+  console.log("Session Info received:", sessionInfo);
+  
   const [formData, setFormData] = useState<Record<string, Record<string, any>>>({});
   const [errors, setErrors] = useState<string[]>([]);
   const [touched, setTouched] = useState<Record<string, Record<string, boolean>>>({});
@@ -61,6 +70,9 @@ const DynamicReportForm: React.FC<ExtendedDynamicReportFormProps> = ({
 
   // Format session time for display
   const getFormattedSessionTime = () => {
+    // Debug the session info when formatting
+    console.log("Formatting session info:", sessionInfo);
+    
     if (!sessionInfo) return 'No session information';
     
     const { dayOfWeek, startTime, endTime } = sessionInfo;
