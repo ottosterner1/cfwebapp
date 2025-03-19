@@ -179,6 +179,41 @@ const Dashboard = () => {
     }
   };
 
+  const sortTimeSlots = (aTime: string, bTime: string): number => {
+    // Handle "Unscheduled" case
+    if (aTime === 'Unscheduled') return 1;
+    if (bTime === 'Unscheduled') return -1;
+    
+    // Extract day and time components
+    const [aDay, aTimeRange] = aTime.split(' ');
+    const [bDay, bTimeRange] = bTime.split(' ');
+    
+    // Define day order
+    const dayOrder: { [key: string]: number } = {
+      'Monday': 1,
+      'Tuesday': 2,
+      'Wednesday': 3,
+      'Thursday': 4,
+      'Friday': 5,
+      'Saturday': 6,
+      'Sunday': 7
+    };
+    
+    // First compare days
+    const aDayValue = dayOrder[aDay] || 8;
+    const bDayValue = dayOrder[bDay] || 8;
+    
+    if (aDayValue !== bDayValue) {
+      return aDayValue - bDayValue;
+    }
+    
+    // If days are same, compare start times
+    const aStartTime = aTimeRange?.split('-')[0];
+    const bStartTime = bTimeRange?.split('-')[0];
+    
+    return aStartTime?.localeCompare(bStartTime || '') || 0;
+  };
+
   const groupPlayersByGroupAndTime = (players: ProgrammePlayer[]): GroupedPlayers => {
     return players.reduce((acc: GroupedPlayers, player) => {
       if (!currentUser?.is_admin && 
@@ -484,7 +519,7 @@ const Dashboard = () => {
                 
                 <div className="space-y-6">
                   {Object.entries(group.timeSlots)
-                    .sort(([aTime], [bTime]) => aTime.localeCompare(bTime))
+                    .sort(([aTime], [bTime]) => sortTimeSlots(aTime, bTime))
                     .map(([timeSlot, players], timeIndex) => (
                     <div key={`time-${groupIndex}-${timeIndex}`} className="bg-gray-50 rounded-lg p-4">
                       <div className="flex justify-between items-center mb-4">

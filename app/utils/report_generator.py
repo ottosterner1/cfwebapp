@@ -115,7 +115,7 @@ class EnhancedReportGenerator:
 
             # Fun, colorful header with tennis imagery
             header_style = self.styles['FunHeader']
-            story.append(Paragraph(f"{report.programme_player.tennis_club.name} Progress Report", header_style))
+            story.append(Paragraph(f"{report.programme_player.tennis_club.name} Report", header_style))
             
             # Club and term info
             club_term_style = ParagraphStyle(
@@ -212,7 +212,7 @@ class EnhancedReportGenerator:
                 story.append(Paragraph("Recommendation for Next Term", recommendation_style))
                 
                 # Create a recommendation box
-                rec_data = [[f"Recommended Group: {report.recommended_group.name}"]]
+                rec_data = [[f"{report.recommended_group.name}"]]
                 rec_table = Table(rec_data, colWidths=[doc.width*0.8])
                 rec_table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (0, 0), HexColor('#e6f0ff')),

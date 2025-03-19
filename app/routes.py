@@ -1066,6 +1066,22 @@ def report_operations(report_id):
     if request.method == 'GET':
         # Get the template associated with this report
         template = report.template
+        
+        # Get programme player to access session info
+        programme_player = ProgrammePlayers.query.filter_by(
+            id=report.programme_player_id
+        ).first()
+        
+        # Get session information
+        time_slot = None
+        if programme_player and programme_player.group_time_id:
+            group_time = TennisGroupTimes.query.get(programme_player.group_time_id)
+            if group_time:
+                time_slot = {
+                    'dayOfWeek': group_time.day_of_week.value if group_time.day_of_week else None,
+                    'startTime': group_time.start_time.strftime('%H:%M') if group_time.start_time else None,
+                    'endTime': group_time.end_time.strftime('%H:%M') if group_time.end_time else None
+                }
 
         # Normalize the report content if needed
         report_content = report.content
@@ -1082,8 +1098,10 @@ def report_operations(report_id):
             'submissionDate': report.date.isoformat() if report.date else None,
             'canEdit': current_user.is_admin or report.coach_id == current_user.id,
             'isDraft': report.is_draft,
-            'status': report.status
+            'status': report.status,
+            'sessionInfo': time_slot  # Add session information here
         }
+
 
         # Serialize the template data
         template_data = {
@@ -2135,8 +2153,19 @@ def get_report_template(player_id):
 
     # Calculate age from date of birth
     age = calculate_age(player.student.date_of_birth)
+    
+    # Get session information
+    time_slot = None
+    if player.group_time_id:
+        group_time = TennisGroupTimes.query.get(player.group_time_id)
+        if group_time:
+            time_slot = {
+                'dayOfWeek': group_time.day_of_week.value if group_time.day_of_week else None,
+                'startTime': group_time.start_time.strftime('%H:%M') if group_time.start_time else None,
+                'endTime': group_time.end_time.strftime('%H:%M') if group_time.end_time else None
+            }
 
-    return jsonify({
+    response_data = {
         'template': {
             'id': template.id,
             'name': template.name,
@@ -2161,9 +2190,15 @@ def get_report_template(player_id):
             'studentName': player.student.name,
             'dateOfBirth': player.student.date_of_birth.isoformat() if player.student.date_of_birth else None,
             'age': age,
-            'groupName': player.tennis_group.name
+            'groupName': player.tennis_group.name,
+            'sessionInfo': time_slot 
         }
-    })
+    }
+
+    # Debug log the session info
+    current_app.logger.info(f"API Debug - sessionInfo data: {time_slot}")
+    
+    return jsonify(response_data)    
 
 @main.route('/api/reports/print-all/<int:period_id>', methods=['GET'])
 @login_required
