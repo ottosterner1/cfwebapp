@@ -549,9 +549,6 @@ class EnhancedWiltonReportGenerator:
         
         # Get template path
         template_path = generator.get_template_path(report.tennis_group.name)
-        if not template_path:
-            # Instead of raising an error, use generic report
-            print(f"Template not found for group: {report.tennis_group.name}. Using generic report.")
             
         # Prepare output path
         filename = f"{report.student.name}_{report.tennis_group.name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
