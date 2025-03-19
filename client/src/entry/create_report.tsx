@@ -15,6 +15,11 @@ interface PlayerData {
   dateOfBirth: string | null;
   age: number | null;
   groupName: string;
+  sessionInfo?: {
+    dayOfWeek?: string;
+    startTime?: string;
+    endTime?: string;
+  };
 }
 
 interface NextPlayer {
@@ -51,12 +56,16 @@ const CreateReportApp = () => {
         const response = await fetch(`/api/reports/template/${playerId}`);
         if (!response.ok) throw new Error('Failed to fetch template');
         const data = await response.json();
+        
+        console.log("API response:", data); // For debugging
+        
         setTemplate(data.template);
         setPlayerData({
           studentName: data.player.studentName,
           dateOfBirth: data.player.dateOfBirth,
           age: data.player.age,
-          groupName: data.player.groupName
+          groupName: data.player.groupName,
+          sessionInfo: data.player.sessionInfo // Extract sessionInfo from API response
         });
         
         // Fetch next player info
@@ -203,6 +212,7 @@ const CreateReportApp = () => {
       dateOfBirth={playerData.dateOfBirth || undefined}
       age={playerData.age || undefined}
       groupName={playerData.groupName}
+      sessionInfo={playerData.sessionInfo} // Pass sessionInfo to the component
       onSubmit={handleSubmit}
       onCancel={() => window.location.href = '/dashboard'}
       isSubmitting={isSubmitting}
