@@ -2194,9 +2194,6 @@ def get_report_template(player_id):
             'sessionInfo': time_slot 
         }
     }
-
-    # Debug log the session info
-    current_app.logger.info(f"API Debug - sessionInfo data: {time_slot}")
     
     return jsonify(response_data)    
 
