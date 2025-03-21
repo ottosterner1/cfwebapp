@@ -273,40 +273,51 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
             {Object.keys(analytics.sessionBreakdown).length}
           </div>
         </div>
-        <div className="space-y-2 max-h-[150px] overflow-y-auto pr-1">
-          {Object.entries(analytics.sessionBreakdown)
-            .sort((a, b) => {
-              const sessionA = analytics.sessionBreakdown[a[0]];
-              const sessionB = analytics.sessionBreakdown[b[0]];
-              
-              // First sort by day of week
-              const dayOrderA = getDayOrder(sessionA.dayOfWeek);
-              const dayOrderB = getDayOrder(sessionB.dayOfWeek);
-              if (dayOrderA !== dayOrderB) return dayOrderA - dayOrderB;
-              
-              // Then sort by time
-              const timeValueA = getTimeValue(sessionA.timeSlot);
-              const timeValueB = getTimeValue(sessionB.timeSlot);
-              if (timeValueA !== timeValueB) return timeValueA - timeValueB;
-              
-              // Finally sort by group name if day and time are the same
-              return sessionA.group.localeCompare(sessionB.group);
-            })
-            .map(([sessionKey, session]) => (
-              <div 
-                key={sessionKey} 
-                className={`rounded p-2 ${getCapacityColor(session)}`}
-              >
-                <div className="flex justify-between items-center text-sm">
-                  <div className="flex flex-col">
-                    <span className="font-medium text-gray-900">{session.group}</span>
-                    <span className="text-xs text-gray-500">
-                      {session.dayOfWeek} {session.timeSlot}
-                    </span>
-                  </div>
-                  <span className="font-medium">
-                    {getCapacityDisplay(session)}
-                  </span>
+        
+        {/* Group sessions by group name first */}
+        <div className="space-y-3 max-h-[150px] overflow-y-auto pr-1">
+          {Object.entries(
+            // First group sessions by group name
+            Object.values(analytics.sessionBreakdown).reduce((groups, session) => {
+              if (!groups[session.group]) {
+                groups[session.group] = [];
+              }
+              groups[session.group].push(session);
+              return groups;
+            }, {} as Record<string, SessionInfo[]>)
+          )
+            .sort((a, b) => a[0].localeCompare(b[0])) // Sort groups alphabetically
+            .map(([groupName, sessions]) => (
+              <div key={groupName} className="bg-gray-100 rounded p-2">
+                <div className="font-medium text-sm text-gray-900 mb-1">{groupName}</div>
+                <div className="space-y-1.5 pl-2">
+                  {sessions
+                    .sort((a, b) => {
+                      // Sort by day of week first
+                      const dayOrderA = getDayOrder(a.dayOfWeek);
+                      const dayOrderB = getDayOrder(b.dayOfWeek);
+                      if (dayOrderA !== dayOrderB) return dayOrderA - dayOrderB;
+                      
+                      // Then sort by time
+                      const timeValueA = getTimeValue(a.timeSlot);
+                      const timeValueB = getTimeValue(b.timeSlot);
+                      return timeValueA - timeValueB;
+                    })
+                    .map((session) => (
+                      <div 
+                        key={`${session.group}-${session.dayOfWeek}-${session.timeSlot}`}
+                        className={`rounded px-2 py-1.5 ${getCapacityColor(session)}`}
+                      >
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-gray-700">
+                            {session.dayOfWeek} {session.timeSlot}
+                          </span>
+                          <span className="font-medium">
+                            {getCapacityDisplay(session)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                 </div>
               </div>
             ))}

@@ -376,111 +376,328 @@ const Dashboard = () => {
           onClose={() => setShowBulkEmail(false)}
         />
       )}
-
-      {/* Admin Analytics Section */}
-      {isAdmin && stats.coachSummaries && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Group Progress Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Group Progress</h3>
-            <div className="space-y-3 max-h-[300px] overflow-y-auto">
-              {stats.currentGroups.map((group) => (
-                <div 
-                  key={group.name} 
-                  className="p-3 bg-gray-50 rounded-lg flex flex-col"
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="font-medium text-gray-900">{group.name}</span>
-                    <div className="text-sm text-gray-500">
-                      <span>{group.count} players</span>
-                      {group.reports_draft > 0 && (
-                        <span className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs">
-                          {group.reports_draft} drafts
-                        </span>
-                      )}  
-                    </div>
-                  </div>
-                  <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-blue-600 h-2 rounded-full" 
-                      style={{ width: `${((group.reports_completed / group.count) * 100)}%` }}
-                    />
-                  </div>
-                  <span className="text-sm text-gray-500 mt-1 self-end">
-                    {((group.reports_completed / group.count) * 100).toFixed(1)}% complete
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Coach Progress Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Coach Progress</h3>
-            <div className="space-y-3 max-h-[300px] overflow-y-auto">
-              {stats.coachSummaries.map((coach) => (
-                <div 
-                  key={coach.id} 
-                  className="p-3 bg-gray-50 rounded-lg flex flex-col"
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="font-medium text-gray-900">{coach.name}</span>
-                    <div className="text-sm text-gray-500">
-                      <span>
-                        {coach.reports_completed}/{coach.total_assigned}
-                      </span>
-                      {coach.reports_draft > 0 && (
-                        <span className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs">
-                          {coach.reports_draft} drafts
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                    <div 
-                      className="bg-green-600 h-2 rounded-full" 
-                      style={{ width: `${((coach.reports_completed / coach.total_assigned) * 100)}%` }}
-                    />
-                  </div>
-                  <span className="text-sm text-gray-500 mt-1 self-end">
-                    {((coach.reports_completed / coach.total_assigned) * 100).toFixed(1)}% complete
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Group Recommendations Card */}
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Group Recommendations</h3>
-            {stats.groupRecommendations && stats.groupRecommendations.length > 0 ? (
-              <div className="space-y-3 max-h-[300px] overflow-y-auto">
-                {Object.entries(
-                  stats.groupRecommendations.reduce((acc, rec) => {
-                    acc[rec.to_group] = (acc[rec.to_group] || 0) + rec.count;
-                    return acc;
-                  }, {} as Record<string, number>)
-                ).map(([group, count], index) => (
-                  <div 
-                    key={`group-rec-${index}`} 
-                    className="p-3 bg-gray-50 rounded-lg flex justify-between items-center"
-                  >
-                    <span className="font-medium text-gray-900">{group}</span>
-                    <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full">
-                      {count} {count === 1 ? 'player' : 'players'}
+{/* Admin Analytics Section */}
+{isAdmin && stats.coachSummaries && (
+  <>
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Group Progress Card */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Group Progress</h3>
+        <div className="space-y-3 max-h-[300px] overflow-y-auto">
+          {stats.currentGroups.map((group) => (
+            <div 
+              key={group.name} 
+              className="p-3 bg-gray-50 rounded-lg flex flex-col"
+            >
+              <div className="flex justify-between items-center">
+                <span className="font-medium text-gray-900">{group.name}</span>
+                <div className="text-sm text-gray-500">
+                  <span>{group.count} players</span>
+                  {group.reports_draft > 0 && (
+                    <span className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs">
+                      {group.reports_draft} drafts
                     </span>
-                  </div>
-                ))}
+                  )}  
+                </div>
               </div>
-            ) : (
-              <div className="flex items-center justify-center h-32 text-gray-500">
-                No recommendations for this period
+              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-blue-600 h-2 rounded-full" 
+                  style={{ width: `${((group.reports_completed / group.count) * 100)}%` }}
+                />
               </div>
-            )}
+              <span className="text-sm text-gray-500 mt-1 self-end">
+                {((group.reports_completed / group.count) * 100).toFixed(1)}% complete
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Coach Progress Card */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Coach Progress</h3>
+        <div className="space-y-3 max-h-[300px] overflow-y-auto">
+          {stats.coachSummaries.map((coach) => (
+            <div 
+              key={coach.id} 
+              className="p-3 bg-gray-50 rounded-lg flex flex-col"
+            >
+              <div className="flex justify-between items-center">
+                <span className="font-medium text-gray-900">{coach.name}</span>
+                <div className="text-sm text-gray-500">
+                  <span>
+                    {coach.reports_completed}/{coach.total_assigned}
+                  </span>
+                  {coach.reports_draft > 0 && (
+                    <span className="ml-2 px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs">
+                      {coach.reports_draft} drafts
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-blue-600 h-2 rounded-full" 
+                  style={{ width: `${((coach.reports_completed / coach.total_assigned) * 100)}%` }}
+                />
+              </div>
+              <span className="text-sm text-gray-500 mt-1 self-end">
+                {((coach.reports_completed / coach.total_assigned) * 100).toFixed(1)}% complete
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Group Recommendations Card - FIXED */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Group Recommendations</h3>
+        {stats.groupRecommendations && stats.groupRecommendations.length > 0 ? (
+          <div className="space-y-3">
+            {/* Destination Groups - With proper deduplication */}
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              {(() => {
+                // Create a mapping of destination groups to total counts
+                const destinationGroups: Record<string, number> = {};
+                let totalPlayers = 0;
+                
+                // First pass: aggregate all recommendations by destination
+                stats.groupRecommendations.forEach(rec => {
+                  destinationGroups[rec.to_group] = (destinationGroups[rec.to_group] || 0) + rec.count;
+                  totalPlayers += rec.count;
+                });
+                
+                // Sort and render the groups
+                return Object.entries(destinationGroups)
+                  .sort((a, b) => b[1] - a[1]) // Sort by count descending
+                  .map(([group, count], index) => {
+                    const percentage = Math.round((count / totalPlayers) * 100);
+                    return (
+                      <div 
+                        key={`group-rec-${index}`} 
+                        className="p-3 bg-gray-50 rounded-lg flex justify-between items-center"
+                      >
+                        <span className="font-medium text-gray-900">{group}</span>
+                        <div className="flex items-center">
+                          <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full">
+                            {count} {count === 1 ? 'player' : 'players'}
+                          </span>
+                          <span className="text-xs text-gray-500 ml-2">({percentage}%)</span>
+                        </div>
+                      </div>
+                    );
+                  });
+              })()}
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-32 text-gray-500">
+            No recommendations for this period
+          </div>
+        )}
+      </div>
+    </div>
+
+    {/* Movement Analysis Section - Two columns side by side */}
+    {stats.groupRecommendations && stats.groupRecommendations.length > 0 && (
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Group Movement Analysis - FIXED */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Group Movement Analysis</h3>
+          <div className="space-y-4 max-h-[400px] overflow-y-auto">
+            {(() => {
+              // Define types for our data structures
+              type Movement = {
+                from_group: string;
+                to_group: string;
+                count: number;
+              };
+              
+              type GroupMovementMap = Record<string, Record<string, number>>;
+              
+              // First, create a deduplicated map of source groups to destination groups
+              const sourceGroups: GroupMovementMap = {};
+              
+              // Group recommendations by source group and deduplicate
+              stats.groupRecommendations.forEach(rec => {
+                if (!sourceGroups[rec.from_group]) {
+                  sourceGroups[rec.from_group] = {};
+                }
+                
+                // Add or increment the count for this destination
+                sourceGroups[rec.from_group][rec.to_group] = 
+                  (sourceGroups[rec.from_group][rec.to_group] || 0) + rec.count;
+              });
+              
+              // Convert the nested objects to the format needed for rendering
+              return Object.entries(sourceGroups)
+                .sort(([aGroup], [bGroup]) => aGroup.localeCompare(bGroup))
+                .map(([groupName, destinations]) => {
+                  // Convert destinations object to array of {to_group, count} objects
+                  const movements: Movement[] = Object.entries(destinations).map(([toGroup, count]) => ({
+                    from_group: groupName,
+                    to_group: toGroup,
+                    count
+                  }));
+                  
+                  const totalPlayers = movements.reduce((sum, m) => sum + m.count, 0);
+                  
+                  return (
+                    <div key={`group-${groupName}`} className="border border-gray-200 rounded-lg overflow-hidden">
+                      <div className="bg-gray-100 p-3">
+                        <h4 className="font-medium text-gray-900">{groupName} ({totalPlayers} players)</h4>
+                      </div>
+                      <div className="p-3">
+                        <div className="space-y-2">
+                          {movements
+                            .sort((a, b) => b.count - a.count) // Sort by count descending
+                            .map((move, idx) => (
+                              <div 
+                                key={`move-${groupName}-${idx}`} 
+                                className="flex justify-between items-center p-2 rounded-md bg-gray-50"
+                              >
+                                <div className="flex items-center">
+                                  <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-2"></span>
+                                  <span className="font-medium text-gray-900">{move.to_group}</span>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-sm">{move.count}</span>
+                                  <span className="text-xs text-gray-500">({Math.round((move.count/totalPlayers)*100)}%)</span>
+                                </div>
+                              </div>
+                            ))
+                          }
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+            })()}
           </div>
         </div>
-      )}
 
+        {/* Session Movement Analysis - FIXED */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Session Movement Analysis</h3>
+          <div className="space-y-4 max-h-[400px] overflow-y-auto">
+            {(() => {
+              // Define types for our data structures
+              type SessionRecommendation = {
+                to_group: string;
+                count: number;
+                staying: boolean;
+              };
+              
+              type SessionData = {
+                group: string;
+                timeSlot: string;
+                recommendations: Record<string, number>;
+              };
+              
+              type SessionMap = Record<string, SessionData>;
+              
+              // Create a map of session keys to session data with deduplicated recommendations
+              const sessionMap: SessionMap = {};
+              
+              // Group recommendations by session and deduplicate
+              stats.groupRecommendations.forEach(rec => {
+                // Create session key
+                const sessionKey = rec.session
+                  ? `${rec.from_group} ${rec.session.day_of_week} ${rec.session.start_time}-${rec.session.end_time}`
+                  : `${rec.from_group} Unscheduled`;
+                
+                // Initialize session data if not exists
+                if (!sessionMap[sessionKey]) {
+                  sessionMap[sessionKey] = {
+                    group: rec.from_group,
+                    timeSlot: rec.session 
+                      ? `${rec.session.day_of_week} ${rec.session.start_time}-${rec.session.end_time}` 
+                      : 'Unscheduled',
+                    recommendations: {}
+                  };
+                }
+                
+                // Add or increment the count for this destination
+                sessionMap[sessionKey].recommendations[rec.to_group] = 
+                  (sessionMap[sessionKey].recommendations[rec.to_group] || 0) + rec.count;
+              });
+              
+              // Days array for sorting
+              const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+              
+              // Sort and convert to the format needed for rendering
+              return Object.entries(sessionMap)
+                // Group by group name first, then sort by time
+                .sort(([aSession], [bSession]) => {
+                  // Extract group name
+                  const aGroupName = aSession.split(' ')[0];
+                  const bGroupName = bSession.split(' ')[0];
+                  
+                  if (aGroupName !== bGroupName) {
+                    return aGroupName.localeCompare(bGroupName);
+                  }
+                  
+                  // Handle special case of 'Unscheduled'
+                  if (aSession.includes('Unscheduled')) return 1;
+                  if (bSession.includes('Unscheduled')) return -1;
+                  
+                  // Compare day names
+                  const aDayTime = aSession.substring(aGroupName.length + 1);
+                  const bDayTime = bSession.substring(bGroupName.length + 1);
+                  const aDay = days.findIndex(day => aDayTime.startsWith(day));
+                  const bDay = days.findIndex(day => bDayTime.startsWith(day));
+                  return aDay - bDay;
+                })
+                .map(([, sessionData], sessionIdx) => {
+                  // Convert recommendations object to array for rendering
+                  const recommendations: SessionRecommendation[] = Object.entries(sessionData.recommendations)
+                    .map(([toGroup, count]) => ({
+                      to_group: toGroup,
+                      count,
+                      staying: sessionData.group === toGroup
+                    }));
+                  
+                  const totalPlayers = recommendations.reduce((sum, rec) => sum + rec.count, 0);
+                  
+                  return (
+                    <div key={`session-${sessionIdx}`} className="border border-gray-200 rounded-lg overflow-hidden">
+                      <div className="bg-gray-100 p-3">
+                        <h4 className="font-medium text-gray-900">{sessionData.group}</h4>
+                        <p className="text-sm text-gray-600">{sessionData.timeSlot}</p>
+                      </div>
+                      <div className="p-3">
+                        <div className="space-y-2">
+                          {recommendations
+                            .sort((a, b) => b.count - a.count) // Sort only by count descending
+                            .map((rec, recIdx) => (
+                              <div 
+                                key={`session-rec-${sessionIdx}-${recIdx}`}
+                                className="flex justify-between items-center p-2 rounded-md bg-gray-50"
+                              >
+                                <div className="flex items-center">
+                                  <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-2"></span>
+                                  <span className="font-medium text-gray-900">{rec.to_group}</span>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-sm">{rec.count}</span>
+                                  <span className="text-xs text-gray-500">({Math.round((rec.count/totalPlayers)*100)}%)</span>
+                                </div>
+                              </div>
+                            ))
+                          }
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+            })()}
+          </div>
+        </div>
+      </div>
+    )}
+  </>
+)}
       {/* Reports Management Section */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-6">
