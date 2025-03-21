@@ -1077,6 +1077,7 @@ def edit_report_page(report_id):
 @login_required
 @verify_club_access()
 def report_operations(report_id):
+    from datetime import datetime
     report = Report.query.get_or_404(report_id)
     
     # Check permissions
