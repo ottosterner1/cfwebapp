@@ -97,6 +97,20 @@ interface TimeSlot {
   end_time: string;
 }
 
+interface TimeSlotInfo {
+  day_of_week: string;
+  start_time: string;
+  end_time: string;
+  time_slot_id?: number;
+}
+
+interface GroupRecommendation {
+  from_group: string;
+  to_group: string;
+  count: number;
+  session?: TimeSlotInfo; 
+}
+
 export interface ProgrammePlayer {
   id: number;
   student_name: string;

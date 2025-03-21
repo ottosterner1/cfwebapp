@@ -603,15 +603,20 @@ def dashboard_stats():
             # Sort coaches by name
             coach_summaries = sorted(coach_summaries, key=lambda x: x['name'])
 
-        # Get group recommendations (only consider finalised reports)
+        # Get group recommendations WITH SESSION INFO (only consider finalised reports)
         recommendations_query = (db.session.query(
             TennisGroup.name.label('from_group'),
             func.count().label('count'),
-            Report.recommended_group_id
+            Report.recommended_group_id,
+            ProgrammePlayers.group_time_id,
+            TennisGroupTimes.day_of_week,
+            TennisGroupTimes.start_time,
+            TennisGroupTimes.end_time
         )
         .select_from(Report)
         .join(ProgrammePlayers, Report.programme_player_id == ProgrammePlayers.id)
         .join(TennisGroup, ProgrammePlayers.group_id == TennisGroup.id)
+        .outerjoin(TennisGroupTimes, ProgrammePlayers.group_time_id == TennisGroupTimes.id)
         .join(GroupTemplate, and_(
             TennisGroup.id == GroupTemplate.group_id,
             GroupTemplate.is_active == True
@@ -638,18 +643,33 @@ def dashboard_stats():
             
         recommendations = recommendations_query.group_by(
             TennisGroup.name,
-            Report.recommended_group_id
+            Report.recommended_group_id,
+            ProgrammePlayers.group_time_id,
+            TennisGroupTimes.day_of_week,
+            TennisGroupTimes.start_time,
+            TennisGroupTimes.end_time
         ).all()
         
-        # Process recommendations
+        # Process recommendations with session information
         group_recommendations = []
-        for from_group, count, recommended_group_id in recommendations:
+        for from_group, count, recommended_group_id, group_time_id, day_of_week, start_time, end_time in recommendations:
             to_group = TennisGroup.query.get(recommended_group_id)
             if to_group:
+                # Format time slot information
+                session_info = None
+                if day_of_week and start_time and end_time:
+                    session_info = {
+                        'day_of_week': day_of_week.value,
+                        'start_time': start_time.strftime('%H:%M'),
+                        'end_time': end_time.strftime('%H:%M'),
+                        'time_slot_id': group_time_id
+                    }
+                
                 group_recommendations.append({
                     'from_group': from_group,
                     'to_group': to_group.name,
-                    'count': count
+                    'count': count,
+                    'session': session_info
                 })
         
         response_data = {
@@ -1083,12 +1103,34 @@ def report_operations(report_id):
                     'endTime': group_time.end_time.strftime('%H:%M') if group_time.end_time else None
                 }
 
+        # Get student information for age and date of birth
+        date_of_birth = None
+        age = None
+        if report.student and report.student.date_of_birth:
+            date_of_birth = report.student.date_of_birth.isoformat() if report.student.date_of_birth else None
+            
+            # Calculate age if date of birth is available
+            from datetime import datetime
+            today = datetime.now()
+            age = today.year - report.student.date_of_birth.year
+            if (today.month, today.day) < (report.student.date_of_birth.month, report.student.date_of_birth.day):
+                age -= 1
+                
+        # If programme_player exists, try to get student age from there as well (as a fallback)
+        if age is None and programme_player and programme_player.student and programme_player.student.date_of_birth:
+            from datetime import datetime
+            today = datetime.now()
+            age = today.year - programme_player.student.date_of_birth.year
+            if (today.month, today.day) < (programme_player.student.date_of_birth.month, programme_player.student.date_of_birth.day):
+                age -= 1
+            date_of_birth = programme_player.student.date_of_birth.isoformat()
+
         # Normalize the report content if needed
         report_content = report.content
         if isinstance(report_content, dict) and 'content' in report_content:
             report_content = report_content['content']
 
-        # Serialize the report data
+        # Serialize the report data - explicitly include all fields needed by frontend
         report_data = {
             'id': report.id,
             'studentName': report.student.name,
@@ -1099,9 +1141,14 @@ def report_operations(report_id):
             'canEdit': current_user.is_admin or report.coach_id == current_user.id,
             'isDraft': report.is_draft,
             'status': report.status,
-            'sessionInfo': time_slot  # Add session information here
+            'sessionInfo': time_slot,  # Add session information here
+            'dateOfBirth': date_of_birth,
+            'age': age,
+            'playerId': report.programme_player_id  # Ensure this is included
         }
-
+        
+        # Debug logging for troubleshooting
+        current_app.logger.info(f"Report data for ID {report_id}: age={age}, dateOfBirth={date_of_birth}, sessionInfo={time_slot}")
 
         # Serialize the template data
         template_data = {
@@ -1180,7 +1227,7 @@ def report_operations(report_id):
 @login_required
 @admin_required
 def download_all_reports(period_id):
-    """Download all reports for a teaching period"""
+    """Download all reports for a teaching period with batch processing"""
     
     try:
         # Verify period belongs to user's club
@@ -1198,6 +1245,9 @@ def download_all_reports(period_id):
         period_name = period.name.replace(' ', '_').lower()
         period_dir = os.path.join(instance_dir, f'reports-{period_name}')
         
+        # Log the beginning of the process
+        current_app.logger.info(f"Starting download_all_reports for period {period_id}, club {club_name}")
+        
         # Clear existing reports directory if it exists
         if os.path.exists(period_dir):
             shutil.rmtree(period_dir)
@@ -1207,6 +1257,7 @@ def download_all_reports(period_id):
         
         # Choose generator based on club name
         if 'wilton' in club_name.lower():
+            current_app.logger.info("Using Wilton report generator")
             from app.utils.wilton_report_generator import EnhancedWiltonReportGenerator
             
             config_path = os.path.join(base_dir, 'app', 'utils', 'wilton_group_config.json')
@@ -1216,11 +1267,12 @@ def download_all_reports(period_id):
             # Get the period-specific directory (generated by the report generator)
             reports_dir = period_dir
         else:
+            current_app.logger.info("Using standard report generator")
             from app.utils.report_generator import batch_generate_reports
             result = batch_generate_reports(period_id)
             reports_dir = result.get('output_directory')
             
-            
+        # Check if generation was successful
         if result.get('success', 0) == 0:
             current_app.logger.error(f"No reports generated. Details: {result.get('error_details', [])}")
             return jsonify({
@@ -1233,27 +1285,48 @@ def download_all_reports(period_id):
             current_app.logger.error(f"Reports directory not found at: {reports_dir}")
             return jsonify({'error': f'No reports were found after generation'}), 500
             
-        # Create a ZIP file containing all generated reports
+        # Find all PDF files
+        pdf_files = []
+        for root, dirs, files in os.walk(reports_dir):
+            for file in files:
+                if file.endswith('.pdf'):
+                    file_path = os.path.join(root, file)
+                    pdf_files.append(file_path)
+        
+        # Log the number of files found
+        current_app.logger.info(f"Found {len(pdf_files)} PDF files to add to ZIP")
+                            
+        if len(pdf_files) == 0:
+            current_app.logger.error("No PDF files were found to add to ZIP")
+            return jsonify({'error': 'No PDF files were generated'}), 400
+        
+        # Create a ZIP file with batch processing (add files in smaller batches)
         memory_file = BytesIO()
-        with zipfile.ZipFile(memory_file, 'w') as zf:
-            pdf_count = 0
-            
-            for root, dirs, files in os.walk(reports_dir):
-                
-                for file in files:
-                    if file.endswith('.pdf'):
-                        file_path = os.path.join(root, file)
-                        # Preserve directory structure relative to reports_dir
-                        rel_path = os.path.relpath(file_path, reports_dir)
+        
+        # Process in batches of 20 files each
+        BATCH_SIZE = 20
+        zip_parts = []
+        
+        try:
+            with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+                # Process PDF files in batches
+                for i in range(0, len(pdf_files), BATCH_SIZE):
+                    batch = pdf_files[i:i+BATCH_SIZE]
+                    current_app.logger.info(f"Processing batch {i//BATCH_SIZE + 1}/{(len(pdf_files)-1)//BATCH_SIZE + 1} with {len(batch)} files")
+                    
+                    for file_path in batch:
                         try:
-                            zf.write(file_path, rel_path)
-                            pdf_count += 1
+                            # Preserve directory structure relative to reports_dir
+                            rel_path = os.path.relpath(file_path, reports_dir)
+                            with open(file_path, 'rb') as f:
+                                # Read in smaller chunks to avoid memory issues
+                                zf.writestr(rel_path, f.read())
                         except Exception as e:
                             current_app.logger.error(f"Error adding file to ZIP {file_path}: {str(e)}")
-                            
-            if pdf_count == 0:
-                current_app.logger.error("No PDF files were found to add to ZIP")
-                return jsonify({'error': 'No PDF files were generated'}), 400
+        except Exception as e:
+            current_app.logger.error(f"Error creating ZIP file: {str(e)}")
+            current_app.logger.error(traceback.format_exc())
+            return jsonify({'error': f'Failed to create ZIP: {str(e)}'}), 500
                 
         memory_file.seek(0)
         
@@ -1262,7 +1335,9 @@ def download_all_reports(period_id):
         formatted_term = period.name.lower().replace(' ', '_')
         filename = f"reports_{formatted_club_name}_{formatted_term}.zip"
         
+        current_app.logger.info(f"Successfully created ZIP file with {len(pdf_files)} reports")
         
+        # Set response with appropriate headers and send the file
         response = send_file(
             memory_file,
             mimetype='application/zip',
@@ -1271,10 +1346,14 @@ def download_all_reports(period_id):
         )
         
         response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
         return response
         
     except Exception as e:
-        current_app.logger.error(f"Error generating reports: {str(e)}")
+        current_app.logger.error(f"Error generating reports ZIP: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
@@ -2201,7 +2280,7 @@ def get_report_template(player_id):
 @login_required
 @admin_required
 def print_all_reports(period_id):
-    """Generate a single PDF containing all reports for a teaching period"""
+    """Generate a single PDF containing all reports for a teaching period with batch processing"""
     try:
         # Verify period belongs to user's tennis club
         period = TeachingPeriod.query.filter_by(
@@ -2218,6 +2297,8 @@ def print_all_reports(period_id):
         period_name = period.name.replace(' ', '_').lower()
         period_dir = os.path.join(instance_dir, f'reports-{period_name}')
         
+        current_app.logger.info(f"Starting print_all_reports for period {period_id}, club {club_name}")
+        
         # Clear existing reports directory if it exists
         if os.path.exists(period_dir):
             shutil.rmtree(period_dir)
@@ -2227,6 +2308,7 @@ def print_all_reports(period_id):
         
         # Choose generator based on club name
         if 'wilton' in club_name.lower():
+            current_app.logger.info("Using Wilton report generator")
             from app.utils.wilton_report_generator import EnhancedWiltonReportGenerator
             
             config_path = os.path.join(base_dir, 'app', 'utils', 'wilton_group_config.json')
@@ -2236,6 +2318,7 @@ def print_all_reports(period_id):
             # Get the period-specific directory
             reports_dir = period_dir
         else:
+            current_app.logger.info("Using standard report generator")
             from app.utils.report_generator import batch_generate_reports
             result = batch_generate_reports(period_id)
             reports_dir = result.get('output_directory')
@@ -2252,7 +2335,7 @@ def print_all_reports(period_id):
             current_app.logger.error(f"Reports directory not found at: {reports_dir}")
             return jsonify({'error': 'No reports were found after generation'}), 500
         
-        # Get list of PDFs and merge them
+        # Get list of PDFs and merge them with batching
         pdf_files = []
         for root, _, files in os.walk(reports_dir):
             for file in sorted(files):
@@ -2261,24 +2344,108 @@ def print_all_reports(period_id):
                     pdf_files.append(file_path)
         
         if not pdf_files:
+            current_app.logger.error("No PDF files found")
             return jsonify({'error': 'No PDF reports were found'}), 404
+            
+        # Log the number of PDFs for debugging
+        current_app.logger.info(f"Attempting to merge {len(pdf_files)} PDF files")
         
-        # Merge PDFs
-        from PyPDF2 import PdfMerger
-        merger = PdfMerger()
-        
-        for pdf_file in pdf_files:
-            merger.append(pdf_file)
-        
-        # Create the combined PDF in memory
+        # Create the combined PDF in memory with batching
         output = BytesIO()
-        merger.write(output)
-        output.seek(0)
         
-        # Format filename
+        # Use smaller batches (20 files per batch) for memory efficiency
+        BATCH_SIZE = 20
+        temp_files = []
+        temp_paths = []
+        
+        try:
+            # First phase: Create batch PDFs in temp files
+            from PyPDF2 import PdfMerger, PdfReader
+            import tempfile
+            
+            # Create a temporary directory for the batch files
+            temp_dir = tempfile.mkdtemp()
+            
+            for i in range(0, len(pdf_files), BATCH_SIZE):
+                batch = pdf_files[i:i+BATCH_SIZE]
+                current_app.logger.info(f"Processing batch {i//BATCH_SIZE + 1}/{(len(pdf_files)-1)//BATCH_SIZE + 1} with {len(batch)} files")
+                
+                # Create temp file for this batch
+                batch_fd, batch_path = tempfile.mkstemp(suffix='.pdf', dir=temp_dir)
+                temp_paths.append(batch_path)
+                
+                batch_merger = PdfMerger()
+                
+                # Add each file to the batch merger
+                for pdf_file in batch:
+                    try:
+                        with open(pdf_file, 'rb') as f:
+                            # Read the PDF
+                            reader = PdfReader(f)
+                            # Add to merger
+                            batch_merger.append(reader)
+                    except Exception as e:
+                        current_app.logger.error(f"Error adding file {pdf_file} to batch: {str(e)}")
+                        # Continue with other files
+                        continue
+                
+                # Write batch to temp file
+                with open(batch_path, 'wb') as f:
+                    batch_merger.write(f)
+                batch_merger.close()
+                os.close(batch_fd)
+            
+            # Second phase: Merge the batches
+            current_app.logger.info(f"Merging {len(temp_paths)} batch files into final output")
+            final_merger = PdfMerger()
+            
+            for batch_path in temp_paths:
+                try:
+                    with open(batch_path, 'rb') as f:
+                        reader = PdfReader(f)
+                        final_merger.append(reader)
+                except Exception as e:
+                    current_app.logger.error(f"Error merging batch file {batch_path}: {str(e)}")
+            
+            # Write the final combined PDF
+            final_merger.write(output)
+            output.seek(0)
+            final_merger.close()
+            
+            # Clean up temp files and directory
+            for path in temp_paths:
+                try:
+                    os.remove(path)
+                except:
+                    pass
+            try:
+                os.rmdir(temp_dir)
+            except:
+                pass
+            
+        except Exception as e:
+            current_app.logger.error(f"Error during PDF merging: {str(e)}")
+            current_app.logger.error(traceback.format_exc())
+            
+            # Clean up temp resources
+            for path in temp_paths:
+                try:
+                    os.remove(path)
+                except:
+                    pass
+            try:
+                os.rmdir(temp_dir)
+            except:
+                pass
+                
+            return jsonify({'error': f'Failed to merge PDFs: {str(e)}'}), 500
+        
+        # Format filename and return file
         formatted_club = club_name.lower().replace(' ', '_')
         formatted_term = period.name.lower().replace(' ', '_')
         filename = f"combined_reports_{formatted_club}_{formatted_term}.pdf"
+        
+        current_app.logger.info(f"Successfully created combined PDF with {len(pdf_files)} reports")
         
         response = send_file(
             output,
