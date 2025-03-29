@@ -52,6 +52,194 @@ def parse_date(date_str):
         print(f"Date parsing failed: {str(e)}")
         raise ValueError(f"Invalid date format for '{date_str}'. Use either YYYY-MM-DD or DD-MMM-YYYY format (e.g., 2024-12-25 or 25-Dec-2024)")
 
+def process_batch(batch_df, club_id, teaching_period, coaches, groups):
+    """Process a batch of CSV rows with validation and database updates"""
+    
+    valid_rows = []
+    batch_errors = []
+    batch_warnings = []
+    
+    # Validate all rows first
+    for index, row in batch_df.iterrows():
+        try:
+            row_number = index + 2  # +2 for header row and 0-indexing
+            row_data = {}
+            
+            # Validate student name
+            if pd.isna(row['student_name']):
+                batch_errors.append(f"Row {row_number}: Missing student name")
+                continue
+            row_data['student_name'] = row['student_name']
+            
+            # Validate contact email
+            if pd.isna(row['contact_email']):
+                batch_errors.append(f"Row {row_number}: Missing contact email for {row['student_name']}")
+                continue
+            row_data['contact_email'] = row['contact_email']
+            
+            # Validate coach
+            if pd.isna(row['coach_email']):
+                batch_errors.append(f"Row {row_number}: Missing coach email for {row['student_name']}")
+                continue
+                
+            coach_email = str(row['coach_email']).lower()
+            if coach_email not in coaches:
+                batch_errors.append(f"Row {row_number}: Coach with email {row['coach_email']} not found")
+                continue
+            row_data['coach'] = coaches[coach_email]
+            
+            # Validate group
+            if pd.isna(row['group_name']):
+                batch_errors.append(f"Row {row_number}: Missing group name for {row['student_name']}")
+                continue
+                
+            group_name = str(row['group_name']).lower()
+            if group_name not in groups:
+                batch_errors.append(f"Row {row_number}: Group '{row['group_name']}' not found")
+                continue
+            row_data['group'] = groups[group_name]
+            
+            # Parse day of week
+            if pd.isna(row['day_of_week']):
+                batch_errors.append(f"Row {row_number}: Missing day of week for {row['student_name']}")
+                continue
+                
+            try:
+                day_of_week = DayOfWeek[str(row['day_of_week']).upper()]
+                row_data['day_of_week'] = day_of_week
+            except KeyError:
+                valid_days = ', '.join([d.name.title() for d in DayOfWeek])
+                batch_errors.append(f"Row {row_number}: Invalid day of week '{row['day_of_week']}'. Must be one of: {valid_days}")
+                continue
+            
+            # Parse time values
+            if pd.isna(row['start_time']) or pd.isna(row['end_time']):
+                batch_errors.append(f"Row {row_number}: Missing start or end time for {row['student_name']}")
+                continue
+                
+            try:
+                start_time = datetime.strptime(str(row['start_time']), '%H:%M').time()
+                end_time = datetime.strptime(str(row['end_time']), '%H:%M').time()
+                
+                if start_time >= end_time:
+                    batch_errors.append(f"Row {row_number}: End time must be after start time")
+                    continue
+                    
+                row_data['start_time'] = start_time
+                row_data['end_time'] = end_time
+            except ValueError as e:
+                batch_errors.append(f"Row {row_number}: Invalid time format. Use HH:MM. Error: {str(e)}")
+                continue
+            
+            # Find group time slot
+            group_time = TennisGroupTimes.query.filter_by(
+                group_id=row_data['group'].id,
+                day_of_week=row_data['day_of_week'],
+                start_time=row_data['start_time'],
+                end_time=row_data['end_time'],
+                tennis_club_id=club_id
+            ).first()
+
+            if not group_time:
+                # Get available times for more helpful error message
+                available_times = TennisGroupTimes.query.filter_by(
+                    group_id=row_data['group'].id,
+                    tennis_club_id=club_id
+                ).all()
+                
+                if not available_times:
+                    time_info = "No time slots configured for this group"
+                else:
+                    time_info = ', '.join([f"{t.day_of_week.value} {t.start_time}-{t.end_time}" for t in available_times])
+                    
+                batch_errors.append(f"Row {row_number}: Group time slot not found for {row['group_name']} " +
+                                  f"on {row['day_of_week']} at {row['start_time']}-{row['end_time']}. " +
+                                  f"Available times: {time_info}")
+                continue
+                
+            row_data['group_time'] = group_time
+            
+            # Parse date of birth (optional)
+            if not pd.isna(row['date_of_birth']):
+                try:
+                    row_data['date_of_birth'] = parse_date(str(row['date_of_birth']))
+                except ValueError as e:
+                    batch_warnings.append(f"Row {row_number}: Couldn't parse date of birth '{row['date_of_birth']}', will be ignored. Error: {str(e)}")
+            
+            # Add to valid rows
+            valid_rows.append(row_data)
+            
+        except Exception as e:
+            batch_errors.append(f"Row {index + 2}: Unexpected error: {str(e)}")
+    
+    # Process valid rows in a single transaction
+    batch_students_created = 0
+    batch_players_created = 0
+    
+    if valid_rows:
+        # Use a fresh transaction for this batch
+        try:
+            with db.session.begin_nested():
+                for row_data in valid_rows:
+                    # Get or create student
+                    student = Student.query.filter_by(
+                        name=row_data['student_name'],
+                        tennis_club_id=club_id
+                    ).first()
+
+                    if not student:
+                        student = Student(
+                            name=row_data['student_name'],
+                            date_of_birth=row_data.get('date_of_birth'),
+                            contact_email=row_data['contact_email'],
+                            tennis_club_id=club_id
+                        )
+                        db.session.add(student)
+                        db.session.flush()  # Get student.id
+                        batch_students_created += 1
+
+                    # Check if player assignment already exists
+                    existing_player = ProgrammePlayers.query.filter_by(
+                        student_id=student.id,
+                        group_id=row_data['group'].id,
+                        group_time_id=row_data['group_time'].id,
+                        teaching_period_id=teaching_period.id,
+                        tennis_club_id=club_id
+                    ).first()
+
+                    if existing_player:
+                        batch_warnings.append(f"Student {student.name} is already assigned to {row_data['group'].name} " +
+                                          f"at {row_data['day_of_week'].value} {row_data['start_time']}-{row_data['end_time']}")
+                        continue
+
+                    # Create new player assignment
+                    player = ProgrammePlayers(
+                        student_id=student.id,
+                        coach_id=row_data['coach'].id,
+                        group_id=row_data['group'].id,
+                        group_time_id=row_data['group_time'].id,
+                        teaching_period_id=teaching_period.id,
+                        tennis_club_id=club_id
+                    )
+                    db.session.add(player)
+                    batch_players_created += 1
+                    
+            # Commit the outer transaction
+            db.session.commit()
+            
+        except Exception as e:
+            # Make sure to rollback
+            db.session.rollback()
+            batch_errors.append(f"Database error: {str(e)}")
+    
+    # Return batch results
+    return {
+        'students_created': batch_students_created,
+        'players_created': batch_players_created,
+        'warnings': batch_warnings,
+        'errors': batch_errors
+    }
+
 @player_routes.route('/programme-players')
 @login_required
 @verify_club_access()
@@ -241,121 +429,8 @@ def get_next_player(current_player_id):
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
-# From club_management:
-@player_routes.route('/players/bulk-upload', methods=['POST'])
-@login_required
-@admin_required
-def bulk_upload_players():
-    """API endpoint for uploading a CSV file and parsing it for chunked processing"""
-    
-    try:
-        # Validate request has file
-        if 'file' not in request.files:
-            current_app.logger.error("No file in request")
-            return jsonify({'error': 'No file uploaded'}), 400
-            
-        file = request.files['file']
-        if file.filename == '':
-            current_app.logger.error("Empty filename")
-            return jsonify({'error': 'No selected file'}), 400
-        
-        # Validate file type
-        if not file.filename.lower().endswith('.csv'):
-            current_app.logger.error(f"Invalid file type: {file.filename}")
-            return jsonify({'error': 'Only CSV files are allowed'}), 400
-            
-        # Validate teaching period
-        teaching_period_id = request.form.get('teaching_period_id')
-        if not teaching_period_id:
-            current_app.logger.error("Missing teaching_period_id")
-            return jsonify({'error': 'Teaching period is required'}), 400
 
-        # Get current club
-        club = TennisClub.query.get_or_404(current_user.tennis_club_id)
-        current_app.logger.info(f"Processing upload for club: {club.name} (ID: {club.id})")
 
-        # Create a unique session key for this upload
-        upload_token = str(uuid.uuid4())
-        
-        # Create temp directory if it doesn't exist
-        temp_dir = os.path.join(current_app.instance_path, 'uploads')
-        os.makedirs(temp_dir, exist_ok=True)
-        
-        # Save file to temporary location
-        temp_file_path = os.path.join(temp_dir, f"upload_{upload_token}.csv")
-        file.save(temp_file_path)
-        
-        # Parse CSV to get row count and validate format
-        try:
-            # Try different encodings
-            try:
-                df = pd.read_csv(temp_file_path, encoding='utf-8')
-            except UnicodeDecodeError:
-                df = pd.read_csv(temp_file_path, encoding='latin-1')
-            
-            # Check if CSV has any rows
-            if len(df) == 0:
-                os.remove(temp_file_path)  # Clean up file
-                current_app.logger.error("CSV has no data rows")
-                return jsonify({'error': 'The CSV file contains no data rows'}), 400
-            
-            # Clean whitespace and handle missing values
-            df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
-            df = df.replace('', pd.NA)
-            
-            # Verify required columns
-            required_columns = [
-                'student_name', 'date_of_birth', 'contact_email', 
-                'coach_email', 'group_name', 'day_of_week',
-                'start_time', 'end_time'
-            ]
-            missing_columns = [col for col in required_columns if col not in df.columns]
-            if missing_columns:
-                os.remove(temp_file_path)  # Clean up file
-                current_app.logger.error(f"Missing columns: {', '.join(missing_columns)}")
-                return jsonify({
-                    'error': 'Missing required columns in CSV file', 
-                    'details': f"The following columns are required: {', '.join(missing_columns)}"
-                }), 400
-                
-            # Initialize upload session in Flask session
-            session['upload_info'] = {
-                'token': upload_token,
-                'file_path': temp_file_path,
-                'total_rows': len(df),
-                'processed_rows': 0,
-                'teaching_period_id': teaching_period_id,
-                'club_id': club.id,
-                'students_created': 0,
-                'players_created': 0,
-                'warnings': [],
-                'errors': [],
-                'start_time': time.time()
-            }
-            
-            # Return token and basic info
-            return jsonify({
-                'token': upload_token,
-                'total_rows': len(df),
-                'status': 'ready',
-                'message': 'File uploaded and ready for processing'
-            })
-            
-        except Exception as e:
-            # Clean up file on error
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-            current_app.logger.error(f"CSV parsing error: {str(e)}")
-            current_app.logger.error(traceback.format_exc())
-            return jsonify({'error': f'Error parsing CSV: {str(e)}. Please check file format.'}), 400
-            
-    except Exception as e:
-        current_app.logger.error(f"Error in bulk upload: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
-        return jsonify({
-            'error': 'Server error during upload initialization',
-            'details': str(e)
-        }), 500
 
 @player_routes.route('/players/bulk-upload/<token>/process', methods=['POST'])
 @login_required
@@ -489,194 +564,6 @@ def process_csv_chunk(token):
             'has_more': False
         }), 500
 
-def process_batch(batch_df, club_id, teaching_period, coaches, groups):
-    """Process a batch of CSV rows with validation and database updates"""
-    
-    valid_rows = []
-    batch_errors = []
-    batch_warnings = []
-    
-    # Validate all rows first
-    for index, row in batch_df.iterrows():
-        try:
-            row_number = index + 2  # +2 for header row and 0-indexing
-            row_data = {}
-            
-            # Validate student name
-            if pd.isna(row['student_name']):
-                batch_errors.append(f"Row {row_number}: Missing student name")
-                continue
-            row_data['student_name'] = row['student_name']
-            
-            # Validate contact email
-            if pd.isna(row['contact_email']):
-                batch_errors.append(f"Row {row_number}: Missing contact email for {row['student_name']}")
-                continue
-            row_data['contact_email'] = row['contact_email']
-            
-            # Validate coach
-            if pd.isna(row['coach_email']):
-                batch_errors.append(f"Row {row_number}: Missing coach email for {row['student_name']}")
-                continue
-                
-            coach_email = str(row['coach_email']).lower()
-            if coach_email not in coaches:
-                batch_errors.append(f"Row {row_number}: Coach with email {row['coach_email']} not found")
-                continue
-            row_data['coach'] = coaches[coach_email]
-            
-            # Validate group
-            if pd.isna(row['group_name']):
-                batch_errors.append(f"Row {row_number}: Missing group name for {row['student_name']}")
-                continue
-                
-            group_name = str(row['group_name']).lower()
-            if group_name not in groups:
-                batch_errors.append(f"Row {row_number}: Group '{row['group_name']}' not found")
-                continue
-            row_data['group'] = groups[group_name]
-            
-            # Parse day of week
-            if pd.isna(row['day_of_week']):
-                batch_errors.append(f"Row {row_number}: Missing day of week for {row['student_name']}")
-                continue
-                
-            try:
-                day_of_week = DayOfWeek[str(row['day_of_week']).upper()]
-                row_data['day_of_week'] = day_of_week
-            except KeyError:
-                valid_days = ', '.join([d.name.title() for d in DayOfWeek])
-                batch_errors.append(f"Row {row_number}: Invalid day of week '{row['day_of_week']}'. Must be one of: {valid_days}")
-                continue
-            
-            # Parse time values
-            if pd.isna(row['start_time']) or pd.isna(row['end_time']):
-                batch_errors.append(f"Row {row_number}: Missing start or end time for {row['student_name']}")
-                continue
-                
-            try:
-                start_time = datetime.strptime(str(row['start_time']), '%H:%M').time()
-                end_time = datetime.strptime(str(row['end_time']), '%H:%M').time()
-                
-                if start_time >= end_time:
-                    batch_errors.append(f"Row {row_number}: End time must be after start time")
-                    continue
-                    
-                row_data['start_time'] = start_time
-                row_data['end_time'] = end_time
-            except ValueError as e:
-                batch_errors.append(f"Row {row_number}: Invalid time format. Use HH:MM. Error: {str(e)}")
-                continue
-            
-            # Find group time slot
-            group_time = TennisGroupTimes.query.filter_by(
-                group_id=row_data['group'].id,
-                day_of_week=row_data['day_of_week'],
-                start_time=row_data['start_time'],
-                end_time=row_data['end_time'],
-                tennis_club_id=club_id
-            ).first()
-
-            if not group_time:
-                # Get available times for more helpful error message
-                available_times = TennisGroupTimes.query.filter_by(
-                    group_id=row_data['group'].id,
-                    tennis_club_id=club_id
-                ).all()
-                
-                if not available_times:
-                    time_info = "No time slots configured for this group"
-                else:
-                    time_info = ', '.join([f"{t.day_of_week.value} {t.start_time}-{t.end_time}" for t in available_times])
-                    
-                batch_errors.append(f"Row {row_number}: Group time slot not found for {row['group_name']} " +
-                                  f"on {row['day_of_week']} at {row['start_time']}-{row['end_time']}. " +
-                                  f"Available times: {time_info}")
-                continue
-                
-            row_data['group_time'] = group_time
-            
-            # Parse date of birth (optional)
-            if not pd.isna(row['date_of_birth']):
-                try:
-                    row_data['date_of_birth'] = parse_date(str(row['date_of_birth']))
-                except ValueError as e:
-                    batch_warnings.append(f"Row {row_number}: Couldn't parse date of birth '{row['date_of_birth']}', will be ignored. Error: {str(e)}")
-            
-            # Add to valid rows
-            valid_rows.append(row_data)
-            
-        except Exception as e:
-            batch_errors.append(f"Row {index + 2}: Unexpected error: {str(e)}")
-    
-    # Process valid rows in a single transaction
-    batch_students_created = 0
-    batch_players_created = 0
-    
-    if valid_rows:
-        # Use a fresh transaction for this batch
-        try:
-            with db.session.begin_nested():
-                for row_data in valid_rows:
-                    # Get or create student
-                    student = Student.query.filter_by(
-                        name=row_data['student_name'],
-                        tennis_club_id=club_id
-                    ).first()
-
-                    if not student:
-                        student = Student(
-                            name=row_data['student_name'],
-                            date_of_birth=row_data.get('date_of_birth'),
-                            contact_email=row_data['contact_email'],
-                            tennis_club_id=club_id
-                        )
-                        db.session.add(student)
-                        db.session.flush()  # Get student.id
-                        batch_students_created += 1
-
-                    # Check if player assignment already exists
-                    existing_player = ProgrammePlayers.query.filter_by(
-                        student_id=student.id,
-                        group_id=row_data['group'].id,
-                        group_time_id=row_data['group_time'].id,
-                        teaching_period_id=teaching_period.id,
-                        tennis_club_id=club_id
-                    ).first()
-
-                    if existing_player:
-                        batch_warnings.append(f"Student {student.name} is already assigned to {row_data['group'].name} " +
-                                          f"at {row_data['day_of_week'].value} {row_data['start_time']}-{row_data['end_time']}")
-                        continue
-
-                    # Create new player assignment
-                    player = ProgrammePlayers(
-                        student_id=student.id,
-                        coach_id=row_data['coach'].id,
-                        group_id=row_data['group'].id,
-                        group_time_id=row_data['group_time'].id,
-                        teaching_period_id=teaching_period.id,
-                        tennis_club_id=club_id
-                    )
-                    db.session.add(player)
-                    batch_players_created += 1
-                    
-            # Commit the outer transaction
-            db.session.commit()
-            
-        except Exception as e:
-            # Make sure to rollback
-            db.session.rollback()
-            batch_errors.append(f"Database error: {str(e)}")
-    
-    # Return batch results
-    return {
-        'students_created': batch_students_created,
-        'players_created': batch_players_created,
-        'warnings': batch_warnings,
-        'errors': batch_errors
-    }
-
 @player_routes.route('/players/bulk-upload/<token>/status', methods=['GET'])
 @login_required
 @admin_required
@@ -720,203 +607,7 @@ def get_upload_status(token):
         'elapsed_time': elapsed_time
     })
 
-@player_routes.route('/players/<int:player_id>', methods=['GET', 'PUT', 'DELETE'])
-@login_required
-@admin_required
-def player_api(player_id):
-    """API endpoint for managing a single player"""
-    player = ProgrammePlayers.query.get_or_404(player_id)
-    
-    if current_user.tennis_club_id != player.tennis_club_id:
-        return jsonify({'error': 'Unauthorized access'}), 403
 
-    if request.method == 'GET':
-        response_data = {
-            'student': {
-                'name': player.student.name,
-                'date_of_birth': player.student.date_of_birth.strftime('%Y-%m-%d') if player.student.date_of_birth else None,
-                'contact_email': player.student.contact_email
-            },
-            'coach_id': player.coach_id,
-            'group_id': player.group_id,
-            'group_time_id': player.group_time_id,  # Add group time ID to response
-            'teaching_period_id': player.teaching_period_id
-        }
-        return jsonify(response_data)
-
-    elif request.method == 'PUT':
-        try:
-            data = request.get_json()
-            
-            if not data:
-                return jsonify({'error': 'No data provided'}), 400
-
-            # Update student details
-            player.student.name = data['student_name']
-            player.student.contact_email = data['contact_email']
-            if data.get('date_of_birth'):
-                try:
-                    player.student.date_of_birth = datetime.strptime(data['date_of_birth'], '%Y-%m-%d').date()
-                except ValueError:
-                    return jsonify({'error': 'Invalid date format'}), 400
-
-            # Verify coach belongs to club
-            coach = User.query.get(data['coach_id'])
-            if not coach or coach.tennis_club_id != current_user.tennis_club_id:
-                return jsonify({'error': 'Invalid coach selected'}), 400
-
-            # Verify group belongs to club
-            group = TennisGroup.query.get(data['group_id'])
-            if not group or group.tennis_club_id != current_user.tennis_club_id:
-                return jsonify({'error': 'Invalid group selected'}), 400
-
-            # Verify group time belongs to group and club
-            if data.get('group_time_id'):
-                group_time = TennisGroupTimes.query.get(data['group_time_id'])
-                if not group_time or group_time.tennis_club_id != current_user.tennis_club_id or group_time.group_id != group.id:
-                    return jsonify({'error': 'Invalid group time selected'}), 400
-
-            # Update assignments
-            player.coach_id = coach.id
-            player.group_id = group.id
-            player.group_time_id = data.get('group_time_id')  # Update group time ID
-            
-            db.session.commit()
-            return jsonify({'message': 'Player updated successfully'})
-            
-        except KeyError as e:
-            return jsonify({'error': f'Missing required field: {str(e)}'}), 400
-        except Exception as e:
-            db.session.rollback()
-            current_app.logger.error(f"Error updating player: {str(e)}")
-            current_app.logger.error(traceback.format_exc())
-            return jsonify({'error': str(e)}), 400
-
-    elif request.method == 'DELETE':
-        try:
-            db.session.delete(player)
-            db.session.commit()
-            return jsonify({'message': 'Player removed successfully'})
-        except Exception as e:
-            db.session.rollback()
-            current_app.logger.error(f"Error deleting player: {str(e)}")
-            return jsonify({'error': f'Failed to remove player: {str(e)}'}), 400
-
-@player_routes.route('/players', methods=['POST'])
-@login_required
-@admin_required
-def create_player():
-    """API endpoint for creating a new player"""
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-
-        club_id = current_user.tennis_club_id
-
-        # Validate data
-        required_fields = ['student_name', 'contact_email', 'coach_id', 'group_id', 'group_time_id', 'teaching_period_id']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
-
-        # Verify coach belongs to club
-        coach = User.query.get(data['coach_id'])
-        if not coach or coach.tennis_club_id != club_id:
-            return jsonify({'error': 'Invalid coach selected'}), 400
-
-        # Verify group belongs to club
-        group = TennisGroup.query.get(data['group_id'])
-        if not group or group.tennis_club_id != club_id:
-            return jsonify({'error': 'Invalid group selected'}), 400
-
-        # Verify group time belongs to group and club
-        group_time = TennisGroupTimes.query.get(data['group_time_id'])
-        if not group_time or group_time.tennis_club_id != club_id or group_time.group_id != group.id:
-            return jsonify({'error': 'Invalid group time selected'}), 400
-
-        # Verify teaching period belongs to club
-        period = TeachingPeriod.query.get(data['teaching_period_id'])
-        if not period or period.tennis_club_id != club_id:
-            return jsonify({'error': 'Invalid teaching period selected'}), 400
-
-        # Create or get student
-        student = Student.query.filter_by(
-            name=data['student_name'],
-            tennis_club_id=club_id
-        ).first()
-
-        if not student:
-            student = Student(
-                name=data['student_name'],
-                contact_email=data['contact_email'],
-                tennis_club_id=club_id
-            )
-            if data.get('date_of_birth'):
-                try:
-                    student.date_of_birth = datetime.strptime(data['date_of_birth'], '%Y-%m-%d').date()
-                except ValueError:
-                    return jsonify({'error': 'Invalid date format'}), 400
-            
-            db.session.add(student)
-            db.session.flush()
-
-            # Check if player already exists in this specific group and time slot
-            existing_player = ProgrammePlayers.query.filter_by(
-                student_id=student.id,
-                group_id=data['group_id'],
-                group_time_id=data['group_time_id'],
-                teaching_period_id=data['teaching_period_id'],
-                tennis_club_id=club_id
-            ).first()
-
-            if existing_player:
-                return jsonify({
-                    'error': 'Player is already assigned to this specific group and time slot'
-                }), 400
-
-        # Create programme player assignment
-        assignment = ProgrammePlayers(
-            student_id=student.id,
-            coach_id=data['coach_id'],
-            group_id=data['group_id'],
-            group_time_id=data['group_time_id'],  # Add group time ID
-            teaching_period_id=data['teaching_period_id'],
-            tennis_club_id=club_id
-        )
-
-        db.session.add(assignment)
-        db.session.commit()
-
-        return jsonify({
-            'message': 'Player added successfully',
-            'id': assignment.id
-        })
-
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error creating player: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 400
-
-@player_routes.route('/coaches')
-@login_required
-@admin_required
-def get_coaches():
-    """API endpoint for getting all coaches in the club"""
-    
-    coaches = User.query.filter(
-        User.tennis_club_id == current_user.tennis_club_id,
-        User.role.in_([UserRole.COACH, UserRole.ADMIN])  # Include both coaches and admins
-    ).order_by(User.name).all()
-    
-    response_data = [{
-        'id': coach.id,
-        'name': coach.name,
-        'email': coach.email
-    } for coach in coaches]
-    
-    return jsonify(response_data)
 
 @player_routes.route('/groups')
 @login_required
@@ -945,69 +636,6 @@ def get_groups():
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': 'Failed to fetch tennis groups'}), 500
 
-@player_routes.route('/groups/<int:group_id>/times')
-@login_required
-@admin_required
-def get_group_times(group_id):
-    """API endpoint for getting all time slots for a specific group"""
-    try:
-        
-        # Verify group belongs to user's club
-        group = TennisGroup.query.filter_by(
-            id=group_id,
-            tennis_club_id=current_user.tennis_club_id
-        ).first_or_404()
-        
-        # Get all time slots for this group - first get them unordered
-        times = TennisGroupTimes.query.filter_by(
-            group_id=group_id,
-            tennis_club_id=current_user.tennis_club_id
-        ).all()
-        
-        # Sort the results in Python instead of SQL
-        day_order = {
-            'Monday': 0,
-            'Tuesday': 1,
-            'Wednesday': 2,
-            'Thursday': 3,
-            'Friday': 4,
-            'Saturday': 5,
-            'Sunday': 6
-        }
-        
-        # Sort using Python's sorted function
-        times = sorted(times, 
-                      key=lambda x: (day_order[x.day_of_week.value], x.start_time))
-        
-        response_data = [{
-            'id': time.id,
-            'day_of_week': time.day_of_week.value,
-            'start_time': time.start_time.strftime('%H:%M'),
-            'end_time': time.end_time.strftime('%H:%M')
-        } for time in times]
-
-        return jsonify(response_data)
-        
-    except Exception as e:
-        current_app.logger.error(f"Error fetching group times: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
-@player_routes.route('/teaching-periods')
-@login_required
-@admin_required
-def get_teaching_periods():
-    """API endpoint for getting all teaching periods in the club"""
-    periods = TeachingPeriod.query.filter_by(
-        tennis_club_id=current_user.tennis_club_id
-    ).order_by(TeachingPeriod.start_date.desc()).all()
-    
-    return jsonify([{
-        'id': period.id,
-        'name': period.name,
-        'start_date': period.start_date.strftime('%Y-%m-%d'),
-        'end_date': period.end_date.strftime('%Y-%m-%d')
-    } for period in periods])
 
 @player_routes.route('/template/download')
 @login_required

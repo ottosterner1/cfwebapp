@@ -210,7 +210,7 @@ const EditReportApp: React.FC = () => {
       return;
     }
 
-    fetch(`/reports/delete/${reportId}`, { method: 'POST' })
+    fetch(`/api/reports/delete/${reportId}`, { method: 'POST' })
       .then(response => {
         if (!response.ok) {
           throw new Error('Failed to delete report');
