@@ -1,0 +1,548 @@
+from flask import Blueprint, render_template, request, redirect, url_for, flash, session, current_app, jsonify
+from flask_login import login_required, current_user
+import pandas as pd
+from app.models import (
+    User, TennisGroup, TeachingPeriod, Student, Report, UserRole, 
+    TennisClub, ProgrammePlayers, CoachDetails, GroupTemplate, ReportTemplate, TennisGroupTimes
+)
+from app import db
+from app.clubs.middleware import verify_club_access
+from sqlalchemy import func, and_, or_, distinct, case
+from app.utils.auth import admin_required, club_access_required
+import traceback
+
+main = Blueprint('main', __name__)
+
+ALLOWED_EXTENSIONS = {'csv', 'xlsx', 'xls'}
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@main.context_processor
+def utility_processor():
+    return {'UserRole': UserRole}
+
+@main.route('/')
+def index():
+    return render_template('pages/index.html')
+
+@main.route('/dashboard')
+@login_required
+@verify_club_access()
+def dashboard():
+    return render_template('pages/dashboard.html')
+
+@main.route('/api/current-user')
+@login_required
+@verify_club_access()
+def current_user_info():
+    
+    if not current_user.is_authenticated:
+        return jsonify({'error': 'Not authenticated'}), 401
+
+    response = jsonify({
+        'id': current_user.id,
+        'name': current_user.name,
+        'tennis_club': {
+            'id': current_user.tennis_club_id,
+            'name': current_user.tennis_club.name if current_user.tennis_club else None
+        },
+        'is_admin': current_user.is_admin,
+        'is_super_admin': current_user.is_super_admin
+    })
+
+    response.headers.update({
+        'Access-Control-Allow-Origin': request.headers.get('Origin', 'https://cfwebapp.local'),
+        'Access-Control-Allow-Credentials': 'true',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cookie, X-Requested-With'
+    })
+    
+    return response
+
+@main.route('/api/current-user', methods=['OPTIONS'])
+def current_user_options():
+    response = jsonify({'status': 'ok'})
+    response.headers['Access-Control-Allow-Origin'] = request.headers.get('Origin', '*')
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Cookie'
+    return response
+
+@main.route('/api/dashboard/stats')
+@login_required
+@verify_club_access()
+def dashboard_stats():
+    try:
+        tennis_club_id = current_user.tennis_club_id
+        selected_period_id = request.args.get('period', type=int)
+        
+        # Get all teaching periods ordered by start date (newest first)
+        all_periods = TeachingPeriod.query.filter_by(
+            tennis_club_id=tennis_club_id
+        ).order_by(TeachingPeriod.start_date.desc()).all()
+        
+        # Get period IDs that have players
+        period_ids_with_players = (db.session.query(ProgrammePlayers.teaching_period_id)
+            .filter(ProgrammePlayers.tennis_club_id == tennis_club_id)
+            .distinct()
+            .all())
+        period_ids = [p[0] for p in period_ids_with_players]
+        
+        # Find the default period (latest with players)
+        default_period_id = None
+        if period_ids:
+            default_period = TeachingPeriod.query.filter(
+                TeachingPeriod.id.in_(period_ids),
+                TeachingPeriod.tennis_club_id == tennis_club_id
+            ).order_by(TeachingPeriod.start_date.desc()).first()
+            
+            if default_period:
+                default_period_id = default_period.id
+        
+        # If no period is selected, use the default
+        if not selected_period_id and default_period_id:
+            selected_period_id = default_period_id
+
+        # Base query for students
+        base_query = (ProgrammePlayers.query
+            .select_from(ProgrammePlayers)
+            .join(TennisGroup, ProgrammePlayers.group_id == TennisGroup.id)
+            .join(GroupTemplate, and_(
+                TennisGroup.id == GroupTemplate.group_id,
+                GroupTemplate.is_active == True
+            ))
+            .join(ReportTemplate, and_(
+                ReportTemplate.id == GroupTemplate.template_id,
+                ReportTemplate.is_active == True
+            ))
+            .filter(ProgrammePlayers.tennis_club_id == tennis_club_id))
+
+        if not (current_user.is_admin or current_user.is_super_admin):
+            base_query = base_query.filter(ProgrammePlayers.coach_id == current_user.id)
+            
+        if selected_period_id:
+            base_query = base_query.filter(ProgrammePlayers.teaching_period_id == selected_period_id)
+            
+        total_students = base_query.count()
+        
+        # Get reports query for all reports (both draft and final)
+        reports_query = (Report.query
+            .select_from(Report)
+            .join(ProgrammePlayers)
+            .join(TennisGroup, ProgrammePlayers.group_id == TennisGroup.id)
+            .join(GroupTemplate, and_(
+                TennisGroup.id == GroupTemplate.group_id,
+                GroupTemplate.is_active == True
+            ))
+            .join(ReportTemplate, and_(
+                ReportTemplate.id == GroupTemplate.template_id,
+                ReportTemplate.is_active == True
+            ))
+            .filter(ProgrammePlayers.tennis_club_id == tennis_club_id))
+
+        if not (current_user.is_admin or current_user.is_super_admin):
+            reports_query = reports_query.filter(ProgrammePlayers.coach_id == current_user.id)
+            
+        if selected_period_id:
+            reports_query = reports_query.filter(Report.teaching_period_id == selected_period_id)
+            
+        # Count both submitted and draft reports
+        total_reports = reports_query.count()
+        submitted_reports = reports_query.filter(Report.is_draft == False).count()
+        draft_reports = reports_query.filter(Report.is_draft == True).count()
+        
+        completion_rate = round((submitted_reports / total_students * 100) if total_students > 0 else 0, 1)
+        
+        # Get group stats including draft status
+        group_stats_query = (db.session.query(
+            TennisGroup.name,
+            func.count(distinct(ProgrammePlayers.id)).label('count'),
+            func.sum(case((Report.is_draft == False, 1), else_=0)).label('reports_completed'),
+            func.sum(case((Report.is_draft == True, 1), else_=0)).label('reports_draft')
+        )
+        .select_from(TennisGroup)
+        .join(GroupTemplate, and_(
+            TennisGroup.id == GroupTemplate.group_id,
+            GroupTemplate.is_active == True
+        ))
+        .join(ReportTemplate, and_(
+            ReportTemplate.id == GroupTemplate.template_id,
+            ReportTemplate.is_active == True
+        ))
+        .join(ProgrammePlayers, TennisGroup.id == ProgrammePlayers.group_id)
+        .outerjoin(Report, ProgrammePlayers.id == Report.programme_player_id)
+        .filter(ProgrammePlayers.tennis_club_id == tennis_club_id))
+        
+        if selected_period_id:
+            group_stats_query = group_stats_query.filter(
+                ProgrammePlayers.teaching_period_id == selected_period_id
+            )
+            
+        if not (current_user.is_admin or current_user.is_super_admin):
+            group_stats_query = group_stats_query.filter(
+                ProgrammePlayers.coach_id == current_user.id
+            )
+            
+        group_stats = group_stats_query.group_by(TennisGroup.name).all()
+        
+        # Get coach summaries only for admin users
+        coach_summaries = None
+        if current_user.is_admin or current_user.is_super_admin:
+            coach_summaries = []
+            coaches = User.query.filter_by(
+                tennis_club_id=tennis_club_id,
+            ).all()
+            
+            for coach in coaches:
+                # Create fresh queries for each coach
+                coach_players = base_query.filter(ProgrammePlayers.coach_id == coach.id).count()
+                
+                # Skip coaches with no assigned players/reports
+                if coach_players == 0:
+                    continue
+                    
+                coach_draft_reports = reports_query.filter(
+                    ProgrammePlayers.coach_id == coach.id,
+                    Report.is_draft == True
+                ).count()
+                
+                coach_submitted_reports = reports_query.filter(
+                    ProgrammePlayers.coach_id == coach.id,
+                    Report.is_draft == False
+                ).count()
+                
+                coach_summaries.append({
+                    'id': coach.id,
+                    'name': coach.name,
+                    'total_assigned': coach_players,
+                    'reports_completed': coach_submitted_reports,
+                    'reports_draft': coach_draft_reports
+                })
+                
+            # Sort coaches by name
+            coach_summaries = sorted(coach_summaries, key=lambda x: x['name'])
+
+        # Get group recommendations WITH SESSION INFO (only consider finalised reports)
+        recommendations_query = (db.session.query(
+            TennisGroup.name.label('from_group'),
+            func.count().label('count'),
+            Report.recommended_group_id,
+            ProgrammePlayers.group_time_id,
+            TennisGroupTimes.day_of_week,
+            TennisGroupTimes.start_time,
+            TennisGroupTimes.end_time
+        )
+        .select_from(Report)
+        .join(ProgrammePlayers, Report.programme_player_id == ProgrammePlayers.id)
+        .join(TennisGroup, ProgrammePlayers.group_id == TennisGroup.id)
+        .outerjoin(TennisGroupTimes, ProgrammePlayers.group_time_id == TennisGroupTimes.id)
+        .join(GroupTemplate, and_(
+            TennisGroup.id == GroupTemplate.group_id,
+            GroupTemplate.is_active == True
+        ))
+        .join(ReportTemplate, and_(
+            ReportTemplate.id == GroupTemplate.template_id,
+            ReportTemplate.is_active == True
+        ))
+        .filter(
+            ProgrammePlayers.tennis_club_id == tennis_club_id,
+            Report.recommended_group_id.isnot(None),
+            Report.is_draft == False  # Only include finalised reports
+        ))
+        
+        if selected_period_id:
+            recommendations_query = recommendations_query.filter(
+                Report.teaching_period_id == selected_period_id
+            )
+            
+        if not (current_user.is_admin or current_user.is_super_admin):
+            recommendations_query = recommendations_query.filter(
+                ProgrammePlayers.coach_id == current_user.id
+            )
+            
+        recommendations = recommendations_query.group_by(
+            TennisGroup.name,
+            Report.recommended_group_id,
+            ProgrammePlayers.group_time_id,
+            TennisGroupTimes.day_of_week,
+            TennisGroupTimes.start_time,
+            TennisGroupTimes.end_time
+        ).all()
+        
+        # Process recommendations with session information
+        group_recommendations = []
+        for from_group, count, recommended_group_id, group_time_id, day_of_week, start_time, end_time in recommendations:
+            to_group = TennisGroup.query.get(recommended_group_id)
+            if to_group:
+                # Format time slot information
+                session_info = None
+                if day_of_week and start_time and end_time:
+                    session_info = {
+                        'day_of_week': day_of_week.value,
+                        'start_time': start_time.strftime('%H:%M'),
+                        'end_time': end_time.strftime('%H:%M'),
+                        'time_slot_id': group_time_id
+                    }
+                
+                group_recommendations.append({
+                    'from_group': from_group,
+                    'to_group': to_group.name,
+                    'count': count,
+                    'session': session_info
+                })
+        
+        response_data = {
+            'periods': [{
+                'id': p.id,
+                'name': p.name,
+                'hasPlayers': p.id in period_ids
+            } for p in all_periods],
+            'defaultPeriodId': default_period_id,
+            'stats': {
+                'totalStudents': total_students,
+                'totalReports': total_reports,
+                'submittedReports': submitted_reports,
+                'draftReports': draft_reports,
+                'reportCompletion': completion_rate,
+                'currentGroups': [{
+                    'name': name,
+                    'count': count,
+                    'reports_completed': completed,
+                    'reports_draft': draft
+                } for name, count, completed, draft in group_stats],
+                'coachSummaries': coach_summaries,
+                'groupRecommendations': group_recommendations
+            }
+        }
+        return jsonify(response_data)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error in dashboard stats: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({
+            'error': f"Server error: {str(e)}",
+            'periods': [],
+            'stats': {
+                'totalStudents': 0,
+                'totalReports': 0,
+                'submittedReports': 0,
+                'draftReports': 0,
+                'reportCompletion': 0,
+                'currentGroups': [],
+                'coachSummaries': None,
+                'groupRecommendations': []
+            }
+        }), 500
+
+@main.route('/home')
+@login_required
+def home():
+    try:
+        # Get basic counts without group/term relations for now
+        reports = Report.query.filter_by(coach_id=current_user.id).order_by(Report.date.desc()).all()
+        students = Student.query.join(Report).filter(Report.coach_id == current_user.id).distinct().all()
+        
+        return render_template('pages/home.html', 
+                            reports=reports,
+                            students=students)
+    except Exception as e:
+        current_app.logger.error(f"Error in home route: {str(e)}")
+        flash("Error loading dashboard data", "error")
+        return redirect(url_for('main.index'))
+
+@main.route('/debug/reports')
+@login_required
+def debug_reports():
+    reports = Report.query.all()
+    return {
+        'count': len(reports),
+        'reports': [{
+            'id': r.id,
+            'student_id': r.student_id,
+            'coach_id': r.coach_id
+        } for r in reports]
+    }
+
+@main.route('/profile')
+@login_required
+@verify_club_access()
+def profile_page():
+    """Serve the profile page"""
+    return render_template('pages/profile.html')
+
+@main.route('/api/profile')
+@login_required
+@verify_club_access()
+def get_profile():
+    """Get the current user's basic profile information"""
+    try:
+        user_data = {
+            'id': current_user.id,
+            'email': current_user.email,
+            'name': current_user.name,
+            'role': current_user.role.value,
+            'tennis_club': {
+                'id': current_user.tennis_club_id,
+                'name': current_user.tennis_club.name if current_user.tennis_club else None
+            }
+        }
+        
+        # Include coach details if they exist
+        if current_user.coach_details:
+            user_data['coach_details'] = {
+                'contact_number': current_user.coach_details.contact_number,
+                'emergency_contact_name': current_user.coach_details.emergency_contact_name,
+                'emergency_contact_number': current_user.coach_details.emergency_contact_number
+            }
+            
+        return jsonify(user_data)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching profile: {str(e)}")
+        return jsonify({'error': 'Failed to fetch profile data'}), 500
+
+@main.route('/api/profile/details', methods=['PUT'])
+@login_required
+@verify_club_access()
+def update_profile_details():
+    """Update the current user's coach details"""
+    try:
+        data = request.get_json()
+        
+        # Get or create coach details
+        coach_details = current_user.coach_details
+        if not coach_details:
+            coach_details = CoachDetails(
+                user_id=current_user.id,
+                tennis_club_id=current_user.tennis_club_id
+            )
+            db.session.add(coach_details)
+        
+        # Update fields
+        coach_details.contact_number = data.get('contact_number')
+        coach_details.emergency_contact_name = data.get('emergency_contact_name')
+        coach_details.emergency_contact_number = data.get('emergency_contact_number')
+        
+        db.session.commit()
+        
+        return jsonify({
+            'contact_number': coach_details.contact_number,
+            'emergency_contact_name': coach_details.emergency_contact_name,
+            'emergency_contact_number': coach_details.emergency_contact_number
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating profile: {str(e)}")
+        return jsonify({'error': 'Failed to update profile'}), 500
+
+@main.route('/upload', methods=['GET', 'POST'])
+@login_required
+def upload():
+    # Get groups and periods specific to the user's tennis club
+    groups = TennisGroup.query.filter_by(tennis_club_id=current_user.tennis_club_id).all()
+    periods = TeachingPeriod.query.filter_by(tennis_club_id=current_user.tennis_club_id).order_by(TeachingPeriod.start_date.desc()).all()
+
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            flash('No file uploaded')
+            return redirect(request.url)
+            
+        file = request.files['file']
+        group_id = request.form.get('group_id')
+        teaching_period_id = request.form.get('teaching_period_id')
+        
+        if not group_id or not teaching_period_id:
+            flash('Please select both group and term')
+            return redirect(request.url)
+            
+        if file.filename == '':
+            flash('No file selected')
+            return redirect(request.url)
+            
+        if file and allowed_file(file.filename):
+            try:
+                df = pd.read_csv(file)
+                
+                # Simplified expected columns
+                expected_columns = [
+                    'student_name',
+                    'age',
+                    'forehand',
+                    'backhand',
+                    'movement',
+                    'overall_rating',
+                    'next_group_recommendation',
+                    'notes'
+                ]
+                
+                missing_columns = [col for col in expected_columns if col not in df.columns]
+                if missing_columns:
+                    flash(f'Missing columns: {", ".join(missing_columns)}')
+                    return redirect(request.url)
+                
+                students_created = 0
+                reports_created = 0
+                
+                # Verify group and term belong to user's tennis club
+                group = TennisGroup.query.filter_by(id=group_id, tennis_club_id=current_user.tennis_club_id).first()
+                term = TeachingPeriod.query.filter_by(id=teaching_period_id, tennis_club_id=current_user.tennis_club_id).first()
+                
+                if not group or not term:
+                    flash('Invalid group or term selected')
+                    return redirect(request.url)
+                
+                for _, row in df.iterrows():
+                    try:
+                        # Get or create student
+                        student_name = row['student_name'].strip()
+                        student = Student.query.filter_by(
+                            name=student_name,
+                            tennis_club_id=current_user.tennis_club_id
+                        ).first()
+                        
+                        if not student:
+                            student = Student(
+                                name=student_name,
+                                age=int(row['age']),
+                                tennis_club_id=current_user.tennis_club_id
+                            )
+                            db.session.add(student)
+                            students_created += 1
+                        
+                        # Create simplified report
+                        report = Report(
+                            student=student,
+                            coach_id=current_user.id,
+                            group_id=group_id,
+                            teaching_period_id=teaching_period_id,
+                            forehand=row['forehand'],
+                            backhand=row['backhand'],
+                            movement=row['movement'],
+                            overall_rating=int(row['overall_rating']),
+                            next_group_recommendation=row['next_group_recommendation'],
+                            notes=row.get('notes', '')  # Optional field
+                        )
+                        db.session.add(report)
+                        reports_created += 1
+                        
+                    except Exception as e:
+                        db.session.rollback()
+                        current_app.logger.error(f"Error processing student: {str(e)}")  # Add logging
+                        current_app.logger.error(f'Error processing student {student_name}: {str(e)}')
+                        return redirect(request.url)
+                
+                db.session.commit()
+                flash(f'Successfully added {students_created} new students and {reports_created} reports')
+                return redirect(url_for('main.dashboard'))
+                
+            except Exception as e:
+                db.session.rollback()
+                current_app.logger.error(f"Error processing file: {str(e)}") 
+                return redirect(request.url)
+                
+        else:
+            flash('Invalid file type. Please upload a CSV or Excel file')
+            return redirect(request.url)
+            
+    return render_template('pages/upload.html', groups=groups, periods=periods)
