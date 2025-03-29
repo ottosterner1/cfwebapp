@@ -108,11 +108,7 @@ def send_accreditation_reminders():
     })
 
 # Web route without /api prefix
-@admin_routes.route('/lta-accreditation')
-@login_required
-@admin_required
-def lta_accreditation():
-    return render_template('pages/lta_accreditation.html')   
+ 
 
 @admin_routes.route('/coaches', methods=['GET', 'POST'])
 @login_required
