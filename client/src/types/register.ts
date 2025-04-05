@@ -1,0 +1,105 @@
+// client/src/types/register.ts
+
+export type AttendanceStatus = 'present' | 'absent' | 'excused' | 'late';
+export type RegisterStatus = 'draft' | 'submitted';
+
+export interface RegisterEntry {
+  id: number;
+  student_id: number;
+  student_name: string;
+  attendance_status: AttendanceStatus;
+  notes: string | null;
+  player_id: number;
+  predicted_attendance: boolean;
+}
+
+export interface Register {
+  id: number;
+  date: string;
+  group_name: string;
+  coach_name: string;
+  time_slot: {
+    day: string;
+    start_time: string;
+    end_time: string;
+  };
+  status: RegisterStatus;
+  stats: {
+    total: number;
+    present: number;
+    absent: number;
+    excused: number;
+    late: number;
+    attendance_rate: number;
+  };
+}
+
+export interface RegisterDetail extends Register {
+  group: {
+    id: number;
+    name: string;
+  };
+  coach: {
+    id: number;
+    name: string;
+  };
+  notes: string | null;
+  entries: RegisterEntry[];
+  teaching_period: {
+    id: number;
+    name: string;
+  };
+}
+
+export interface UpcomingSession {
+  date: string;
+  group_time: {
+    id: number;
+    day: string;
+    start_time: string;
+    end_time: string;
+  };
+  group: {
+    id: number;
+    name: string;
+  };
+  teaching_period: {
+    id: number;
+    name: string;
+  };
+  coach: {
+    id: number;
+    name: string;
+  };
+}
+
+export interface AttendanceStats {
+  total_sessions: number;
+  present: number;
+  absent: number;
+  excused: number;
+  late: number;
+  attendance_rate: number;
+}
+
+export interface GroupAttendanceStats {
+  id: number;
+  name: string;
+  total: number;
+  present: number;
+  absent: number;
+  excused: number;
+  late: number;
+  attendance_rate: number;
+}
+
+export interface StudentAttendanceStats {
+  id: number;
+  name: string;
+  total: number;
+  present: number;
+  absent: number;
+  excused: number;
+  late: number;
+  attendance_rate: number;
+}
