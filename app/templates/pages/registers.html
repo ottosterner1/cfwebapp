@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance Registers - Tennis Automation{% endblock %}
+
+{% block content %}
+<div id="registers-root" class="w-full">
+    <!-- React Register List will render here -->
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if config['DEBUG'] %}
+    <script type="module">
+        import RefreshRuntime from 'http://localhost:5173/@react-refresh'
+        RefreshRuntime.injectIntoGlobalHook(window)
+        window.$RefreshReg$ = () => {}
+        window.$RefreshSig$ = () => (type) => type
+        window.__vite_plugin_react_preamble_installed__ = true
+    </script>
+    <script type="module" src="http://localhost:5173/@vite/client"></script>
+    <script type="module" src="http://localhost:5173/src/entry/registers.tsx"></script>
+{% else %}
+<script type="module" src="{{ url_for('static', filename='dist/' + get_asset_path('src/entry/registers.tsx')) }}"></script>
+{% endif %}
+{% endblock %}

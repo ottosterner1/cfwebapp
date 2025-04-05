@@ -1,4 +1,4 @@
-from sqlalchemy import text, Index
+from sqlalchemy import text, Index, Boolean
 from app.extensions import db
 from app.models.base import AttendanceStatus, RegisterStatus
 from datetime import datetime, timezone
@@ -39,9 +39,11 @@ class Register(db.Model):
             
         present_count = sum(1 for entry in self.entries 
                            if entry.attendance_status == AttendanceStatus.PRESENT)
+        late_count = sum(1 for entry in self.entries 
+                         if entry.attendance_status == AttendanceStatus.LATE)
         total_count = len(self.entries)
         
-        return round((present_count / total_count) * 100, 1) if total_count > 0 else 0
+        return round(((present_count + late_count) / total_count) * 100, 1) if total_count > 0 else 0
     
     def __repr__(self):
         return f'<Register id={self.id} date={self.date} group_time_id={self.group_time_id}>'
@@ -54,6 +56,7 @@ class RegisterEntry(db.Model):
     register_id = db.Column(db.Integer, db.ForeignKey('register.id'), nullable=False)
     programme_player_id = db.Column(db.Integer, db.ForeignKey('programme_players.id'), nullable=False)
     attendance_status = db.Column(db.Enum(AttendanceStatus), default=AttendanceStatus.ABSENT)
+    predicted_attendance = db.Column(Boolean, default=False)  # New column for predicted attendance
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
     updated_at = db.Column(db.DateTime(timezone=True), onupdate=text('CURRENT_TIMESTAMP'))
