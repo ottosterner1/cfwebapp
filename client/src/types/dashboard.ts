@@ -63,6 +63,16 @@ interface GroupRecommendation {
   from_group: string;
   to_group: string;
   count: number;
+  session?: TimeSlotInfo;
+}
+
+export interface PlayerRecommendation {
+  id: number;
+  name: string;
+  currentGroup: string;
+  recommendedGroup: string;
+  coachId?: number;
+  coachName?: string;
 }
 
 export interface DashboardMetrics {
@@ -102,13 +112,6 @@ interface TimeSlotInfo {
   start_time: string;
   end_time: string;
   time_slot_id?: number;
-}
-
-interface GroupRecommendation {
-  from_group: string;
-  to_group: string;
-  count: number;
-  session?: TimeSlotInfo; 
 }
 
 export interface ProgrammePlayer {
@@ -191,7 +194,6 @@ export interface DynamicReportFormProps {
   }) => Promise<void>;
   isDraftMode?: boolean;
 }
-
 
 export interface ProgressOptionsProps {
   value: string;
