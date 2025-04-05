@@ -14,7 +14,11 @@ interface Player {
   student_name: string;
   group_name: string;
   group_id: number;
+  group_time_id: number;
   time_slot?: TimeSlot;
+  report_submitted: boolean;
+  report_id: number | null;
+  can_edit: boolean;
 }
 
 interface ProgrammeAnalyticsProps {
@@ -24,6 +28,8 @@ interface ProgrammeAnalyticsProps {
 interface SessionInfo {
   count: number;
   group: string;
+  groupId: number;
+  timeId: number;
   dayOfWeek: string;
   timeSlot: string;
   capacity?: number;
@@ -73,6 +79,19 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
     return hours * 60 + minutes;
   };
 
+  const scrollToSession = (groupId: number, timeId: number) => {
+    const elementId = `group-${groupId}-time-${timeId}`;
+    const element = document.getElementById(elementId);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Add a highlight effect
+      element.classList.add('bg-yellow-100');
+      setTimeout(() => {
+        element.classList.remove('bg-yellow-100');
+      }, 2000);
+    }
+  };
+
   const analytics = React.useMemo(() => {
     const summary = {
       totalPlayers: players.length,
@@ -103,7 +122,7 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
         (summary.groupBreakdown[groupName] || 0) + 1;
 
       // Session breakdown
-      if (player.time_slot && player.time_slot.capacity) {
+      if (player.time_slot) {
         // Add to total capacity once per unique time slot
         const timeSlotKey = `${groupName}|${player.time_slot.day_of_week}|${player.time_slot.start_time}-${player.time_slot.end_time}`;
         
@@ -114,6 +133,8 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
           summary.sessionBreakdown[sessionKey] = {
             count: 0,
             group: groupName,
+            groupId: player.group_id,
+            timeId: player.group_time_id,
             dayOfWeek: player.time_slot.day_of_week,
             timeSlot: `${player.time_slot.start_time}-${player.time_slot.end_time}`,
             capacity: player.time_slot.capacity
@@ -259,7 +280,7 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
         </div>
       </Card>
 
-      {/* Session Breakdown Card */}
+      {/* Session Breakdown Card with clickable sessions */}
       <Card className="p-4 bg-white rounded-lg shadow">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-md font-medium text-gray-900">Session Breakdown</h3>
@@ -306,7 +327,9 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
                     .map((session) => (
                       <div 
                         key={`${session.group}-${session.dayOfWeek}-${session.timeSlot}`}
-                        className={`rounded px-2 py-1.5 ${getCapacityColor(session)}`}
+                        className={`rounded px-2 py-1.5 ${getCapacityColor(session)} cursor-pointer hover:shadow transition-shadow hover:bg-opacity-80`}
+                        onClick={() => scrollToSession(session.groupId, session.timeId)}
+                        title="Click to navigate to this session"
                       >
                         <div className="flex justify-between items-center text-xs">
                           <span className="text-gray-700">

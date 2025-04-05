@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback} from 'react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Alert, AlertDescription } from '../../components/ui/alert';
-import { Download, PlusCircle, Pencil } from 'lucide-react';
+import { Download, PlusCircle, Pencil, Trash2 } from 'lucide-react';
 import BulkUploadSection from './BulkUploadSection';
 import ProgrammeAnalytics from './ProgrammeAnalytics';
 
@@ -20,6 +20,7 @@ interface Player {
     day_of_week: string;
     start_time: string;
     end_time: string; 
+    capacity?: number;
   };
   report_submitted: boolean;
   report_id: number | null;
@@ -68,11 +69,45 @@ const PeriodFilter: React.FC<{
   </div>
 );
 
+// Helper function to get day order value
+const getDayOrder = (day: string): number => {
+  const normalizedDay = day.trim().toLowerCase();
+  const DAY_ORDER: Record<string, number> = {
+    'monday': 1,
+    'tuesday': 2,
+    'wednesday': 3,
+    'thursday': 4,
+    'friday': 5,
+    'saturday': 6,
+    'sunday': 7
+  };
+  return DAY_ORDER[normalizedDay] || 999;
+};
+
+// Helper function to convert time string to numerical minutes for sorting
+const getTimeValue = (timeStr: string): number => {
+  const [time] = timeStr.split('-');
+  const [hoursStr, minutesStr] = time.trim().split(':');
+  
+  let hours = parseInt(hoursStr, 10);
+  const minutes = parseInt(minutesStr, 10) || 0;
+  
+  // Handle 12-hour format if needed
+  if (hours > 0 && hours < 9) {
+    hours += 12;
+  }
+  
+  return hours * 60 + minutes;
+};
+
 const PlayersList: React.FC<{
   players: Player[];
   loading: boolean;
   clubId: number;
-}> = ({ players, loading, clubId }) => {
+  onDeletePlayer: (playerId: number) => Promise<void>;
+}> = ({ players, loading, clubId, onDeletePlayer }) => {
+  const [deleteInProgress, setDeleteInProgress] = useState<Record<number, boolean>>({});
+  
   if (loading) {
     return (
       <div className="text-center py-8">
@@ -126,6 +161,35 @@ const PlayersList: React.FC<{
     });
   };
 
+  const handleDelete = async (playerId: number, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    if (deleteInProgress[playerId]) return;
+    
+    if (window.confirm('Are you sure you want to delete this player?')) {
+      setDeleteInProgress(prev => ({ ...prev, [playerId]: true }));
+      try {
+        await onDeletePlayer(playerId);
+      } finally {
+        setDeleteInProgress(prev => ({ ...prev, [playerId]: false }));
+      }
+    }
+  };
+
+  const saveScrollPosition = (playerId: number) => {
+    // Store the current scroll position in sessionStorage before navigating
+    sessionStorage.setItem('programmeScrollPosition', window.scrollY.toString());
+    sessionStorage.setItem('lastEditedPlayerId', playerId.toString());
+    
+    // Additional: Store the element's position for more precise return
+    const element = document.getElementById(`player-${playerId}`);
+    if (element) {
+      const rect = element.getBoundingClientRect();
+      sessionStorage.setItem('playerElementOffset', rect.top.toString());
+    }
+  };
+
   return (
     <div className="space-y-8">
       {Object.entries(groupedPlayers).map(([groupId, group]) => (
@@ -146,47 +210,80 @@ const PlayersList: React.FC<{
           </div>
 
           <div className="divide-y divide-gray-200">
-            {Object.entries(group.timeSlots).map(([timeSlotId, timeSlot]) => (
-              <div key={timeSlotId} className="p-4">
-                <h4 className="text-sm font-medium text-gray-700 mb-3">
-                  {timeSlot.dayOfWeek} {formatTime(timeSlot.startTime)} - {formatTime(timeSlot.endTime)}
-                </h4>
-                <div className="space-y-2">
-                  {timeSlot.players.map(player => (
-                    <div
-                      key={player.id}
-                      className="flex items-center justify-between px-4 py-2 bg-gray-50 rounded-lg"
-                    >
-                      <div>
-                        <span className="font-medium text-gray-900">
-                          {player.student_name}
-                        </span>
-                        <span className="ml-2">
-                          {player.report_submitted ? (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                              Completed Report
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                              Pending Report
-                            </span>
-                          )}
-                        </span>
+            {/* Sort time slots by day of week first, then by start time */}
+            {Object.entries(group.timeSlots)
+              .sort(([, a], [, b]) => {
+                const dayOrderA = getDayOrder(a.dayOfWeek);
+                const dayOrderB = getDayOrder(b.dayOfWeek);
+                if (dayOrderA !== dayOrderB) return dayOrderA - dayOrderB;
+                
+                const timeValueA = getTimeValue(a.startTime);
+                const timeValueB = getTimeValue(b.startTime);
+                return timeValueA - timeValueB;
+              })
+              .map(([timeSlotId, timeSlot]) => (
+                <div 
+                  key={timeSlotId} 
+                  className="p-4"
+                  id={`group-${groupId}-time-${timeSlotId}`}
+                >
+                  <h4 className="text-sm font-medium text-gray-700 mb-3">
+                    {timeSlot.dayOfWeek} {formatTime(timeSlot.startTime)} - {formatTime(timeSlot.endTime)}
+                  </h4>
+                  <div className="space-y-2">
+                    {timeSlot.players.map(player => (
+                      <div
+                        key={player.id}
+                        id={`player-${player.id}`}
+                        className="flex items-center justify-between px-4 py-2 bg-gray-50 rounded-lg"
+                      >
+                        <div>
+                          <span className="font-medium text-gray-900">
+                            {player.student_name}
+                          </span>
+                          <span className="ml-2">
+                            {player.report_submitted ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                Completed Report
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                Pending Report
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        {player.can_edit && (
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => {
+                                saveScrollPosition(player.id);
+                                window.location.href = `/clubs/manage/${clubId}/players/${player.id}/edit`;
+                              }}
+                              className="inline-flex items-center px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-md hover:bg-indigo-100 transition-colors"
+                            >
+                              <Pencil className="h-4 w-4 mr-1" />
+                              Edit
+                            </button>
+                            <button
+                              onClick={(e) => handleDelete(player.id, e)}
+                              disabled={deleteInProgress[player.id]}
+                              className="inline-flex items-center px-3 py-1.5 bg-red-50 text-red-700 rounded-md hover:bg-red-100 transition-colors"
+                            >
+                              {deleteInProgress[player.id] ? (
+                                <div className="h-4 w-4 mr-1 animate-spin rounded-full border-2 border-t-transparent border-red-700"></div>
+                              ) : (
+                                <Trash2 className="h-4 w-4 mr-1" />
+                              )}
+                              Delete
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      {player.can_edit && (
-                        <button
-                          onClick={() => window.location.href = `/clubs/manage/${clubId}/players/${player.id}/edit`}
-                          className="inline-flex items-center px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-md hover:bg-indigo-100 transition-colors"
-                        >
-                          <Pencil className="h-4 w-4 mr-1" />
-                          Edit
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
 
             {group.unassignedPlayers.length > 0 && (
               <div className="p-4">
@@ -197,6 +294,7 @@ const PlayersList: React.FC<{
                   {group.unassignedPlayers.map(player => (
                     <div
                       key={player.id}
+                      id={`player-${player.id}`}
                       className="flex items-center justify-between px-4 py-2 bg-gray-50 rounded-lg"
                     >
                       <div>
@@ -216,13 +314,30 @@ const PlayersList: React.FC<{
                         </span>
                       </div>
                       {player.can_edit && (
-                        <button
-                          onClick={() => window.location.href = `/clubs/manage/${clubId}/players/${player.id}/edit`}
-                          className="inline-flex items-center px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-md hover:bg-indigo-100 transition-colors"
-                        >
-                          <Pencil className="h-4 w-4 mr-1" />
-                          Edit
-                        </button>
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => {
+                              saveScrollPosition(player.id);
+                              window.location.href = `/clubs/manage/${clubId}/players/${player.id}/edit`;
+                            }}
+                            className="inline-flex items-center px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-md hover:bg-indigo-100 transition-colors"
+                          >
+                            <Pencil className="h-4 w-4 mr-1" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={(e) => handleDelete(player.id, e)}
+                            disabled={deleteInProgress[player.id]}
+                            className="inline-flex items-center px-3 py-1.5 bg-red-50 text-red-700 rounded-md hover:bg-red-100 transition-colors"
+                          >
+                            {deleteInProgress[player.id] ? (
+                              <div className="h-4 w-4 mr-1 animate-spin rounded-full border-2 border-t-transparent border-red-700"></div>
+                            ) : (
+                              <Trash2 className="h-4 w-4 mr-1" />
+                            )}
+                            Delete
+                          </button>
+                        </div>
                       )}
                     </div>
                   ))}
@@ -310,6 +425,43 @@ const ProgrammeManagement = () => {
     fetchPlayers();
   }, [fetchPlayers]);
 
+  // Restore scroll position when returning from edit
+  useEffect(() => {
+    if (!loading) {
+      const storedPosition = sessionStorage.getItem('programmeScrollPosition');
+      const lastEditedPlayerId = sessionStorage.getItem('lastEditedPlayerId');
+      
+      if (storedPosition) {
+        // A small delay to ensure DOM is fully rendered
+        setTimeout(() => {
+          // If we have a specific player ID that was edited
+          if (lastEditedPlayerId) {
+            const playerElement = document.getElementById(`player-${lastEditedPlayerId}`);
+            if (playerElement) {
+              playerElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              // Highlight briefly to show where we are
+              playerElement.classList.add('bg-yellow-100');
+              setTimeout(() => {
+                playerElement.classList.remove('bg-yellow-100');
+              }, 2000);
+            } else {
+              // Fall back to previous scroll position if element not found
+              window.scrollTo(0, parseInt(storedPosition));
+            }
+          } else {
+            // No player ID, just restore scroll position
+            window.scrollTo(0, parseInt(storedPosition));
+          }
+          
+          // Clear storage after use
+          sessionStorage.removeItem('programmeScrollPosition');
+          sessionStorage.removeItem('lastEditedPlayerId');
+          sessionStorage.removeItem('playerElementOffset');
+        }, 100);
+      }
+    }
+  }, [loading]);
+
   const toggleBulkUpload = () => {
     setShowBulkUpload(prev => {
       return !prev;
@@ -328,6 +480,33 @@ const ProgrammeManagement = () => {
   const handleAddPlayer = () => {
     if (clubId) {
       window.location.href = `/clubs/manage/${clubId}/players/add`;
+    }
+  };
+
+  const handleDeletePlayer = async (playerId: number) => {
+    try {
+      const response = await fetch(`/clubs/api/players/${playerId}`, {
+        method: 'DELETE',
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        // Check if it's a report constraint error
+        if (response.status === 400 && data.error && data.error.includes('report')) {
+          alert('This player cannot be deleted because they have reports associated with them. Please remove or reassign the reports first.');
+        } else {
+          alert(`Failed to delete player: ${data.error || 'Unknown error'}`);
+        }
+        return;
+      }
+      
+      // Refresh player list after successful deletion
+      await fetchPlayers();
+      
+    } catch (error) {
+      console.error('Error deleting player:', error);
+      alert('Failed to delete player. Please try again.');
     }
   };
 
@@ -384,19 +563,13 @@ const ProgrammeManagement = () => {
             </div>
           </div>
 
-
-
-          {/* Bulk Upload Section with debug wrapper */}
+          {/* Bulk Upload Section */}
           {showBulkUpload && (
             <div className="mb-6">
               <BulkUploadSection
                 periodId={selectedPeriod}
-                onSuccess={() => {
-                  console.log('BulkUploadSection onSuccess called');
-                  handleBulkUploadSuccess();
-                }}
+                onSuccess={handleBulkUploadSuccess}
                 onCancel={() => {
-                  console.log('BulkUploadSection onCancel called');
                   setShowBulkUpload(false);
                 }}
               />
@@ -411,6 +584,7 @@ const ProgrammeManagement = () => {
             players={players}
             loading={loading}
             clubId={clubId}
+            onDeletePlayer={handleDeletePlayer}
           />
         </CardContent>
       </Card>

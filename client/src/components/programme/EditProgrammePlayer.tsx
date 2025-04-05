@@ -1,17 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Alert, AlertDescription } from '../../components/ui/alert';
-
-interface Coach {
-  id: number;
-  name: string;
-  email: string;
-}
-
-interface Group {
-  id: number;
-  name: string;
-}
+import { Coach, Group, TeachingPeriod } from '../../types/programme';
 
 interface GroupTime {
   id: number;
@@ -20,87 +10,91 @@ interface GroupTime {
   end_time: string;
 }
 
-interface PlayerData {
-  student: {
-    name: string;
-    date_of_birth: string | null;
-    contact_email: string;
-  };
-  coach_id: number;
-  group_id: number;
-  group_time_id: number;
-}
-
 interface FormData {
+  id: number;
   student_name: string;
   date_of_birth: string;
   contact_email: string;
   coach_id: string;
   group_id: string;
   group_time_id: string;
+  teaching_period_id: string;
 }
 
 const EditProgrammePlayer: React.FC = () => {
   const urlParts = window.location.pathname.split('/');
   const clubId = urlParts[3];
-  const playerId = urlParts[urlParts.length - 2];
+  const playerId = urlParts[5];
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<FormData>({
+    id: parseInt(playerId),
     student_name: '',
     date_of_birth: '',
     contact_email: '',
     coach_id: '',
     group_id: '',
-    group_time_id: ''
+    group_time_id: '',
+    teaching_period_id: ''
   });
+
   const [coaches, setCoaches] = useState<Coach[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [groupTimes, setGroupTimes] = useState<GroupTime[]>([]);
+  const [periods, setPeriods] = useState<TeachingPeriod[]>([]);
+  const [returnUrl] = useState<string>(`/clubs/manage/${clubId}/players`);
 
   useEffect(() => {
     const fetchData = async (): Promise<void> => {
       try {
-        const [playerRes, coachesRes, groupsRes] = await Promise.all([
+        // Fetch player, coaches, groups, and periods in parallel
+        const [playerRes, coachesRes, groupsRes, periodsRes] = await Promise.all([
           fetch(`/clubs/api/players/${playerId}`),
           fetch('/clubs/api/coaches'),
-          fetch('/clubs/api/groups')
+          fetch('/clubs/api/groups'),
+          fetch('/clubs/api/teaching-periods')
         ]);
 
-        if (!playerRes.ok || !coachesRes.ok || !groupsRes.ok) {
+        if (!playerRes.ok || !coachesRes.ok || !groupsRes.ok || !periodsRes.ok) {
           throw new Error('Failed to fetch data');
         }
 
-        const [playerData, coachesData, groupsData] = await Promise.all([
-          playerRes.json() as Promise<PlayerData>,
-          coachesRes.json() as Promise<Coach[]>,
-          groupsRes.json() as Promise<Group[]>
+        const [playerData, coachesData, groupsData, periodsData] = await Promise.all([
+          playerRes.json(),
+          coachesRes.json(),
+          groupsRes.json(),
+          periodsRes.json()
         ]);
 
-        // Fetch group times for the player's group
-        const groupTimesRes = await fetch(`/clubs/api/groups/${playerData.group_id}/times`);
-        if (!groupTimesRes.ok) {
-          throw new Error('Failed to fetch group times');
-        }
-        const groupTimesData = await groupTimesRes.json();
-        
+        // Set player data to form
         setFormData({
-          student_name: playerData.student.name,
-          date_of_birth: playerData.student.date_of_birth || '',
-          contact_email: playerData.student.contact_email,
+          id: playerData.id,
+          student_name: playerData.student_name,
+          date_of_birth: playerData.date_of_birth,
+          contact_email: playerData.contact_email,
           coach_id: playerData.coach_id.toString(),
           group_id: playerData.group_id.toString(),
-          group_time_id: playerData.group_time_id ? playerData.group_time_id.toString() : ''
+          group_time_id: playerData.group_time_id ? playerData.group_time_id.toString() : '',
+          teaching_period_id: playerData.teaching_period_id.toString()
         });
-        
+
+        // Set other form data
         setCoaches(coachesData);
         setGroups(groupsData);
-        setGroupTimes(groupTimesData);
+        setPeriods(periodsData);
 
+        // Also fetch group times for the selected group
+        if (playerData.group_id) {
+          const groupTimesRes = await fetch(`/clubs/api/groups/${playerData.group_id}/times`);
+          if (groupTimesRes.ok) {
+            const groupTimesData = await groupTimesRes.json();
+            setGroupTimes(groupTimesData);
+          }
+        }
       } catch (err) {
         console.error('Error fetching data:', err);
-        setError('Failed to load player data');
+        setError('Failed to load form data');
       } finally {
         setLoading(false);
       }
@@ -109,7 +103,7 @@ const EditProgrammePlayer: React.FC = () => {
     fetchData();
   }, [playerId]);
 
-  // Fetch group times when group changes
+  // Fetch group times when group is selected/changed
   useEffect(() => {
     const fetchGroupTimes = async () => {
       if (!formData.group_id) {
@@ -124,66 +118,82 @@ const EditProgrammePlayer: React.FC = () => {
         setGroupTimes(data);
       } catch (err) {
         console.error('Error fetching group times:', err);
-        setError('Failed to load group times');
       }
     };
 
     fetchGroupTimes();
   }, [formData.group_id]);
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>): void => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     setLoading(true);
-    
+    setError(null);
+
     try {
+      const submissionData = {
+        student_name: formData.student_name,
+        date_of_birth: formData.date_of_birth,
+        contact_email: formData.contact_email,
+        coach_id: parseInt(formData.coach_id),
+        group_id: parseInt(formData.group_id),
+        group_time_id: formData.group_time_id ? parseInt(formData.group_time_id) : null,
+        teaching_period_id: parseInt(formData.teaching_period_id)
+      };
+
       const response = await fetch(`/clubs/api/players/${playerId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ...formData,
-          coach_id: parseInt(formData.coach_id),
-          group_id: parseInt(formData.group_id),
-          group_time_id: formData.group_time_id ? parseInt(formData.group_time_id) : null
-        })
+        body: JSON.stringify(submissionData)
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update player');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update player');
       }
 
-      window.location.href = `/clubs/manage/${clubId}/players`;
+      // Redirect back to programme management while preserving scroll position
+      window.location.href = returnUrl;
     } catch (err) {
       console.error('Error updating player:', err);
-      setError('Failed to update player');
-    } finally {
+      setError(err instanceof Error ? err.message : 'Failed to update player');
       setLoading(false);
     }
   };
 
   const handleDelete = async (): Promise<void> => {
-    if (window.confirm('Are you sure you want to remove this player from the programme?')) {
-      try {
-        const response = await fetch(`/clubs/api/players/${playerId}`, { method: 'DELETE' });
-        if (!response.ok) {
-          throw new Error('Failed to delete player');
-        }
-        window.location.href = `/clubs/manage/${clubId}/players`;
-      } catch (err) {
-        console.error('Error deleting player:', err);
-        setError('Failed to delete player');
+    if (!confirm('Are you sure you want to delete this player? This action cannot be undone.')) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await fetch(`/clubs/api/players/${playerId}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete player');
       }
+
+      // Redirect back to programme management
+      window.location.href = returnUrl;
+    } catch (err) {
+      console.error('Error deleting player:', err);
+      setError(err instanceof Error ? err.message : 'Failed to delete player');
+      setLoading(false);
     }
   };
 
   const handleCancel = (): void => {
-    window.location.href = `/clubs/manage/${clubId}/players`;
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>): void => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    window.location.href = returnUrl;
   };
 
   const formatTime = (time: string): string => {
@@ -193,10 +203,11 @@ const EditProgrammePlayer: React.FC = () => {
     });
   };
 
-  if (loading) {
+  if (loading && formData.student_name === '') {
     return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500"></div>
+      <div className="text-center py-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500 mx-auto"></div>
+        <p className="mt-2 text-gray-600">Loading player data...</p>
       </div>
     );
   }
@@ -212,7 +223,10 @@ const EditProgrammePlayer: React.FC = () => {
   return (
     <Card>
       <CardContent>
-        <h1 className="text-2xl font-bold mb-6">Edit Programme Player</h1>
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-bold mb-10">Edit Programme Player</h1>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div className="space-y-2">
@@ -240,6 +254,7 @@ const EditProgrammePlayer: React.FC = () => {
                 type="date"
                 value={formData.date_of_birth}
                 onChange={handleInputChange}
+                required
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
               />
             </div>
@@ -271,8 +286,11 @@ const EditProgrammePlayer: React.FC = () => {
                 required
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
               >
+                <option value="">Select a coach</option>
                 {coaches.map(coach => (
-                  <option key={coach.id} value={coach.id}>{coach.name}</option>
+                  <option key={coach.id} value={coach.id}>
+                    {coach.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -289,13 +307,15 @@ const EditProgrammePlayer: React.FC = () => {
                 required
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
               >
+                <option value="">Select a group</option>
                 {groups.map(group => (
-                  <option key={group.id} value={group.id}>{group.name}</option>
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                  </option>
                 ))}
               </select>
             </div>
 
-            {/* New Group Time Selection */}
             <div className="space-y-2">
               <label htmlFor="group_time_id" className="block text-sm font-medium text-gray-700">
                 Group Time
@@ -316,33 +336,51 @@ const EditProgrammePlayer: React.FC = () => {
                 ))}
               </select>
             </div>
+
+            <div className="space-y-2">
+              <label htmlFor="teaching_period_id" className="block text-sm font-medium text-gray-700">
+                Teaching Period
+              </label>
+              <select
+                id="teaching_period_id"
+                name="teaching_period_id"
+                value={formData.teaching_period_id}
+                onChange={handleInputChange}
+                required
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              >
+                <option value="">Select a teaching period</option>
+                {periods.map(period => (
+                  <option key={period.id} value={period.id}>
+                    {period.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <div className="mt-6 flex justify-between items-center">
+          <div className="mt-6 flex justify-end space-x-3">
             <button
               type="button"
               onClick={handleDelete}
-              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
             >
-              Remove from Programme
+              Delete Player
             </button>
-
-            <div className="flex space-x-3">
-              <button
-                type="button"
-                onClick={handleCancel}
-                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors disabled:opacity-50"
-              >
-                {loading ? 'Saving...' : 'Save Changes'}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Saving...' : 'Save Changes'}
+            </button>
           </div>
         </form>
       </CardContent>

@@ -31,7 +31,7 @@ from io import BytesIO
 import zipfile
 from app.config.clubs import get_club_from_email, TENNIS_CLUBS
 from flask_cors import CORS, cross_origin
-from sqlalchemy import case, func, distinct, and_, or_
+from sqlalchemy import case, func, distinct, and_, or_, text
 from app.services.email_service import EmailService
 import shutil
 
@@ -1223,6 +1223,65 @@ def report_operations(report_id):
             db.session.rollback()
             current_app.logger.error(f"Error updating report: {str(e)}")
             return jsonify({'error': str(e)}), 500
+        
+@main.route('/api/group-recommendations/players', methods=['GET'])
+def get_group_recommendation_players():
+    """
+    Get player IDs that are recommended for a specific group.
+    This endpoint is used to support filtering the dashboard by group recommendation.
+    
+    Query Parameters:
+    - to_group: The name of the target group for recommendations
+    - period: The teaching period ID
+    
+    Returns:
+    - A list of player IDs that are recommended for the specified group
+    """
+    to_group = request.args.get('to_group')
+    period_id = request.args.get('period')
+    
+    if not to_group or not period_id:
+        return jsonify({'error': 'Missing required parameters'}), 400
+    
+    try:
+        
+        # Simplified query that avoids reserved keywords
+        sql_query = text("""
+            SELECT pp.id
+            FROM programme_players pp
+            JOIN report r ON r.programme_player_id = pp.id
+            JOIN tennis_group tg ON r.recommended_group_id = tg.id
+            WHERE tg.name = :to_group
+            AND r.teaching_period_id = :period_id
+        """)
+        
+        # Execute the query with parameters
+        result = db.session.execute(
+            sql_query, 
+            {'to_group': to_group, 'period_id': period_id}
+        )
+        
+        # Extract just the IDs
+        player_id_list = [row[0] for row in result]
+        
+        # If we found no results, try a debug query to see what recommendations exist
+        if not player_id_list:
+            debug_query = text("""
+                SELECT tg.name as recommended_group, COUNT(*) as count
+                FROM report r
+                JOIN tennis_group tg ON r.recommended_group_id = tg.id  
+                WHERE r.teaching_period_id = :period_id
+                GROUP BY tg.name
+                ORDER BY count DESC
+            """)
+            
+            debug_results = db.session.execute(debug_query, {'period_id': period_id}).fetchall()
+        
+        return jsonify({'players': player_id_list})
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching group recommendation player ids: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500
 
 @main.route('/api/reports/download-all/<int:period_id>', methods=['GET'])
 @login_required
