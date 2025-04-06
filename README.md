@@ -22,8 +22,6 @@ pyinstaller --onefile --windowed \
 tree -I "__pycache__|venv|node_modules|migrations|instance|assets"
 flask run --host=localhost --port 3000
 
-
-
 ## Flask coaching app
 source venv/bin/activate
 
