@@ -1534,14 +1534,13 @@ def player_api(player_id):
 
     if request.method == 'GET':
         response_data = {
-            'student': {
-                'name': player.student.name,
-                'date_of_birth': player.student.date_of_birth.strftime('%Y-%m-%d') if player.student.date_of_birth else None,
-                'contact_email': player.student.contact_email
-            },
+            'id': player.id,  # Include the player's ID
+            'student_name': player.student.name,
+            'date_of_birth': player.student.date_of_birth.strftime('%Y-%m-%d') if player.student.date_of_birth else None,
+            'contact_email': player.student.contact_email,
             'coach_id': player.coach_id,
             'group_id': player.group_id,
-            'group_time_id': player.group_time_id,  # Add group time ID to response
+            'group_time_id': player.group_time_id,
             'teaching_period_id': player.teaching_period_id
         }
         return jsonify(response_data)
@@ -1596,9 +1595,20 @@ def player_api(player_id):
 
     elif request.method == 'DELETE':
         try:
+            # First check if the player has any reports
+            from app.models import Report  # Import Report model
+            reports = Report.query.filter_by(programme_player_id=player.id).count()
+            
+            if reports > 0:
+                return jsonify({
+                    'error': f'Cannot delete this player because they have {reports} report(s) associated with them. Please delete or reassign these reports first.'
+                }), 400
+            
+            # If no reports, proceed with deletion
             db.session.delete(player)
             db.session.commit()
             return jsonify({'message': 'Player removed successfully'})
+            
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Error deleting player: {str(e)}")
