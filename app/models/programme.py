@@ -69,9 +69,10 @@ class ProgrammePlayers(db.Model):
     teaching_period_id = db.Column(db.Integer, db.ForeignKey('teaching_period.id'), nullable=False)
     tennis_club_id = db.Column(db.Integer, db.ForeignKey('tennis_club.id'), nullable=False)
     report_submitted = db.Column(db.Boolean, default=False)
+    walk_home = db.Column(db.Boolean, nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
 
-    # Relationships
+    # Relationships remain the same
     student = db.relationship('Student', back_populates='programme_players')
     coach = db.relationship('User', back_populates='programme_players')
     tennis_group = db.relationship('TennisGroup', back_populates='programme_players')

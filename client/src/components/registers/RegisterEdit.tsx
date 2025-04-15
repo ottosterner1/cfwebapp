@@ -11,8 +11,7 @@ interface RegisterEditProps {
 
 const RegisterEdit: React.FC<RegisterEditProps> = ({ 
   registerId, 
-  onNavigate, 
-  onSaveSuccess 
+  onNavigate,
 }) => {
   const [register, setRegister] = useState<RegisterDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -100,7 +99,7 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
     setRegister({ ...register, entries: updatedEntries });
   };
 
-  const handleSave = async (finalStatus: boolean = false) => {
+  const handleSave = async () => {
     if (!register) return;
     
     try {
@@ -125,13 +124,12 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
         throw new Error(errorData.error || 'Failed to update attendance entries');
       }
       
-      // Then update the register notes and status if finalizing
+      // Then update the register notes
       const registerResponse = await fetch(`/api/registers/${registerId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          notes: notes,
-          ...(finalStatus && { status: 'SUBMITTED' })
+          notes: notes
         })
       });
       
@@ -140,20 +138,13 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
         throw new Error(errorData.error || 'Failed to update register');
       }
       
-      setSaveMessage(finalStatus ? 'Register finalized successfully' : 'Register saved successfully');
+      setSaveMessage('Register saved successfully');
       
-      if (finalStatus) {
-        // Redirect after a short delay
-        setTimeout(() => {
-          onSaveSuccess();
-        }, 1500);
-      } else {
-        // Just refresh the data
-        const refreshResponse = await fetch(`/api/registers/${registerId}`);
-        if (refreshResponse.ok) {
-          const updatedData = await refreshResponse.json();
-          setRegister(updatedData);
-        }
+      // Just refresh the data
+      const refreshResponse = await fetch(`/api/registers/${registerId}`);
+      if (refreshResponse.ok) {
+        const updatedData = await refreshResponse.json();
+        setRegister(updatedData);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An error occurred while saving';
@@ -315,8 +306,8 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
                       >
                         <option value="present">Present</option>
                         <option value="absent">Absent</option>
-                        <option value="excused">Excused</option>
-                        <option value="late">Late</option>
+                        <option value="sick">Sick</option>
+                        <option value="away_with_notice">Away With Notice</option>
                       </select>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
@@ -343,20 +334,13 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
           </div>
           
           <div className="mt-6 flex justify-end space-x-3">
-            <button
-              onClick={() => handleSave()}
-              disabled={isSaving}
-              className="px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-            >
-              {isSaving ? 'Saving...' : 'Save Draft'}
-            </button>
-            <button
-              onClick={() => handleSave(true)}
-              disabled={isSaving}
-              className="px-4 py-2 bg-blue-600 border border-transparent shadow-sm text-sm font-medium rounded-md text-white hover:bg-blue-700"
-            >
-              {isSaving ? 'Saving...' : 'Finalize Register'}
-            </button>
+          <button
+            onClick={() => handleSave()}
+            disabled={isSaving}
+            className="px-4 py-2 bg-blue-600 border border-transparent shadow-sm text-sm font-medium rounded-md text-white hover:bg-blue-700"
+          >
+            {isSaving ? 'Saving...' : 'Save Register'}
+          </button>
           </div>
         </div>
       </div>
@@ -375,7 +359,6 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
                 disabled={isDeleting}
                 className="px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
               >
-                Cancel
               </button>
               <button
                 onClick={handleDelete}

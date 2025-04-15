@@ -35,7 +35,6 @@ interface RegisterData {
     id: number;
     name: string;
   };
-  status: string;
   notes: string | null;
   entries: RegisterEntry[];
   teaching_period: {
@@ -46,8 +45,8 @@ interface RegisterData {
     total: number;
     present: number;
     absent: number;
-    excused: number;
-    late: number;
+    sick: number;
+    away_with_notice: number;
     attendance_rate: number;
   };
 }
@@ -106,12 +105,12 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
           className: 'bg-red-100 text-red-800 border-red-500',
           icon: '✗'
         };
-      case 'late':
+      case 'away_with_notice':
         return {
           className: 'bg-yellow-100 text-yellow-800 border-yellow-500',
           icon: '⏱'
         };
-      case 'excused':
+      case 'sick':
         return {
           className: 'bg-blue-100 text-blue-800 border-blue-500',
           icon: '!'
@@ -130,15 +129,15 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
       total: entries.length,
       present: 0,
       absent: 0,
-      late: 0,
-      excused: 0
+      away_with_notice: 0,
+      sick: 0
     };
     
     entries.forEach(entry => {
       if (entry.attendance_status === 'present') counts.present++;
       else if (entry.attendance_status === 'absent') counts.absent++;
-      else if (entry.attendance_status === 'late') counts.late++;
-      else if (entry.attendance_status === 'excused') counts.excused++;
+      else if (entry.attendance_status === 'away_with_notice') counts.away_with_notice++;
+      else if (entry.attendance_status === 'sick') counts.sick++;
     });
     
     return counts;
@@ -149,7 +148,7 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
     if (entries.length === 0) return 0;
     
     const counts = calculateAttendanceCounts(entries);
-    return Math.round(((counts.present + counts.late) / counts.total) * 100);
+    return Math.round(((counts.present + counts.away_with_notice) / counts.total) * 100);
   };
 
   if (loading) {
@@ -232,13 +231,6 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
           <div>
             <h3 className="text-sm font-medium text-gray-500">Coach</h3>
             <p className="mt-1 text-lg font-semibold">{register.coach?.name || 'Unknown coach'}</p>
-            <p className="mt-1">
-              <span className={`inline-block px-2 py-1 text-xs font-medium rounded-full ${
-                register.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'
-              }`}>
-                {register.status ? register.status.charAt(0).toUpperCase() + register.status.slice(1) : 'Unknown status'}
-              </span>
-            </p>
           </div>
         </div>
         
@@ -266,13 +258,13 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
           </div>
           
           <div className="p-4 bg-yellow-50 rounded-lg">
-            <p className="text-sm text-yellow-600">Late</p>
-            <p className="text-2xl font-bold text-yellow-700">{attendanceCounts.late || 0}</p>
+            <p className="text-sm text-yellow-600">Away With Notice</p>
+            <p className="text-2xl font-bold text-yellow-700">{attendanceCounts.away_with_notice || 0}</p>
           </div>
           
           <div className="p-4 bg-blue-50 rounded-lg">
-            <p className="text-sm text-blue-600">Excused</p>
-            <p className="text-2xl font-bold text-blue-700">{attendanceCounts.excused || 0}</p>
+            <p className="text-sm text-blue-600">Sick</p>
+            <p className="text-2xl font-bold text-blue-700">{attendanceCounts.sick || 0}</p>
           </div>
         </div>
         

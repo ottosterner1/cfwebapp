@@ -33,7 +33,7 @@ flask run --host=localhost --port=3000
 flask db migrate -m "Updating report columns"
 
 docker ps
-docker exec -it [CONTAINER_ID] bash -c "python -m flask db migrate -m 'Updating report columns' && python -m flask db upgrade"
+docker exec -it [CONTAINER_ID] bash -c "python -m flask db migrate -m 'removing register status' && python -m flask db upgrade"
 
 
 ## Docker App Commands

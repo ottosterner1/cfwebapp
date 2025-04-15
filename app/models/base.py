@@ -65,8 +65,8 @@ class DayOfWeek(Enum):
 class AttendanceStatus(Enum):
     PRESENT = 'present'
     ABSENT = 'absent'
-    EXCUSED = 'excused'
-    LATE = 'late'
+    SICK = 'sick'
+    AWAY_WITH_NOTICE = 'away with notice'
 
 class RegisterStatus(Enum):
     DRAFT = 'draft'

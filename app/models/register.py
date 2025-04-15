@@ -11,7 +11,6 @@ class Register(db.Model):
     coach_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     date = db.Column(db.Date, nullable=False)
     teaching_period_id = db.Column(db.Integer, db.ForeignKey('teaching_period.id'), nullable=False)
-    status = db.Column(db.Enum(RegisterStatus), default=RegisterStatus.DRAFT)
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
     updated_at = db.Column(db.DateTime(timezone=True), onupdate=text('CURRENT_TIMESTAMP'))
@@ -40,7 +39,7 @@ class Register(db.Model):
         present_count = sum(1 for entry in self.entries 
                            if entry.attendance_status == AttendanceStatus.PRESENT)
         late_count = sum(1 for entry in self.entries 
-                         if entry.attendance_status == AttendanceStatus.LATE)
+                         if entry.attendance_status == AttendanceStatus.AWAY_WITH_NOTICE)
         total_count = len(self.entries)
         
         return round(((present_count + late_count) / total_count) * 100, 1) if total_count > 0 else 0

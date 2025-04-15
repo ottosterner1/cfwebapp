@@ -7,7 +7,7 @@ from app.models import (
 from app import db
 from app.utils.auth import admin_required
 from app.clubs.middleware import verify_club_access
-from sqlalchemy import and_, or_, func
+from sqlalchemy import and_, or_, func, text
 from datetime import datetime
 import traceback
 import pandas as pd
@@ -296,10 +296,14 @@ def programme_players():
         ).with_entities(
             ProgrammePlayers.id,
             Student.name.label('student_name'),
+            Student.contact_number,
+            Student.emergency_contact_number, 
+            Student.medical_information,
             TennisGroup.name.label('group_name'),
             TennisGroup.id.label('group_id'),
             ProgrammePlayers.teaching_period_id,
             ProgrammePlayers.group_time_id,
+            ProgrammePlayers.walk_home,
             TennisGroupTimes.day_of_week,
             TennisGroupTimes.start_time,
             TennisGroupTimes.end_time,
@@ -312,10 +316,14 @@ def programme_players():
         ).group_by(
             ProgrammePlayers.id,
             Student.name,
+            Student.contact_number,
+            Student.emergency_contact_number,
+            Student.medical_information,
             TennisGroup.name,
             TennisGroup.id,
             ProgrammePlayers.teaching_period_id,
             ProgrammePlayers.group_time_id,
+            ProgrammePlayers.walk_home,
             TennisGroupTimes.day_of_week,
             TennisGroupTimes.start_time,
             TennisGroupTimes.end_time,
@@ -332,10 +340,14 @@ def programme_players():
         return jsonify([{
             'id': player.id,
             'student_name': player.student_name,
+            'contact_number': player.contact_number,
+            'emergency_contact_number': player.emergency_contact_number,
+            'medical_information': player.medical_information,
             'group_name': player.group_name,
             'group_id': player.group_id,
             'teaching_period_id': player.teaching_period_id,
             'group_time_id': player.group_time_id,
+            'walk_home': player.walk_home,
             'time_slot': {
                 'day_of_week': player.day_of_week.value if player.day_of_week else None,
                 'start_time': player.start_time.strftime('%H:%M') if player.start_time else None,
@@ -645,9 +657,9 @@ def download_template():
     club = TennisClub.query.get_or_404(current_user.tennis_club_id)
     
     csv_content = [
-        "student_name,date_of_birth,contact_email,coach_email,group_name,day_of_week,start_time,end_time",
-        "John Smith,05-Nov-2013,parent@example.com,coach@example.com,Red 1,Monday,16:00,17:00",
-        "Emma Jones,22-Mar-2014,emma.parent@example.com,coach@example.com,Red 2,Tuesday,15:30,16:30"
+        "student_name,date_of_birth,contact_email,contact_number,emergency_contact_number,medical_information,coach_email,group_name,day_of_week,start_time,end_time,walk_home",
+        "John Smith,05-Nov-2013,parent@example.com,07123456789,07987654321,Asthma,coach@example.com,Red 1,Monday,16:00,17:00,true",
+        "Emma Jones,22-Mar-2014,emma.parent@example.com,07111222333,07444555666,,coach@example.com,Red 2,Tuesday,15:30,16:30,false"
     ]
     
     # Add format explanation
@@ -655,10 +667,70 @@ def download_template():
     csv_content.insert(1, "# - Date format must be DD-MMM-YYYY (e.g., 05-Nov-2013)")
     csv_content.insert(2, "# - Time format must be HH:MM (24-hour format)")
     csv_content.insert(3, "# - Day of week must be: Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, or Sunday")
-    csv_content.insert(4, "#")
+    csv_content.insert(4, "# - walk_home must be: true, false, or leave blank for unknown")
+    csv_content.insert(5, "#")
     
     response = make_response("\n".join(csv_content))
     response.headers["Content-Type"] = "text/csv"
     response.headers["Content-Disposition"] = f"attachment; filename=player_template_{club.name.lower().replace(' ', '_')}.csv"
     
     return response
+
+@player_routes.route('/group-recommendations/players', methods=['GET'])
+def get_group_recommendation_players():
+    """
+    Get player IDs that are recommended for a specific group.
+    This endpoint is used to support filtering the dashboard by group recommendation.
+    
+    Query Parameters:
+    - to_group: The name of the target group for recommendations
+    - period: The teaching period ID
+    
+    Returns:
+    - A list of player IDs that are recommended for the specified group
+    """
+    to_group = request.args.get('to_group')
+    period_id = request.args.get('period')
+
+    if not to_group or not period_id:
+        return jsonify({'error': 'Missing required parameters'}), 400
+
+    try:
+
+        # Simplified query that avoids reserved keywords
+        sql_query = text("""
+            SELECT pp.id
+            FROM programme_players pp
+            JOIN report r ON r.programme_player_id = pp.id
+            JOIN tennis_group tg ON r.recommended_group_id = tg.id
+            WHERE tg.name = :to_group
+            AND r.teaching_period_id = :period_id
+        """)
+
+        # Execute the query with parameters
+        result = db.session.execute(
+            sql_query, 
+            {'to_group': to_group, 'period_id': period_id}
+        )
+
+        # Extract just the IDs
+        player_id_list = [row[0] for row in result]
+
+        # If we found no results, try a debug query to see what recommendations exist
+        if not player_id_list:
+            debug_query = text("""
+                SELECT tg.name as recommended_group, COUNT(*) as count
+                FROM report r
+                JOIN tennis_group tg ON r.recommended_group_id = tg.id  
+                WHERE r.teaching_period_id = :period_id
+                GROUP BY tg.name
+                ORDER BY count DESC
+            """)
+
+            debug_results = db.session.execute(debug_query, {'period_id': period_id}).fetchall()
+
+        return jsonify({'players': player_id_list})
+
+    except Exception as e:
+        current_app.logger.error(f"Error fetching group recommendation player ids: {str(e)}")
+        return jsonify({'error': 'Internal server error'}), 500

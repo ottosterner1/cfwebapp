@@ -194,10 +194,13 @@ class Student(db.Model):
     name = db.Column(db.String(100), nullable=False)
     date_of_birth = db.Column(db.Date)
     contact_email = db.Column(db.String(120))
+    contact_number = db.Column(db.String(20), nullable=True)
+    emergency_contact_number = db.Column(db.String(20), nullable=True)  
+    medical_information = db.Column(db.Text, nullable=True)  
     created_at = db.Column(db.DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
     tennis_club_id = db.Column(db.Integer, db.ForeignKey('tennis_club.id'), nullable=False)
 
-    # Relationships
+    # Relationships remain the same
     tennis_club = db.relationship('TennisClub', back_populates='students')
     reports = db.relationship('Report', back_populates='student', lazy='dynamic')
     programme_players = db.relationship('ProgrammePlayers', back_populates='student', lazy='dynamic')

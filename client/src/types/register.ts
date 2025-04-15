@@ -1,7 +1,6 @@
 // client/src/types/register.ts
 
-export type AttendanceStatus = 'present' | 'absent' | 'excused' | 'late';
-export type RegisterStatus = 'draft' | 'submitted';
+export type AttendanceStatus = 'present' | 'absent' | 'sick' | 'away_with_notice';
 
 export interface RegisterEntry {
   id: number;
@@ -23,13 +22,12 @@ export interface Register {
     start_time: string;
     end_time: string;
   };
-  status: RegisterStatus;
   stats: {
     total: number;
     present: number;
     absent: number;
-    excused: number;
-    late: number;
+    sick: number;
+    away_with_notice: number;
     attendance_rate: number;
   };
 }
@@ -77,9 +75,10 @@ export interface AttendanceStats {
   total_sessions: number;
   present: number;
   absent: number;
-  excused: number;
-  late: number;
+  sick: number;
+  away_with_notice: number;
   attendance_rate: number;
+  total_registers?: number;
 }
 
 export interface GroupAttendanceStats {
@@ -88,8 +87,8 @@ export interface GroupAttendanceStats {
   total: number;
   present: number;
   absent: number;
-  excused: number;
-  late: number;
+  sick: number;
+  away_with_notice: number;
   attendance_rate: number;
 }
 
@@ -99,7 +98,7 @@ export interface StudentAttendanceStats {
   total: number;
   present: number;
   absent: number;
-  excused: number;
-  late: number;
+  sick: number;
+  away_with_notice: number;
   attendance_rate: number;
 }

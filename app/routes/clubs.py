@@ -273,11 +273,25 @@ def process_batch(batch_df, club_id, teaching_period, coaches, groups):
                             name=row_data['student_name'],
                             date_of_birth=row_data.get('date_of_birth'),
                             contact_email=row_data['contact_email'],
+                            contact_number=row_data.get('contact_number'),
+                            emergency_contact_number=row_data.get('emergency_contact_number'),
+                            medical_information=row_data.get('medical_information'),
                             tennis_club_id=club_id
                         )
                         db.session.add(student)
                         db.session.flush()  # Get student.id
                         batch_students_created += 1
+                    else:
+                        # Update existing student information
+                        student.contact_email = row_data['contact_email']  # Always update email
+                        if 'date_of_birth' in row_data:
+                            student.date_of_birth = row_data.get('date_of_birth')
+                        if 'contact_number' in row_data:
+                            student.contact_number = row_data.get('contact_number')
+                        if 'emergency_contact_number' in row_data:
+                            student.emergency_contact_number = row_data.get('emergency_contact_number')
+                        if 'medical_information' in row_data:
+                            student.medical_information = row_data.get('medical_information')
 
                     # Check if player assignment already exists
                     existing_player = ProgrammePlayers.query.filter_by(
@@ -1217,297 +1231,6 @@ def edit_player_page(club_id, player_id):
 
     return render_template('admin/edit_programme_player.html', club=club)
 
-<<<<<<< HEAD:app/clubs/routes.py
-
-@club_management.route('/api/players/<int:player_id>', methods=['GET', 'PUT', 'DELETE'])
-@login_required
-@admin_required
-def player_api(player_id):
-    """API endpoint for managing a single player"""
-    player = ProgrammePlayers.query.get_or_404(player_id)
-    
-    if current_user.tennis_club_id != player.tennis_club_id:
-        return jsonify({'error': 'Unauthorized access'}), 403
-
-    if request.method == 'GET':
-        response_data = {
-            'id': player.id,  # Include the player's ID
-            'student_name': player.student.name,
-            'date_of_birth': player.student.date_of_birth.strftime('%Y-%m-%d') if player.student.date_of_birth else None,
-            'contact_email': player.student.contact_email,
-            'coach_id': player.coach_id,
-            'group_id': player.group_id,
-            'group_time_id': player.group_time_id,
-            'teaching_period_id': player.teaching_period_id
-        }
-        return jsonify(response_data)
-
-    elif request.method == 'PUT':
-        try:
-            data = request.get_json()
-            
-            if not data:
-                return jsonify({'error': 'No data provided'}), 400
-
-            # Update student details
-            player.student.name = data['student_name']
-            player.student.contact_email = data['contact_email']
-            if data.get('date_of_birth'):
-                try:
-                    player.student.date_of_birth = datetime.strptime(data['date_of_birth'], '%Y-%m-%d').date()
-                except ValueError:
-                    return jsonify({'error': 'Invalid date format'}), 400
-
-            # Verify coach belongs to club
-            coach = User.query.get(data['coach_id'])
-            if not coach or coach.tennis_club_id != current_user.tennis_club_id:
-                return jsonify({'error': 'Invalid coach selected'}), 400
-
-            # Verify group belongs to club
-            group = TennisGroup.query.get(data['group_id'])
-            if not group or group.tennis_club_id != current_user.tennis_club_id:
-                return jsonify({'error': 'Invalid group selected'}), 400
-
-            # Verify group time belongs to group and club
-            if data.get('group_time_id'):
-                group_time = TennisGroupTimes.query.get(data['group_time_id'])
-                if not group_time or group_time.tennis_club_id != current_user.tennis_club_id or group_time.group_id != group.id:
-                    return jsonify({'error': 'Invalid group time selected'}), 400
-
-            # Update assignments
-            player.coach_id = coach.id
-            player.group_id = group.id
-            player.group_time_id = data.get('group_time_id')  # Update group time ID
-            
-            db.session.commit()
-            return jsonify({'message': 'Player updated successfully'})
-            
-        except KeyError as e:
-            return jsonify({'error': f'Missing required field: {str(e)}'}), 400
-        except Exception as e:
-            db.session.rollback()
-            current_app.logger.error(f"Error updating player: {str(e)}")
-            current_app.logger.error(traceback.format_exc())
-            return jsonify({'error': str(e)}), 400
-
-    elif request.method == 'DELETE':
-        try:
-            # First check if the player has any reports
-            from app.models import Report  # Import Report model
-            reports = Report.query.filter_by(programme_player_id=player.id).count()
-            
-            if reports > 0:
-                return jsonify({
-                    'error': f'Cannot delete this player because they have {reports} report(s) associated with them. Please delete or reassign these reports first.'
-                }), 400
-            
-            # If no reports, proceed with deletion
-            db.session.delete(player)
-            db.session.commit()
-            return jsonify({'message': 'Player removed successfully'})
-            
-        except Exception as e:
-            db.session.rollback()
-            current_app.logger.error(f"Error deleting player: {str(e)}")
-            return jsonify({'error': f'Failed to remove player: {str(e)}'}), 400
-
-@club_management.route('/api/players', methods=['POST'])
-@login_required
-@admin_required
-def create_player():
-    """API endpoint for creating a new player"""
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-
-        club_id = current_user.tennis_club_id
-
-        # Validate data
-        required_fields = ['student_name', 'contact_email', 'coach_id', 'group_id', 'group_time_id', 'teaching_period_id']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
-
-        # Verify coach belongs to club
-        coach = User.query.get(data['coach_id'])
-        if not coach or coach.tennis_club_id != club_id:
-            return jsonify({'error': 'Invalid coach selected'}), 400
-
-        # Verify group belongs to club
-        group = TennisGroup.query.get(data['group_id'])
-        if not group or group.tennis_club_id != club_id:
-            return jsonify({'error': 'Invalid group selected'}), 400
-
-        # Verify group time belongs to group and club
-        group_time = TennisGroupTimes.query.get(data['group_time_id'])
-        if not group_time or group_time.tennis_club_id != club_id or group_time.group_id != group.id:
-            return jsonify({'error': 'Invalid group time selected'}), 400
-
-        # Verify teaching period belongs to club
-        period = TeachingPeriod.query.get(data['teaching_period_id'])
-        if not period or period.tennis_club_id != club_id:
-            return jsonify({'error': 'Invalid teaching period selected'}), 400
-
-        # Create or get student
-        student = Student.query.filter_by(
-            name=data['student_name'],
-            tennis_club_id=club_id
-        ).first()
-
-        if not student:
-            student = Student(
-                name=data['student_name'],
-                contact_email=data['contact_email'],
-                tennis_club_id=club_id
-            )
-            if data.get('date_of_birth'):
-                try:
-                    student.date_of_birth = datetime.strptime(data['date_of_birth'], '%Y-%m-%d').date()
-                except ValueError:
-                    return jsonify({'error': 'Invalid date format'}), 400
-            
-            db.session.add(student)
-            db.session.flush()
-
-            # Check if player already exists in this specific group and time slot
-            existing_player = ProgrammePlayers.query.filter_by(
-                student_id=student.id,
-                group_id=data['group_id'],
-                group_time_id=data['group_time_id'],
-                teaching_period_id=data['teaching_period_id'],
-                tennis_club_id=club_id
-            ).first()
-
-            if existing_player:
-                return jsonify({
-                    'error': 'Player is already assigned to this specific group and time slot'
-                }), 400
-
-        # Create programme player assignment
-        assignment = ProgrammePlayers(
-            student_id=student.id,
-            coach_id=data['coach_id'],
-            group_id=data['group_id'],
-            group_time_id=data['group_time_id'],  # Add group time ID
-            teaching_period_id=data['teaching_period_id'],
-            tennis_club_id=club_id
-        )
-
-        db.session.add(assignment)
-        db.session.commit()
-
-        return jsonify({
-            'message': 'Player added successfully',
-            'id': assignment.id
-        })
-
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error creating player: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 400
-
-@club_management.route('/api/coaches')
-@login_required
-@admin_required
-def get_coaches():
-    """API endpoint for getting all coaches in the club"""
-    
-    coaches = User.query.filter(
-        User.tennis_club_id == current_user.tennis_club_id,
-        User.role.in_([UserRole.COACH, UserRole.ADMIN])  # Include both coaches and admins
-    ).order_by(User.name).all()
-    
-    response_data = [{
-        'id': coach.id,
-        'name': coach.name,
-        'email': coach.email
-    } for coach in coaches]
-    
-    return jsonify(response_data)
-
-@club_management.route('/api/groups')
-@login_required
-@admin_required
-def get_groups():
-    """API endpoint for getting all groups in the club"""
-    groups = TennisGroup.query.filter_by(
-        tennis_club_id=current_user.tennis_club_id
-    ).order_by(TennisGroup.name).all()
-    
-    return jsonify([{
-        'id': group.id,
-        'name': group.name,
-        'description': group.description
-    } for group in groups])
-
-@club_management.route('/api/groups/<int:group_id>/times')
-@login_required
-@admin_required
-def get_group_times(group_id):
-    """API endpoint for getting all time slots for a specific group"""
-    try:
-        
-        # Verify group belongs to user's club
-        group = TennisGroup.query.filter_by(
-            id=group_id,
-            tennis_club_id=current_user.tennis_club_id
-        ).first_or_404()
-        
-        # Get all time slots for this group - first get them unordered
-        times = TennisGroupTimes.query.filter_by(
-            group_id=group_id,
-            tennis_club_id=current_user.tennis_club_id
-        ).all()
-        
-        # Sort the results in Python instead of SQL
-        day_order = {
-            'Monday': 0,
-            'Tuesday': 1,
-            'Wednesday': 2,
-            'Thursday': 3,
-            'Friday': 4,
-            'Saturday': 5,
-            'Sunday': 6
-        }
-        
-        # Sort using Python's sorted function
-        times = sorted(times, 
-                      key=lambda x: (day_order[x.day_of_week.value], x.start_time))
-        
-        response_data = [{
-            'id': time.id,
-            'day_of_week': time.day_of_week.value,
-            'start_time': time.start_time.strftime('%H:%M'),
-            'end_time': time.end_time.strftime('%H:%M')
-        } for time in times]
-
-        return jsonify(response_data)
-        
-    except Exception as e:
-        current_app.logger.error(f"Error fetching group times: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
-@club_management.route('/api/teaching-periods')
-@login_required
-@admin_required
-def get_teaching_periods():
-    """API endpoint for getting all teaching periods in the club"""
-    periods = TeachingPeriod.query.filter_by(
-        tennis_club_id=current_user.tennis_club_id
-    ).order_by(TeachingPeriod.start_date.desc()).all()
-    
-    return jsonify([{
-        'id': period.id,
-        'name': period.name,
-        'start_date': period.start_date.strftime('%Y-%m-%d'),
-        'end_date': period.end_date.strftime('%Y-%m-%d')
-    } for period in periods])
-
-=======
->>>>>>> 713745e (Changed the models, the routes still needs improvements to work as before):app/routes/clubs.py
 @club_management.route('/manage/<int:club_id>/upload-logo', methods=['POST'])
 @login_required
 @admin_required
@@ -2137,6 +1860,9 @@ def create_player():
             student = Student(
                 name=data['student_name'],
                 contact_email=data['contact_email'],
+                contact_number=data.get('contact_number'),
+                emergency_contact_number=data.get('emergency_contact_number'),
+                medical_information=data.get('medical_information'),
                 tennis_club_id=club_id
             )
             if data.get('date_of_birth'):
@@ -2147,29 +1873,44 @@ def create_player():
             
             db.session.add(student)
             db.session.flush()
+        else:
+            # Update existing student information
+            student.contact_email = data['contact_email']
+            if 'contact_number' in data:
+                student.contact_number = data.get('contact_number')
+            if 'emergency_contact_number' in data:
+                student.emergency_contact_number = data.get('emergency_contact_number')
+            if 'medical_information' in data:
+                student.medical_information = data.get('medical_information')
+            if data.get('date_of_birth'):
+                try:
+                    student.date_of_birth = datetime.strptime(data['date_of_birth'], '%Y-%m-%d').date()
+                except ValueError:
+                    return jsonify({'error': 'Invalid date format'}), 400
 
-            # Check if player already exists in this specific group and time slot
-            existing_player = ProgrammePlayers.query.filter_by(
-                student_id=student.id,
-                group_id=data['group_id'],
-                group_time_id=data['group_time_id'],
-                teaching_period_id=data['teaching_period_id'],
-                tennis_club_id=club_id
-            ).first()
+        # Check if player already exists in this specific group and time slot
+        existing_player = ProgrammePlayers.query.filter_by(
+            student_id=student.id,
+            group_id=data['group_id'],
+            group_time_id=data['group_time_id'],
+            teaching_period_id=data['teaching_period_id'],
+            tennis_club_id=club_id
+        ).first()
 
-            if existing_player:
-                return jsonify({
-                    'error': 'Player is already assigned to this specific group and time slot'
-                }), 400
+        if existing_player:
+            return jsonify({
+                'error': 'Player is already assigned to this specific group and time slot'
+            }), 400
 
         # Create programme player assignment
         assignment = ProgrammePlayers(
             student_id=student.id,
             coach_id=data['coach_id'],
             group_id=data['group_id'],
-            group_time_id=data['group_time_id'],  # Add group time ID
+            group_time_id=data['group_time_id'],
             teaching_period_id=data['teaching_period_id'],
-            tennis_club_id=club_id
+            tennis_club_id=club_id,
+            walk_home=data.get('walk_home')
         )
 
         db.session.add(assignment)
@@ -2201,12 +1942,16 @@ def player_api(player_id):
             'student': {
                 'name': player.student.name,
                 'date_of_birth': player.student.date_of_birth.strftime('%Y-%m-%d') if player.student.date_of_birth else None,
-                'contact_email': player.student.contact_email
+                'contact_email': player.student.contact_email,
+                'contact_number': player.student.contact_number,
+                'emergency_contact_number': player.student.emergency_contact_number,
+                'medical_information': player.student.medical_information
             },
             'coach_id': player.coach_id,
             'group_id': player.group_id,
-            'group_time_id': player.group_time_id,  # Add group time ID to response
-            'teaching_period_id': player.teaching_period_id
+            'group_time_id': player.group_time_id,
+            'teaching_period_id': player.teaching_period_id,
+            'walk_home': player.walk_home
         }
         return jsonify(response_data)
 
@@ -2220,6 +1965,15 @@ def player_api(player_id):
             # Update student details
             player.student.name = data['student_name']
             player.student.contact_email = data['contact_email']
+            
+            # Update the new fields
+            if 'contact_number' in data:
+                player.student.contact_number = data.get('contact_number')
+            if 'emergency_contact_number' in data:
+                player.student.emergency_contact_number = data.get('emergency_contact_number')
+            if 'medical_information' in data:
+                player.student.medical_information = data.get('medical_information')
+                
             if data.get('date_of_birth'):
                 try:
                     player.student.date_of_birth = datetime.strptime(data['date_of_birth'], '%Y-%m-%d').date()
@@ -2245,7 +1999,11 @@ def player_api(player_id):
             # Update assignments
             player.coach_id = coach.id
             player.group_id = group.id
-            player.group_time_id = data.get('group_time_id')  # Update group time ID
+            player.group_time_id = data.get('group_time_id')
+            
+            # Update walk_home field
+            if 'walk_home' in data:
+                player.walk_home = data.get('walk_home')
             
             db.session.commit()
             return jsonify({'message': 'Player updated successfully'})

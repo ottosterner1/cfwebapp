@@ -112,9 +112,6 @@ def report_operations(report_id):
             'age': age,
             'playerId': report.programme_player_id  # Ensure this is included
         }
-        
-        # Debug logging for troubleshooting
-        current_app.logger.info(f"Report data for ID {report_id}: age={age}, dateOfBirth={date_of_birth}, sessionInfo={time_slot}")
 
         # Serialize the template data
         template_data = {

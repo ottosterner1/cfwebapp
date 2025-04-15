@@ -1,7 +1,6 @@
 // client/src/components/registers/CreateRegister.tsx
 
 import React, { useState, useEffect } from 'react';
-import { UpcomingSession } from '../../types/register';
 
 interface TeachingPeriod {
   id: number;
@@ -15,28 +14,24 @@ interface Group {
 
 interface TimeSlot {
   id: number;
-  day_of_week: string;
-  start_time: string;
-  end_time: string;
-}
-
-interface CoachSession {
-  id: number;
-  group_name: string;
   day: string;
   start_time: string;
   end_time: string;
-  player_count: number;
-  teaching_period_id: number;
 }
 
 interface Player {
   id: number;
   student_id: number;
   student_name: string;
-  attendance_status: 'present' | 'absent' | 'excused' | 'late';
+  contact_number: string | null;
+  contact_email: string | null;
+  emergency_contact_number: string | null;
+  medical_information: string | null;
+  walk_home: boolean | null;
+  attendance_status: 'present' | 'absent' | 'sick' | 'away_with_notice';
   notes: string;
   predicted_attendance: boolean;
+  date_of_birth: string | null;
 }
 
 interface CreateRegisterProps {
@@ -44,38 +39,52 @@ interface CreateRegisterProps {
   onCreateSuccess: (registerId: string) => void;
 }
 
+// API response types
+interface SessionResponse {
+  id: number;
+  day: string;
+  group_id?: number;
+  group_name: string;
+  start_time: string;
+  end_time: string;
+  player_count?: number;
+  [key: string]: any;
+}
+
 const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuccess }) => {
+  // Core filter state
   const [teachingPeriods, setTeachingPeriods] = useState<TeachingPeriod[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
-  const [upcomingSessions, setUpcomingSessions] = useState<UpcomingSession[]>([]);
-  const [todaySessions, setTodaySessions] = useState<CoachSession[]>([]);
-  const [players, setPlayers] = useState<Player[]>([]);
-  
   const [selectedPeriodId, setSelectedPeriodId] = useState<number | ''>('');
+  const [availableDays, setAvailableDays] = useState<string[]>([]);
+  const [selectedDay, setSelectedDay] = useState<string>('');
+  const [availableGroups, setAvailableGroups] = useState<Group[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<number | ''>('');
+  const [availableTimeSlots, setAvailableTimeSlots] = useState<TimeSlot[]>([]);
   const [selectedTimeSlotId, setSelectedTimeSlotId] = useState<number | ''>('');
   const [selectedDate, setSelectedDate] = useState<string>('');
+  
+  // Session data
+  const [players, setPlayers] = useState<Player[]>([]);
   const [notes, setNotes] = useState<string>('');
-  const [showPlayers, setShowPlayers] = useState<boolean>(false);
-  const [quickRegisterTab, setQuickRegisterTab] = useState<'upcoming' | 'today'>('today');
   
-  const [loadingPeriods, setLoadingPeriods] = useState(true);
-  const [loadingGroups, setLoadingGroups] = useState(false);
-  const [loadingTimeSlots, setLoadingTimeSlots] = useState(false);
-  const [loadingUpcoming, setLoadingUpcoming] = useState(false);
-  const [loadingTodaySessions, setLoadingTodaySessions] = useState(false);
-  const [loadingPlayers, setLoadingPlayers] = useState(false);
-  const [creating, setCreating] = useState(false);
-  
+  // UI state
+  const [loading, setLoading] = useState<{[key: string]: boolean}>({
+    periods: true,
+    days: false,
+    groups: false,
+    timeSlots: false,
+    players: false,
+    creating: false
+  });
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [expandedPlayerInfo, setExpandedPlayerInfo] = useState<{[key: number]: boolean}>({});
 
   // Fetch teaching periods on component mount
   useEffect(() => {
     const fetchTeachingPeriods = async () => {
       try {
-        setLoadingPeriods(true);
+        setLoading(prev => ({ ...prev, periods: true }));
         const response = await fetch('/clubs/api/teaching-periods');
         
         if (!response.ok) {
@@ -83,97 +92,258 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         }
         
         const data = await response.json();
-        setTeachingPeriods(data);
-        
-        // If there are periods, select the first one by default
-        if (data.length > 0) {
-          setSelectedPeriodId(data[0].id);
+        // Validate data is an array of teaching periods
+        if (Array.isArray(data) && data.every(item => 
+          typeof item === 'object' && 
+          item !== null &&
+          'id' in item && 
+          'name' in item
+        )) {
+          setTeachingPeriods(data as TeachingPeriod[]);
+          
+          // If there are periods, select the first one by default
+          if (data.length > 0 && typeof data[0].id === 'number') {
+            setSelectedPeriodId(data[0].id);
+          }
+        } else {
+          throw new Error('Invalid teaching period data received');
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
         setError(errorMessage);
         console.error('Error fetching teaching periods:', err);
       } finally {
-        setLoadingPeriods(false);
+        setLoading(prev => ({ ...prev, periods: false }));
       }
     };
     
     fetchTeachingPeriods();
   }, []);
 
-  // Fetch groups when period changes
+  // Fetch available days when teaching period changes
   useEffect(() => {
-    const fetchGroups = async () => {
+    const fetchAvailableDays = async () => {
       if (!selectedPeriodId) return;
       
       try {
-        setLoadingGroups(true);
-        const response = await fetch('/api/groups');
+        setLoading(prev => ({ ...prev, days: true }));
+        setError(null);
         
-        if (!response.ok) {
-          throw new Error(`Error fetching groups: ${response.statusText}`);
+        // Get current day of week
+        const today = new Date();
+        const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const currentDay = daysOfWeek[today.getDay()];
+        
+        // Since the API requires day_of_week, we need to make multiple requests for each day
+        const allDays = new Set<string>();
+        const fetchPromises = daysOfWeek.map(day => 
+          fetch(`/api/coach-sessions?day_of_week=${day}&teaching_period_id=${selectedPeriodId}`)
+            .then(response => {
+              if (!response.ok) {
+                // Skip days that don't have sessions
+                return [];
+              }
+              return response.json();
+            })
+            .then(data => {
+              if (Array.isArray(data) && data.length > 0) {
+                // This day has sessions
+                allDays.add(day);
+              }
+              return data;
+            })
+            .catch(() => {
+              // Handle errors gracefully
+              return [];
+            })
+        );
+        
+        // Wait for all requests to complete
+        await Promise.all(fetchPromises);
+        
+        // Convert set to array and sort by day of week
+        const availableDaysList = Array.from(allDays).sort((a, b) => 
+          daysOfWeek.indexOf(a) - daysOfWeek.indexOf(b)
+        );
+        
+        setAvailableDays(availableDaysList);
+        
+        // Default to current day if available, otherwise first day
+        if (availableDaysList.includes(currentDay)) {
+          setSelectedDay(currentDay);
+        } else if (availableDaysList.length > 0) {
+          setSelectedDay(availableDaysList[0]);
+        } else {
+          setSelectedDay('');
         }
         
-        const data = await response.json();
-        setGroups(data);
-        
-        // Reset group and time slot selections
+        // Reset child selections
         setSelectedGroupId('');
         setSelectedTimeSlotId('');
-        setShowPlayers(false);
+        setSelectedDate('');
+        setPlayers([]);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
         setError(errorMessage);
-        console.error('Error fetching groups:', err);
+        console.error('Error fetching available days:', err);
       } finally {
-        setLoadingGroups(false);
+        setLoading(prev => ({ ...prev, days: false }));
       }
     };
     
-    fetchGroups();
-    
-    // Also fetch today's sessions when teaching period changes
-    fetchTodaySessions();
+    fetchAvailableDays();
   }, [selectedPeriodId]);
 
-  // Fetch time slots when group changes
+  // Fetch available groups when day changes
   useEffect(() => {
-    const fetchTimeSlots = async () => {
-      if (!selectedGroupId) return;
+    const fetchAvailableGroups = async () => {
+      if (!selectedPeriodId || !selectedDay) return;
       
       try {
-        setLoadingTimeSlots(true);
-        const response = await fetch(`/clubs/api/groups/${selectedGroupId}/times`);
+        setLoading(prev => ({ ...prev, groups: true }));
+        setError(null);
+        
+        // Fetch sessions for the selected day and period
+        const response = await fetch(`/api/coach-sessions?day_of_week=${selectedDay}&teaching_period_id=${selectedPeriodId}`);
         
         if (!response.ok) {
-          throw new Error(`Error fetching time slots: ${response.statusText}`);
+          throw new Error('Error fetching available groups');
         }
         
         const data = await response.json();
-        setTimeSlots(data);
         
-        // Reset time slot selection
+        // Type guard to ensure we have an array of sessions
+        const sessions: SessionResponse[] = Array.isArray(data) ? data as SessionResponse[] : [];
+        
+        // Extract unique groups with names
+        const uniqueGroups: Record<string, Group> = {};
+        sessions.forEach(session => {
+          if (typeof session.group_name === 'string' && !uniqueGroups[session.group_name]) {
+            const groupId = typeof session.group_id === 'number' ? session.group_id : 0;
+            uniqueGroups[session.group_name] = {
+              id: groupId,
+              name: session.group_name
+            };
+          }
+        });
+        
+        const groups = Object.values(uniqueGroups);
+        setAvailableGroups(groups);
+        
+        // Select first group by default if available
+        if (groups.length > 0) {
+          setSelectedGroupId(groups[0].id);
+        } else {
+          setSelectedGroupId('');
+        }
+        
+        // Reset child selections
         setSelectedTimeSlotId('');
-        setShowPlayers(false);
+        setSelectedDate('');
+        setPlayers([]);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
         setError(errorMessage);
-        console.error('Error fetching time slots:', err);
+        console.error('Error fetching available groups:', err);
       } finally {
-        setLoadingTimeSlots(false);
+        setLoading(prev => ({ ...prev, groups: false }));
       }
     };
     
-    fetchTimeSlots();
-  }, [selectedGroupId]);
+    fetchAvailableGroups();
+  }, [selectedPeriodId, selectedDay]);
 
-  // Fetch players when time slot and date are selected
+  // Fetch available time slots when group changes
   useEffect(() => {
-    const fetchPlayers = async () => {
-      if (!selectedTimeSlotId || !selectedPeriodId || !selectedDate) return;
+    const fetchAvailableTimeSlots = async () => {
+      if (!selectedPeriodId || !selectedDay || !selectedGroupId) return;
       
       try {
-        setLoadingPlayers(true);
+        setLoading(prev => ({ ...prev, timeSlots: true }));
+        setError(null);
+        
+        // Fetch sessions for the selected day, group, and period
+        const response = await fetch(`/api/coach-sessions?day_of_week=${selectedDay}&teaching_period_id=${selectedPeriodId}`);
+        
+        if (!response.ok) {
+          throw new Error('Error fetching available time slots');
+        }
+        
+        const data = await response.json();
+        
+        // Type guard to ensure we have an array of sessions
+        const sessions: SessionResponse[] = Array.isArray(data) ? data as SessionResponse[] : [];
+        
+        // Filter sessions for the selected group and create time slots
+        const timeSlots: TimeSlot[] = [];
+        
+        for (const session of sessions) {
+          // Determine if this session belongs to the selected group
+          const sessionGroupId = typeof session.group_id === 'number' ? session.group_id : 0;
+          const groupIdMatch = sessionGroupId === selectedGroupId;
+          const groupNameMatch = typeof session.group_name === 'string' && 
+                                session.group_name.includes(`ID: ${selectedGroupId}`);
+          
+          if ((groupIdMatch || groupNameMatch) && 
+              typeof session.id === 'number' && 
+              typeof session.day === 'string' && 
+              typeof session.start_time === 'string' && 
+              typeof session.end_time === 'string') {
+            timeSlots.push({
+              id: session.id,
+              day: session.day,
+              start_time: session.start_time,
+              end_time: session.end_time
+            });
+          }
+        }
+        
+        setAvailableTimeSlots(timeSlots);
+        
+        // Select first time slot by default if available
+        if (timeSlots.length > 0) {
+          setSelectedTimeSlotId(timeSlots[0].id);
+        } else {
+          setSelectedTimeSlotId('');
+        }
+        
+        // Set default date to today or next occurrence of the selected day
+        const today = new Date();
+        const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const currentDayIndex = today.getDay();
+        const selectedDayIndex = daysOfWeek.indexOf(selectedDay);
+        
+        let daysToAdd = (selectedDayIndex - currentDayIndex + 7) % 7;
+        if (daysToAdd === 0 && today.getHours() >= 19) { 
+          // If it's the same day but after 7 PM, use next week
+          daysToAdd = 7;
+        }
+        
+        const dateToUse = new Date(today);
+        dateToUse.setDate(today.getDate() + daysToAdd);
+        setSelectedDate(dateToUse.toISOString().split('T')[0]);
+        
+        // Reset players
+        setPlayers([]);
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'An error occurred';
+        setError(errorMessage);
+        console.error('Error fetching available time slots:', err);
+      } finally {
+        setLoading(prev => ({ ...prev, timeSlots: false }));
+      }
+    };
+    
+    fetchAvailableTimeSlots();
+  }, [selectedPeriodId, selectedDay, selectedGroupId]);
+
+  // Fetch players when time slot is selected
+  useEffect(() => {
+    const fetchPlayers = async () => {
+      if (!selectedTimeSlotId || !selectedPeriodId) return;
+      
+      try {
+        setLoading(prev => ({ ...prev, players: true }));
         const response = await fetch(`/api/group-time-players?group_time_id=${selectedTimeSlotId}&teaching_period_id=${selectedPeriodId}`);
         
         if (!response.ok) {
@@ -181,103 +351,43 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         }
         
         const data = await response.json();
-        setPlayers(data);
-        setShowPlayers(true);
+        
+        // Validate data is an array of players
+        if (Array.isArray(data)) {
+          const validatedPlayers = data.filter(player => 
+            typeof player === 'object' && 
+            player !== null &&
+            'id' in player &&
+            'student_name' in player
+          ) as Player[];
+          
+          setPlayers(validatedPlayers);
+          
+          // Initialize expanded state for all players as false
+          const expandedState: {[key: number]: boolean} = {};
+          validatedPlayers.forEach(player => {
+            expandedState[player.id] = false;
+          });
+          setExpandedPlayerInfo(expandedState);
+        } else {
+          throw new Error('Invalid player data received');
+        }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
         setError(errorMessage);
         console.error('Error fetching players:', err);
       } finally {
-        setLoadingPlayers(false);
+        setLoading(prev => ({ ...prev, players: false }));
       }
     };
     
-    if (selectedTimeSlotId && selectedPeriodId && selectedDate) {
+    if (selectedTimeSlotId && selectedPeriodId) {
       fetchPlayers();
     }
-  }, [selectedTimeSlotId, selectedPeriodId, selectedDate]);
-
-  // Fetch upcoming sessions for quick selection
-  useEffect(() => {
-    const fetchUpcomingSessions = async () => {
-      try {
-        setLoadingUpcoming(true);
-        const response = await fetch('/api/registers/upcoming');
-        
-        if (!response.ok) {
-          throw new Error(`Error fetching upcoming sessions: ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        setUpcomingSessions(data);
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'An error occurred';
-        setError(errorMessage);
-        console.error('Error fetching upcoming sessions:', err);
-      } finally {
-        setLoadingUpcoming(false);
-      }
-    };
-    
-    fetchUpcomingSessions();
-  }, []);
-
-  // Fetch today's sessions for the coach
-  const fetchTodaySessions = async () => {
-    if (!selectedPeriodId) return;
-    
-    try {
-      setLoadingTodaySessions(true);
-      // Get current day of week
-      const today = new Date();
-      const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-      const dayOfWeek = daysOfWeek[today.getDay()];
-      
-      const response = await fetch(`/api/coach-sessions?day_of_week=${dayOfWeek}&teaching_period_id=${selectedPeriodId}`);
-      
-      if (!response.ok) {
-        throw new Error(`Error fetching today's sessions: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      setTodaySessions(data);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An error occurred';
-      setError(errorMessage);
-      console.error('Error fetching today\'s sessions:', err);
-    } finally {
-      setLoadingTodaySessions(false);
-    }
-  };
-
-  // Handle selecting an upcoming session
-  const handleSelectUpcomingSession = (session: UpcomingSession) => {
-    setSelectedPeriodId(session.teaching_period.id);
-    setSelectedGroupId(session.group.id);
-    setSelectedTimeSlotId(session.group_time.id);
-    setSelectedDate(session.date);
-  };
-
-  // Handle selecting a today's session
-  const handleSelectTodaySession = (session: CoachSession) => {
-    setSelectedPeriodId(session.teaching_period_id);
-    // We would need to find the corresponding group ID
-    const groupForSession = groups.find(g => g.name === session.group_name);
-    if (groupForSession) {
-      setSelectedGroupId(groupForSession.id);
-    }
-    setSelectedTimeSlotId(session.id);
-    
-    // Set today's date in YYYY-MM-DD format
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const day = String(today.getDate()).padStart(2, '0');
-    setSelectedDate(`${year}-${month}-${day}`);
-  };
+  }, [selectedTimeSlotId, selectedPeriodId]);
 
   // Handle updating player attendance status
-  const updatePlayerAttendance = (playerId: number, status: 'present' | 'absent' | 'excused' | 'late') => {
+  const updatePlayerAttendance = (playerId: number, status: 'present' | 'absent' | 'sick' | 'away_with_notice') => {
     setPlayers(prevPlayers => 
       prevPlayers.map(player => 
         player.id === playerId 
@@ -298,6 +408,27 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     );
   };
 
+  // Toggle player info expansion
+  const togglePlayerInfo = (playerId: number) => {
+    setExpandedPlayerInfo(prev => ({
+      ...prev,
+      [playerId]: !prev[playerId]
+    }));
+  };
+
+  // Quick actions for attendance
+  const handleMarkAllPresent = () => {
+    setPlayers(prevPlayers => 
+      prevPlayers.map(player => ({ ...player, attendance_status: 'present' }))
+    );
+  };
+
+  const handleMarkAllAbsent = () => {
+    setPlayers(prevPlayers => 
+      prevPlayers.map(player => ({ ...player, attendance_status: 'absent' }))
+    );
+  };
+
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -308,7 +439,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     }
     
     try {
-      setCreating(true);
+      setLoading(prev => ({ ...prev, creating: true }));
       
       // First create the register
       const createResponse = await fetch('/api/registers', {
@@ -363,7 +494,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       setError(errorMessage);
       console.error('Error creating register:', err);
     } finally {
-      setCreating(false);
+      setLoading(prev => ({ ...prev, creating: false }));
     }
   };
 
@@ -393,17 +524,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     return response.json();
   };
 
-  // Format date for display
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-GB', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric'
-    });
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center flex-wrap">
@@ -428,347 +548,316 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         </div>
       )}
 
-      {/* Quick Create from Today's or Upcoming Sessions */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="border-b border-gray-200">
-          <nav className="flex -mb-px">
-            <button
-              onClick={() => setQuickRegisterTab('today')}
-              className={`w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm ${
-                quickRegisterTab === 'today'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              Today's Sessions
-            </button>
-            <button
-              onClick={() => setQuickRegisterTab('upcoming')}
-              className={`w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm ${
-                quickRegisterTab === 'upcoming'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              Upcoming Sessions
-            </button>
-          </nav>
-        </div>
-
-        <div className="p-4">
-          {quickRegisterTab === 'today' ? (
+        <form onSubmit={handleSubmit} className="p-6">
+          <h2 className="text-lg font-medium mb-4">Select Session</h2>
+          
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
+            {/* Teaching Period Selector */}
             <div>
-              <h2 className="text-lg font-medium mb-4">Today's Sessions</h2>
-              
-              {loadingTodaySessions ? (
-                <div className="flex justify-center items-center h-24">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-700"></div>
-                </div>
-              ) : todaySessions.length === 0 ? (
-                <p className="text-gray-500">No sessions found for today.</p>
-              ) : (
-                <div className="grid gap-4 md:grid-cols-2">
-                  {todaySessions.map((session) => (
-                    <div 
-                      key={session.id} 
-                      className="border rounded-lg p-4 hover:bg-gray-50 cursor-pointer"
-                      onClick={() => handleSelectTodaySession(session)}
-                    >
-                      <div className="font-medium">{session.group_name}</div>
-                      <div className="text-sm text-gray-500">
-                        {session.day} {session.start_time}-{session.end_time}
-                      </div>
-                      <div className="mt-2 text-xs bg-blue-100 text-blue-800 rounded-full px-2 py-1 inline-block">
-                        {session.player_count} players
-                      </div>
-                    </div>
-                  ))}
-                </div>
+              <label htmlFor="teachingPeriod" className="block text-sm font-medium text-gray-700 mb-1">
+                Term*
+              </label>
+              <select
+                id="teachingPeriod"
+                value={selectedPeriodId}
+                onChange={(e) => setSelectedPeriodId(e.target.value ? Number(e.target.value) : '')}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                required
+                disabled={loading.periods}
+              >
+                <option value="">Select Term</option>
+                {teachingPeriods.map((period) => (
+                  <option key={period.id} value={period.id}>{period.name}</option>
+                ))}
+              </select>
+              {loading.periods && (
+                <div className="mt-1 text-xs text-gray-500">Loading terms...</div>
               )}
             </div>
-          ) : (
+            
+            {/* Day Selector */}
             <div>
-              <h2 className="text-lg font-medium mb-4">Upcoming Sessions</h2>
+              <label htmlFor="daySelect" className="block text-sm font-medium text-gray-700 mb-1">
+                Day*
+              </label>
+              <select
+                id="daySelect"
+                value={selectedDay}
+                onChange={(e) => setSelectedDay(e.target.value)}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                required
+                disabled={loading.days || availableDays.length === 0}
+              >
+                <option value="">Select Day</option>
+                {availableDays.map((day) => (
+                  <option key={day} value={day}>{day}</option>
+                ))}
+              </select>
+              {loading.days && (
+                <div className="mt-1 text-xs text-gray-500">Loading days...</div>
+              )}
+            </div>
+            
+            {/* Group Selector */}
+            <div>
+              <label htmlFor="groupSelect" className="block text-sm font-medium text-gray-700 mb-1">
+                Group*
+              </label>
+              <select
+                id="groupSelect"
+                value={selectedGroupId}
+                onChange={(e) => setSelectedGroupId(e.target.value ? Number(e.target.value) : '')}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                required
+                disabled={loading.groups || availableGroups.length === 0}
+              >
+                <option value="">Select Group</option>
+                {availableGroups.map((group) => (
+                  <option key={group.id} value={group.id}>{group.name}</option>
+                ))}
+              </select>
+              {loading.groups && (
+                <div className="mt-1 text-xs text-gray-500">Loading groups...</div>
+              )}
+            </div>
+            
+            {/* Time Slot Selector */}
+            <div>
+              <label htmlFor="timeSlotSelect" className="block text-sm font-medium text-gray-700 mb-1">
+                Session Time*
+              </label>
+              <select
+                id="timeSlotSelect"
+                value={selectedTimeSlotId}
+                onChange={(e) => setSelectedTimeSlotId(e.target.value ? Number(e.target.value) : '')}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                required
+                disabled={loading.timeSlots || availableTimeSlots.length === 0}
+              >
+                <option value="">Select Time</option>
+                {availableTimeSlots.map((timeSlot) => (
+                  <option key={timeSlot.id} value={timeSlot.id}>
+                    {timeSlot.start_time} - {timeSlot.end_time}
+                  </option>
+                ))}
+              </select>
+              {loading.timeSlots && (
+                <div className="mt-1 text-xs text-gray-500">Loading times...</div>
+              )}
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-6">
+            {/* Date Selector */}
+            <div>
+              <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-1">
+                Date*
+              </label>
+              <input
+                type="date"
+                id="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                required
+              />
+            </div>
+            
+            {/* Session Notes */}
+            <div>
+              <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
+                Session Notes
+              </label>
+              <textarea
+                id="notes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                rows={1}
+                placeholder="Add notes about this session (optional)"
+              />
+            </div>
+          </div>
+          
+          {/* Player Attendance Section */}
+          {players.length > 0 && (
+            <div className="mt-8">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium">Mark Attendance</h3>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleMarkAllPresent}
+                    className="px-3 py-1.5 text-xs rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700"
+                  >
+                    All Present
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleMarkAllAbsent}
+                    className="px-3 py-1.5 text-xs rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700"
+                  >
+                    All Absent
+                  </button>
+                </div>
+              </div>
               
-              {loadingUpcoming ? (
+              {loading.players ? (
                 <div className="flex justify-center items-center h-24">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-700"></div>
                 </div>
-              ) : upcomingSessions.length === 0 ? (
-                <p className="text-gray-500">No upcoming sessions found that need registers.</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sm:px-6">
-                          Date
-                        </th>
-                        <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sm:px-6">
-                          Group
-                        </th>
-                        <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sm:px-6">
-                          Time
-                        </th>
-                        <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sm:px-6">
-                          Action
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {upcomingSessions.slice(0, 5).map((session, index) => (
-                        <tr key={index} className="hover:bg-gray-50">
-                          <td className="px-2 py-2 whitespace-nowrap text-sm font-medium text-gray-900 sm:px-6 sm:py-4">
-                            {formatDate(session.date)}
-                          </td>
-                          <td className="px-2 py-2 whitespace-nowrap text-sm text-gray-500 sm:px-6 sm:py-4">
-                            {session.group.name}
-                          </td>
-                          <td className="px-2 py-2 whitespace-nowrap text-sm text-gray-500 sm:px-6 sm:py-4">
-                            {session.group_time.day} {session.group_time.start_time}
-                          </td>
-                          <td className="px-2 py-2 whitespace-nowrap text-sm text-blue-600 hover:text-blue-900 sm:px-6 sm:py-4">
-                            <button 
-                              onClick={() => handleSelectUpcomingSession(session)}
-                              className="text-blue-600 hover:text-blue-900"
-                            >
-                              Select
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-700">{players.length} players</p>
+                  
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    {players.map((player) => (
+                      <div 
+                        key={player.id} 
+                        className="border rounded-md p-3"
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="font-medium">{player.student_name}</div>
+                          <button 
+                            type="button"
+                            onClick={() => togglePlayerInfo(player.id)}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            {expandedPlayerInfo[player.id] ? 'Hide Info' : 'Show Info'}
+                          </button>
+                        </div>
+                        
+                        {/* Contact Information - Updated with clickable phone numbers and email */}
+                        {expandedPlayerInfo[player.id] && (
+                          <div className="mt-2 p-2 bg-gray-50 rounded-md text-xs">
+                            <div className="grid grid-cols-1 gap-y-1">
+                              {player.date_of_birth && (
+                                <div>
+                                  <span className="font-semibold">DOB:</span>{" "}
+                                  {new Date(player.date_of_birth).toLocaleDateString()}
+                                </div>
+                              )}
+                              {player.contact_number && (
+                                <div>
+                                  <span className="font-semibold">Contact:</span>{" "}
+                                  <a href={`tel:${player.contact_number}`} className="text-blue-600 hover:underline">
+                                    {player.contact_number}
+                                  </a>
+                                </div>
+                              )}
+                              {player.emergency_contact_number && (
+                                <div>
+                                  <span className="font-semibold">Emergency:</span>{" "}
+                                  <a href={`tel:${player.emergency_contact_number}`} className="text-blue-600 hover:underline">
+                                    {player.emergency_contact_number}
+                                  </a>
+                                </div>
+                              )}
+                              {player.contact_email && (
+                                <div>
+                                  <span className="font-semibold">Email:</span>{" "}
+                                  <a href={`mailto:${player.contact_email}`} className="text-blue-600 hover:underline">
+                                    {player.contact_email}
+                                  </a>
+                                </div>
+                              )}
+                              {player.medical_information && (
+                                <div>
+                                  <span className="font-semibold">Medical:</span> {player.medical_information}
+                                </div>
+                              )}
+                              {player.walk_home !== null && (
+                                <div>
+                                  <span className="font-semibold">Walk home:</span> {player.walk_home ? 'Yes' : 'No'}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        <div className="mt-2 grid grid-cols-2 gap-1">
+                          <button
+                            type="button"
+                            className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+                              player.attendance_status === 'present' 
+                                ? 'bg-green-100 border-green-500 text-green-800' 
+                                : 'bg-gray-100 border-gray-300 text-gray-800'
+                            }`}
+                            onClick={() => updatePlayerAttendance(player.id, 'present')}
+                          >
+                            Present
+                          </button>
+                          <button
+                            type="button"
+                            className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+                              player.attendance_status === 'absent' 
+                                ? 'bg-red-100 border-red-500 text-red-800' 
+                                : 'bg-gray-100 border-gray-300 text-gray-800'
+                            }`}
+                            onClick={() => updatePlayerAttendance(player.id, 'absent')}
+                          >
+                            Absent
+                          </button>
+                          <button
+                            type="button"
+                            className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+                              player.attendance_status === 'away_with_notice' 
+                                ? 'bg-yellow-100 border-yellow-500 text-yellow-800' 
+                                : 'bg-gray-100 border-gray-300 text-gray-800'
+                            }`}
+                            onClick={() => updatePlayerAttendance(player.id, 'away_with_notice')}
+                          >
+                            Away With Notice
+                          </button>
+                          <button
+                            type="button"
+                            className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+                              player.attendance_status === 'sick' 
+                                ? 'bg-blue-100 border-blue-500 text-blue-800' 
+                                : 'bg-gray-100 border-gray-300 text-gray-800'
+                            }`}
+                            onClick={() => updatePlayerAttendance(player.id, 'sick')}
+                          >
+                            Sick
+                          </button>
+                        </div>
+                        
+                        <div className="mt-2">
+                          <input
+                            type="text"
+                            value={player.notes || ''}
+                            onChange={(e) => updatePlayerNotes(player.id, e.target.value)}
+                            className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="Notes"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
           )}
-        </div>
-        
-        {/* Manual Creation Form */}
-        <div className="p-4 border-t">
-          <h2 className="text-lg font-medium mb-4">Manual Creation</h2>
           
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label htmlFor="teachingPeriod" className="block text-sm font-medium text-gray-700 mb-1">
-                  Teaching Period*
-                </label>
-                <select
-                  id="teachingPeriod"
-                  value={selectedPeriodId}
-                  onChange={(e) => setSelectedPeriodId(e.target.value ? Number(e.target.value) : '')}
-                  className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  required
-                  disabled={loadingPeriods}
-                >
-                  <option value="">Select Teaching Period</option>
-                  {teachingPeriods.map((period) => (
-                    <option key={period.id} value={period.id}>{period.name}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div>
-                <label htmlFor="group" className="block text-sm font-medium text-gray-700 mb-1">
-                  Group*
-                </label>
-                <select
-                  id="group"
-                  value={selectedGroupId}
-                  onChange={(e) => setSelectedGroupId(e.target.value ? Number(e.target.value) : '')}
-                  className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  required
-                  disabled={loadingGroups || !selectedPeriodId}
-                >
-                  <option value="">Select Group</option>
-                  {groups.map((group) => (
-                    <option key={group.id} value={group.id}>{group.name}</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div>
-                <label htmlFor="timeSlot" className="block text-sm font-medium text-gray-700 mb-1">
-                  Time Slot*
-                </label>
-                <select
-                  id="timeSlot"
-                  value={selectedTimeSlotId}
-                  onChange={(e) => setSelectedTimeSlotId(e.target.value ? Number(e.target.value) : '')}
-                  className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  required
-                  disabled={loadingTimeSlots || !selectedGroupId}
-                >
-                  <option value="">Select Time Slot</option>
-                  {timeSlots.map((slot) => (
-                    <option key={slot.id} value={slot.id}>
-                      {slot.day_of_week} {slot.start_time}-{slot.end_time}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              
-              <div>
-                <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-1">
-                  Date*
-                </label>
-                <input
-                  type="date"
-                  id="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  required
-                />
-              </div>
-              
-              <div className="sm:col-span-2">
-                <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
-                  Session Notes
-                </label>
-                <textarea
-                  id="notes"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  rows={2}
-                  placeholder="Add notes about this session (optional)"
-                />
-              </div>
-            </div>
-            
-            {/* Player Attendance Section */}
-            {showPlayers && (
-              <div className="mt-6">
-                <h3 className="text-lg font-medium mb-4">Mark Attendance</h3>
-                
-                {loadingPlayers ? (
-                  <div className="flex justify-center items-center h-24">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-700"></div>
-                  </div>
-                ) : players.length === 0 ? (
-                  <p className="text-gray-500">No players found for this group and time slot.</p>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="sm:flex sm:items-center sm:justify-between">
-                      <h4 className="text-sm font-medium text-gray-700">
-                        {players.length} players
-                      </h4>
-                      <div className="mt-2 sm:mt-0 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setPlayers(prevPlayers => 
-                            prevPlayers.map(p => ({ ...p, attendance_status: 'present' }))
-                          )}
-                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                        >
-                          Mark All Present
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPlayers(prevPlayers => 
-                            prevPlayers.map(p => ({ ...p, attendance_status: 'absent' }))
-                          )}
-                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                        >
-                          Mark All Absent
-                        </button>
-                      </div>
-                    </div>
-                    
-                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                      {players.map((player) => (
-                        <div 
-                          key={player.id} 
-                          className="border rounded-md p-3"
-                        >
-                          <div className="font-medium">{player.student_name}</div>
-                          
-                          <div className="mt-2 grid grid-cols-2 gap-1">
-                            <button
-                              type="button"
-                              className={`border rounded-md py-1 px-1 text-xs font-medium ${
-                                player.attendance_status === 'present' 
-                                  ? 'bg-green-100 border-green-500 text-green-800' 
-                                  : 'bg-gray-100 border-gray-300 text-gray-800'
-                              }`}
-                              onClick={() => updatePlayerAttendance(player.id, 'present')}
-                            >
-                              Present
-                            </button>
-                            <button
-                              type="button"
-                              className={`border rounded-md py-1 px-1 text-xs font-medium ${
-                                player.attendance_status === 'absent' 
-                                  ? 'bg-red-100 border-red-500 text-red-800' 
-                                  : 'bg-gray-100 border-gray-300 text-gray-800'
-                              }`}
-                              onClick={() => updatePlayerAttendance(player.id, 'absent')}
-                            >
-                              Absent
-                            </button>
-                            <button
-                              type="button"
-                              className={`border rounded-md py-1 px-1 text-xs font-medium ${
-                                player.attendance_status === 'late' 
-                                  ? 'bg-yellow-100 border-yellow-500 text-yellow-800' 
-                                  : 'bg-gray-100 border-gray-300 text-gray-800'
-                              }`}
-                              onClick={() => updatePlayerAttendance(player.id, 'late')}
-                            >
-                              Late
-                            </button>
-                            <button
-                              type="button"
-                              className={`border rounded-md py-1 px-1 text-xs font-medium ${
-                                player.attendance_status === 'excused' 
-                                  ? 'bg-blue-100 border-blue-500 text-blue-800' 
-                                  : 'bg-gray-100 border-gray-300 text-gray-800'
-                              }`}
-                              onClick={() => updatePlayerAttendance(player.id, 'excused')}
-                            >
-                              Excused
-                            </button>
-                          </div>
-                          
-                          <div className="mt-2">
-                            <input
-                              type="text"
-                              value={player.notes || ''}
-                              onChange={(e) => updatePlayerNotes(player.id, e.target.value)}
-                              className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                              placeholder="Notes"
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-            
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow"
-                disabled={creating}
-              >
-                {creating ? (
-                  <span className="flex items-center">
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    {showPlayers ? 'Saving Attendance...' : 'Creating Register...'}
-                  </span>
-                ) : (showPlayers ? 'Save Attendance' : 'Create Register')}
-              </button>
-            </div>
-          </form>
-        </div>
+          <div className="flex justify-end mt-6">
+            <button
+              type="submit"
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow"
+              disabled={loading.creating}
+            >
+              {loading.creating ? (
+                <span className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  {players.length > 0 ? 'Save Attendance' : 'Create Register'}
+                </span>
+              ) : (players.length > 0 ? 'Save Attendance' : 'Create Register')}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

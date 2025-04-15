@@ -2,9 +2,10 @@ from flask import Blueprint, request, jsonify, current_app, render_template
 from flask_login import login_required, current_user
 from app.models import (
     Register, RegisterEntry, TeachingPeriod, TennisGroupTimes, 
-    ProgrammePlayers, AttendanceStatus, RegisterStatus, TennisGroup, Student, User
+    ProgrammePlayers, AttendanceStatus, TennisGroup, Student, User
 )
 from app import db
+from app.models.base import UserRole
 from app.utils.auth import admin_required
 from app.clubs.middleware import verify_club_access
 from sqlalchemy import and_, or_, func, case, distinct
@@ -115,15 +116,15 @@ def get_registers():
             # Count entries by status
             present_count = sum(1 for entry in register.entries if entry.attendance_status == AttendanceStatus.PRESENT)
             absent_count = sum(1 for entry in register.entries if entry.attendance_status == AttendanceStatus.ABSENT)
-            excused_count = sum(1 for entry in register.entries if entry.attendance_status == AttendanceStatus.EXCUSED)
-            late_count = sum(1 for entry in register.entries if entry.attendance_status == AttendanceStatus.LATE)
+            sick_count = sum(1 for entry in register.entries if entry.attendance_status == AttendanceStatus.SICK)
+            away_with_notice_count = sum(1 for entry in register.entries if entry.attendance_status == AttendanceStatus.AWAY_WITH_NOTICE)
             
             # Get group info from the group time
             group_name = register.group_time.tennis_group.name if register.group_time else "Unknown Group"
             
             # Calculate attendance rate
             total_entries = len(register.entries)
-            attendance_rate = round((present_count + late_count) / total_entries * 100, 1) if total_entries > 0 else 0
+            attendance_rate = round((present_count + away_with_notice_count) / total_entries * 100, 1) if total_entries > 0 else 0
             
             results.append({
                 'id': register.id,
@@ -135,13 +136,12 @@ def get_registers():
                     'start_time': register.group_time.start_time.strftime('%H:%M') if register.group_time else None,
                     'end_time': register.group_time.end_time.strftime('%H:%M') if register.group_time else None
                 },
-                'status': register.status.value,
                 'stats': {
                     'total': total_entries,
                     'present': present_count,
                     'absent': absent_count,
-                    'excused': excused_count,
-                    'late': late_count,
+                    'sick': sick_count,
+                    'away_with_notice': away_with_notice_count,
                     'attendance_rate': attendance_rate
                 }
             })
@@ -204,7 +204,6 @@ def get_register(register_id):
                 'id': register.coach_id,
                 'name': register.coach.name
             },
-            'status': register.status.value,
             'notes': register.notes,
             'entries': entries,
             'teaching_period': {
@@ -256,10 +255,9 @@ def create_register():
         # Create new register
         register = Register(
             group_time_id=data['group_time_id'],
-            coach_id=current_user.id,  # Current user is the coach creating the register
+            coach_id=current_user.id,
             date=register_date,
             teaching_period_id=data['teaching_period_id'],
-            status=RegisterStatus.DRAFT,
             notes=data.get('notes', ''),
             tennis_club_id=current_user.tennis_club_id
         )
@@ -313,12 +311,6 @@ def update_register(register_id):
         # Update allowed fields
         if 'notes' in data:
             register.notes = data['notes']
-            
-        if 'status' in data:
-            try:
-                register.status = RegisterStatus[data['status'].upper()]
-            except KeyError:
-                return jsonify({'error': f"Invalid status value. Must be one of: {', '.join([s.name.lower() for s in RegisterStatus])}"}), 400
                 
         if current_user.is_admin and 'coach_id' in data:
             register.coach_id = data['coach_id']
@@ -354,46 +346,58 @@ def update_register_entries(register_id):
         if not entries:
             return jsonify({'error': 'No entries provided'}), 400
             
+        # Define a direct mapping for attendance status
+        status_map = {
+            'present': AttendanceStatus.PRESENT,
+            'absent': AttendanceStatus.ABSENT,
+            'sick': AttendanceStatus.SICK,
+            'away_with_notice': AttendanceStatus.AWAY_WITH_NOTICE
+        }
+        
         # Keep track of updates
         updated_count = 0
         errors = []
         
-        for entry_data in entries:
-            entry_id = entry_data.get('id')
-            player_id = entry_data.get('player_id')
-            
-            # Find entry by ID or player ID
-            entry = None
-            if entry_id:
-                entry = RegisterEntry.query.get(entry_id)
-            elif player_id:
-                entry = RegisterEntry.query.filter_by(
-                    register_id=register_id,
-                    programme_player_id=player_id
-                ).first()
+        # Use no_autoflush to prevent premature flushes
+        with db.session.no_autoflush:
+            for entry_data in entries:
+                entry_id = entry_data.get('id')
+                player_id = entry_data.get('player_id')
                 
-            if not entry:
-                errors.append(f"Entry not found for ID: {entry_id or 'None'}, Player ID: {player_id or 'None'}")
-                continue
-                
-            # Update attendance status
-            if 'attendance_status' in entry_data:
-                try:
-                    entry.attendance_status = AttendanceStatus[entry_data['attendance_status'].upper()]
-                except KeyError:
-                    errors.append(f"Invalid attendance status for entry {entry.id}: {entry_data['attendance_status']}")
+                # Find entry by ID or player ID
+                entry = None
+                if entry_id:
+                    entry = RegisterEntry.query.get(entry_id)
+                elif player_id:
+                    entry = RegisterEntry.query.filter_by(
+                        register_id=register_id,
+                        programme_player_id=player_id
+                    ).first()
+                    
+                if not entry:
+                    errors.append(f"Entry not found for ID: {entry_id or 'None'}, Player ID: {player_id or 'None'}")
                     continue
                     
-            # Update notes
-            if 'notes' in entry_data:
-                entry.notes = entry_data['notes']
-                
-            # Update predicted attendance
-            if 'predicted_attendance' in entry_data:
-                entry.predicted_attendance = bool(entry_data['predicted_attendance'])
-                
-            updated_count += 1
-            
+                # Update attendance status using direct mapping
+                if 'attendance_status' in entry_data:
+                    status_value = entry_data['attendance_status']
+                    if status_value in status_map:
+                        entry.attendance_status = status_map[status_value]
+                    else:
+                        errors.append(f"Invalid attendance status for entry {entry.id}: {status_value}")
+                        continue
+                    
+                # Update notes
+                if 'notes' in entry_data:
+                    entry.notes = entry_data['notes']
+                    
+                # Update predicted attendance
+                if 'predicted_attendance' in entry_data:
+                    entry.predicted_attendance = bool(entry_data['predicted_attendance'])
+                    
+                updated_count += 1
+        
+        # Now explicitly commit the changes
         db.session.commit()
         
         return jsonify({
@@ -439,32 +443,31 @@ def delete_register(register_id):
 def get_upcoming_sessions():
     """Get upcoming sessions that need registers"""
     try:
-        # Get current teaching period
-        current_period = TeachingPeriod.query.filter(
-            TeachingPeriod.tennis_club_id == current_user.tennis_club_id,
-            TeachingPeriod.start_date <= func.current_date(),
-            TeachingPeriod.end_date >= func.current_date()
-        ).order_by(TeachingPeriod.start_date.desc()).first()
+        # Get current teaching period (or use the one from the query params)
+        teaching_period_id = request.args.get('period_id', type=int)
         
-        if not current_period:
-            return jsonify([])
+        current_period = None
+        if not teaching_period_id:
+            current_period = TeachingPeriod.query.filter(
+                TeachingPeriod.tennis_club_id == current_user.tennis_club_id,
+                TeachingPeriod.start_date <= func.current_date(),
+                TeachingPeriod.end_date >= func.current_date()
+            ).order_by(TeachingPeriod.start_date.desc()).first()
             
-        # Get all group times for this club that the current user coaches
-        query = TennisGroupTimes.query.join(
-            ProgrammePlayers, ProgrammePlayers.group_time_id == TennisGroupTimes.id
-        ).filter(
-            TennisGroupTimes.tennis_club_id == current_user.tennis_club_id,
-            ProgrammePlayers.teaching_period_id == current_period.id
-        )
+            if current_period:
+                teaching_period_id = current_period.id
+            else:
+                return jsonify([])
+        else:
+            # If teaching_period_id was provided, fetch the period object
+            current_period = TeachingPeriod.query.get(teaching_period_id)
+            if not current_period:
+                return jsonify([])
         
-        # Non-admins can only see their assigned groups
-        if not current_user.is_admin:
-            query = query.filter(ProgrammePlayers.coach_id == current_user.id)
-            
-        # Make the query distinct
-        query = query.group_by(TennisGroupTimes.id)
-        
-        group_times = query.all()
+        # Get all group times for this club
+        group_times = TennisGroupTimes.query.filter_by(
+            tennis_club_id=current_user.tennis_club_id
+        ).all()
         
         # Generate upcoming dates for the next 4 weeks
         today = date.today()
@@ -476,6 +479,21 @@ def get_upcoming_sessions():
         upcoming_sessions = []
         
         for group_time in group_times:
+            # Check if coach is associated with this group time
+            if not current_user.is_admin:
+                players = ProgrammePlayers.query.filter_by(
+                    group_time_id=group_time.id,
+                    teaching_period_id=teaching_period_id,
+                    tennis_club_id=current_user.tennis_club_id
+                ).all()
+                
+                # Count players assigned to the current coach
+                coach_player_count = sum(1 for p in players if p.coach_id == current_user.id)
+                
+                # Skip if no players or none assigned to this coach
+                if len(players) == 0 or coach_player_count == 0:
+                    continue
+            
             # Get the day of week for this group time
             day_of_week = group_time.day_of_week.name  # e.g., "MONDAY"
             
@@ -486,7 +504,7 @@ def get_upcoming_sessions():
                     existing_register = Register.query.filter_by(
                         group_time_id=group_time.id,
                         date=check_date,
-                        teaching_period_id=current_period.id
+                        teaching_period_id=teaching_period_id
                     ).first()
                     
                     if not existing_register:
@@ -588,17 +606,24 @@ def get_attendance_stats():
             total_entries = len(entries)
             present_count = sum(1 for entry, *_ in entries if entry.attendance_status == AttendanceStatus.PRESENT)
             absent_count = sum(1 for entry, *_ in entries if entry.attendance_status == AttendanceStatus.ABSENT)
-            excused_count = sum(1 for entry, *_ in entries if entry.attendance_status == AttendanceStatus.EXCUSED)
-            late_count = sum(1 for entry, *_ in entries if entry.attendance_status == AttendanceStatus.LATE)
+            sick_count = sum(1 for entry, *_ in entries if entry.attendance_status == AttendanceStatus.SICK)
+            late_count = sum(1 for entry, *_ in entries if entry.attendance_status == AttendanceStatus.AWAY_WITH_NOTICE)
             
             attendance_rate = round((present_count + late_count) / total_entries * 100, 1) if total_entries > 0 else 0
             
+            register_count = db.session.query(func.count(distinct(Register.id))).filter(
+                Register.tennis_club_id == current_user.tennis_club_id,
+                Register.teaching_period_id == teaching_period_id
+            ).scalar()
+
+            # Then include it in the response
             return jsonify({
-                'total_sessions': total_entries,
+                'total_registers': register_count,  
+                'total_sessions': total_entries,   
                 'present': present_count,
                 'absent': absent_count,
-                'excused': excused_count,
-                'late': late_count,
+                'sick': sick_count,
+                'away_with_notice': late_count,   
                 'attendance_rate': attendance_rate
             })
             
@@ -616,8 +641,8 @@ def get_attendance_stats():
                         'total': 0,
                         'present': 0,
                         'absent': 0,
-                        'excused': 0,
-                        'late': 0
+                        'sick': 0,
+                        'away_with_notice': 0
                     }
                     
                 group_stats[group_id]['total'] += 1
@@ -626,15 +651,15 @@ def get_attendance_stats():
                     group_stats[group_id]['present'] += 1
                 elif entry.attendance_status == AttendanceStatus.ABSENT:
                     group_stats[group_id]['absent'] += 1
-                elif entry.attendance_status == AttendanceStatus.EXCUSED:
-                    group_stats[group_id]['excused'] += 1
-                elif entry.attendance_status == AttendanceStatus.LATE:
-                    group_stats[group_id]['late'] += 1
+                elif entry.attendance_status == AttendanceStatus.SICK:
+                    group_stats[group_id]['sick'] += 1
+                elif entry.attendance_status == AttendanceStatus.AWAY_WITH_NOTICE:
+                    group_stats[group_id]['away_with_notice'] += 1
             
             # Calculate attendance rates
             for stats in group_stats.values():
                 stats['attendance_rate'] = round(
-                    (stats['present'] + stats['late']) / stats['total'] * 100, 1
+                    (stats['present'] + stats['away_with_notice']) / stats['total'] * 100, 1
                 ) if stats['total'] > 0 else 0
                 
             return jsonify(list(group_stats.values()))
@@ -653,8 +678,8 @@ def get_attendance_stats():
                         'total': 0,
                         'present': 0,
                         'absent': 0,
-                        'excused': 0,
-                        'late': 0
+                        'sick': 0,
+                        'away_with_notice': 0
                     }
                     
                 student_stats[student_id]['total'] += 1
@@ -663,15 +688,15 @@ def get_attendance_stats():
                     student_stats[student_id]['present'] += 1
                 elif entry.attendance_status == AttendanceStatus.ABSENT:
                     student_stats[student_id]['absent'] += 1
-                elif entry.attendance_status == AttendanceStatus.EXCUSED:
-                    student_stats[student_id]['excused'] += 1
-                elif entry.attendance_status == AttendanceStatus.LATE:
-                    student_stats[student_id]['late'] += 1
+                elif entry.attendance_status == AttendanceStatus.SICK:
+                    student_stats[student_id]['sick'] += 1
+                elif entry.attendance_status == AttendanceStatus.AWAY_WITH_NOTICE:
+                    student_stats[student_id]['away_with_notice'] += 1
             
             # Calculate attendance rates
             for stats in student_stats.values():
                 stats['attendance_rate'] = round(
-                    (stats['present'] + stats['late']) / stats['total'] * 100, 1
+                    (stats['present'] + stats['away_with_notice']) / stats['total'] * 100, 1
                 ) if stats['total'] > 0 else 0
                 
             return jsonify(list(student_stats.values()))
@@ -710,13 +735,22 @@ def get_group_time_players():
         # Format as JSON
         results = []
         for player in players:
+            # Format date of birth if available, otherwise None
+            dob = player.student.date_of_birth.isoformat() if player.student.date_of_birth else None
+            
             results.append({
                 'id': player.id,
                 'student_id': player.student_id,
                 'student_name': player.student.name,
-                'attendance_status': 'present',  # Default to present for new registers
+                'contact_number': player.student.contact_number,
+                'emergency_contact_number': player.student.emergency_contact_number,
+                'medical_information': player.student.medical_information,
+                'walk_home': player.walk_home,
+                'attendance_status': 'present', 
                 'notes': '',
-                'predicted_attendance': False
+                'predicted_attendance': False,
+                'date_of_birth': dob,
+                'contact_email': player.student.contact_email
             })
         
         return jsonify(results)
@@ -734,6 +768,7 @@ def get_coach_sessions():
     try:
         day_of_week = request.args.get('day_of_week')
         teaching_period_id = request.args.get('teaching_period_id', type=int)
+        show_all = request.args.get('show_all', 'false').lower() == 'true'  # Fix boolean parsing
         
         if not day_of_week:
             return jsonify({'error': 'Day of week is required'}), 400
@@ -751,48 +786,97 @@ def get_coach_sessions():
             else:
                 return jsonify([])
         
-        # Find all group times for this day that the coach is assigned to
+        # Log for debugging
+        current_app.logger.info(f"Fetching sessions for day: {day_of_week}, teaching period: {teaching_period_id}")
+        current_app.logger.info(f"Current user role: {current_user.role}, admin: {current_user.is_admin}, super admin: {current_user.is_super_admin}")
+        
+        # Convert day_of_week string to enum value for comparison
+        from app.models.base import DayOfWeek
+        try:
+            # Try to match by enum name (uppercase input expected)
+            day_enum = DayOfWeek[day_of_week.upper()]
+        except KeyError:
+            # Try to match by enum value (case insensitive)
+            day_enum = next((day for day in DayOfWeek if day.value.upper() == day_of_week.upper()), None)
+            if not day_enum:
+                return jsonify({'error': f'Invalid day of week: {day_of_week}'}), 400
+        
+        # Query all group times for this day
         query = TennisGroupTimes.query.join(
-            ProgrammePlayers, ProgrammePlayers.group_time_id == TennisGroupTimes.id
-        ).join(
             TennisGroup, TennisGroupTimes.group_id == TennisGroup.id
         ).filter(
             TennisGroupTimes.tennis_club_id == current_user.tennis_club_id,
-            ProgrammePlayers.teaching_period_id == teaching_period_id,
-            func.upper(TennisGroupTimes.day_of_week.name) == day_of_week.upper()
+            TennisGroupTimes.day_of_week == day_enum  # Directly compare with enum instance
         )
         
-        # For non-admins, only show their assigned groups
-        if not current_user.is_admin:
-            query = query.filter(ProgrammePlayers.coach_id == current_user.id)
-            
-        # Make the query distinct
-        group_times = query.distinct(TennisGroupTimes.id).all()
+        # Get all group times
+        group_times = query.all()
+        
+        # Log found group times
+        current_app.logger.info(f"Found {len(group_times)} group times for day {day_of_week}")
         
         # Format as JSON
         results = []
         for group_time in group_times:
-            # Get player count
-            player_count = ProgrammePlayers.query.filter_by(
+            # Find all players for this group time and teaching period
+            players = ProgrammePlayers.query.filter_by(
                 group_time_id=group_time.id,
                 teaching_period_id=teaching_period_id,
                 tennis_club_id=current_user.tennis_club_id
-            ).count()
+            ).all()
             
-            # Add to results
-            results.append({
-                'id': group_time.id,
-                'group_name': group_time.tennis_group.name,
-                'day': group_time.day_of_week.value,
-                'start_time': group_time.start_time.strftime('%H:%M'),
-                'end_time': group_time.end_time.strftime('%H:%M'),
-                'player_count': player_count,
-                'teaching_period_id': teaching_period_id
-            })
+            # Count players assigned to the current coach
+            coach_player_count = sum(1 for p in players if p.coach_id == current_user.id)
+            
+            # Log player counts for debugging
+            current_app.logger.info(f"Group time {group_time.id}: total players = {len(players)}, coach players = {coach_player_count}")
+            
+            # For super admins and admins, always include the group time
+            # For coaches, only include if they have assigned players unless show_all is True
+            if current_user.is_super_admin or current_user.is_admin or show_all or coach_player_count > 0:
+                # Calculate percentage of players assigned to this coach
+                coach_percentage = (coach_player_count / len(players) * 100) if players else 0
+                
+                # Add to results
+                results.append({
+                    'id': group_time.id,
+                    'group_id': group_time.group_id,
+                    'group_name': group_time.tennis_group.name,
+                    'day': group_time.day_of_week.value,  # Safe to use .value here in Python code
+                    'start_time': group_time.start_time.strftime('%H:%M'),
+                    'end_time': group_time.end_time.strftime('%H:%M'),
+                    'player_count': len(players),
+                    'coach_player_count': coach_player_count,
+                    'coach_percentage': round(coach_percentage, 1),
+                    'teaching_period_id': teaching_period_id
+                })
         
+        current_app.logger.info(f"Returning {len(results)} sessions")
         return jsonify(results)
         
     except Exception as e:
         current_app.logger.error(f"Error fetching coach sessions: {str(e)}")
         current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+    
+
+@register_routes.route('/coaches')
+@login_required
+@verify_club_access()
+def get_coaches():
+    """Get list of coaches for the current tennis club"""
+    try:
+        # Get coaches who are assigned to players
+        coaches = db.session.query(User).filter(
+            User.tennis_club_id == current_user.tennis_club_id,
+            User.role == UserRole.COACH,
+            User.is_active == True
+        ).all()
+        
+        return jsonify([
+            {'id': coach.id, 'name': coach.name}
+            for coach in coaches
+        ])
+    except Exception as e:
+        current_app.logger.error(f"Error fetching coaches: {str(e)}")
         return jsonify({'error': str(e)}), 500
