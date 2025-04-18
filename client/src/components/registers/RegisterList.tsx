@@ -15,6 +15,7 @@ interface Group {
 
 interface RegisterListProps {
   onNavigate: (registerId: string) => void;
+  onEdit: (registerId: string) => void; // New prop for direct editing
   onCreateNew: () => void;
   onViewStats: () => void;
   periodId?: number;
@@ -23,6 +24,7 @@ interface RegisterListProps {
 
 const RegisterList: React.FC<RegisterListProps> = ({ 
   onNavigate, 
+  onEdit,
   onCreateNew, 
   onViewStats,
   periodId: initialPeriodId, 
@@ -36,6 +38,9 @@ const RegisterList: React.FC<RegisterListProps> = ({
   
   // State for filter options
   const [periods, setPeriods] = useState<TeachingPeriod[]>([]);
+  const [loadingPeriods, setLoadingPeriods] = useState(true);
+  const [periodsError, setPeriodsError] = useState<string | null>(null);
+  
   const [groups, setGroups] = useState<Group[]>([]);
   
   // State for selected filters
@@ -72,8 +77,14 @@ const RegisterList: React.FC<RegisterListProps> = ({
   useEffect(() => {
     const fetchPeriods = async () => {
       try {
+        setLoadingPeriods(true);
+        setPeriodsError(null);
+        
         const response = await fetch('/clubs/api/teaching-periods');
-        if (!response.ok) throw new Error('Failed to fetch teaching periods');
+        if (!response.ok) {
+          throw new Error(`Failed to fetch teaching periods: ${response.statusText}`);
+        }
+        
         const data = await response.json();
         setPeriods(data);
         
@@ -83,6 +94,10 @@ const RegisterList: React.FC<RegisterListProps> = ({
         }
       } catch (err) {
         console.error('Error fetching teaching periods:', err);
+        const errorMessage = err instanceof Error ? err.message : 'Failed to load teaching periods';
+        setPeriodsError(errorMessage);
+      } finally {
+        setLoadingPeriods(false);
       }
     };
     
@@ -110,12 +125,21 @@ const RegisterList: React.FC<RegisterListProps> = ({
     const fetchRegisters = async () => {
       try {
         setLoading(true);
+        setError(null);
         
         // Build query params
         const params = new URLSearchParams();
         if (selectedPeriod) params.append('period_id', selectedPeriod.toString());
         
-        const response = await fetch(`/api/registers?${params.toString()}`);
+        // Add timeout to prevent eternal loading
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        
+        const response = await fetch(`/api/registers?${params.toString()}`, {
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
         
         if (!response.ok) {
           throw new Error(`Error fetching registers: ${response.statusText}`);
@@ -123,11 +147,15 @@ const RegisterList: React.FC<RegisterListProps> = ({
         
         const data = await response.json();
         setAllRegisters(data);
-        setError(null);
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'An error occurred';
-        setError(errorMessage);
         console.error('Error fetching registers:', err);
+        const errorMessage = 
+          err instanceof Error && err.name === 'AbortError'
+            ? 'Request timed out. Please try again.'
+            : err instanceof Error 
+              ? err.message 
+              : 'An error occurred';
+        setError(errorMessage);
       } finally {
         setLoading(false);
       }
@@ -135,6 +163,9 @@ const RegisterList: React.FC<RegisterListProps> = ({
     
     if (selectedPeriod) {
       fetchRegisters();
+    } else {
+      // If no period is selected, clear loading state to avoid eternal spinner
+      setLoading(false);
     }
   }, [selectedPeriod]);
 
@@ -213,6 +244,45 @@ const RegisterList: React.FC<RegisterListProps> = ({
     setShowFilters(prev => !prev);
   };
 
+  // Handle case where we have no teaching periods
+  if (!loadingPeriods && periods.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <h1 className="text-2xl font-bold">Registers</h1>
+          <button
+            onClick={onCreateNew}
+            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow"
+          >
+            <span className="hidden sm:inline">Create New Register</span>
+            <span className="sm:hidden">Create</span>
+          </button>
+        </div>
+        
+        <div className="bg-white p-6 rounded-lg shadow text-center">
+          <p className="text-gray-600 mb-4">No teaching periods found for your account.</p>
+          <p className="text-gray-500">Please contact an administrator to be assigned to a teaching period.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Handle periods loading error
+  if (periodsError) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <h1 className="text-2xl font-bold">Registers</h1>
+        </div>
+        
+        <div className="bg-red-50 p-6 rounded-lg shadow">
+          <h2 className="text-lg font-medium text-red-700 mb-2">Error Loading Data</h2>
+          <p className="text-red-600">{periodsError}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header with buttons */}
@@ -265,10 +335,29 @@ const RegisterList: React.FC<RegisterListProps> = ({
               value={selectedPeriod || ''}
               onChange={handlePeriodChange}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              disabled={loadingPeriods}
             >
               <option value="">All Terms</option>
               {periods.map(period => (
                 <option key={period.id} value={period.id}>{period.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Day Filter */}
+          <div>
+            <label htmlFor="day" className="block text-sm font-medium text-gray-700 mb-1">
+              Day
+            </label>
+            <select
+              id="day"
+              value={selectedDay}
+              onChange={handleDayChange}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            >
+              <option value="">All Days</option>
+              {availableDays.map(day => (
+                <option key={day} value={day}>{day}</option>
               ))}
             </select>
           </div>
@@ -287,24 +376,6 @@ const RegisterList: React.FC<RegisterListProps> = ({
               <option value="">All Groups</option>
               {groups.map(group => (
                 <option key={group.id} value={group.id}>{group.name}</option>
-              ))}
-            </select>
-          </div>
-          
-          {/* Day Filter */}
-          <div>
-            <label htmlFor="day" className="block text-sm font-medium text-gray-700 mb-1">
-              Day
-            </label>
-            <select
-              id="day"
-              value={selectedDay}
-              onChange={handleDayChange}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-            >
-              <option value="">All Days</option>
-              {availableDays.map(day => (
-                <option key={day} value={day}>{day}</option>
               ))}
             </select>
           </div>
@@ -340,18 +411,21 @@ const RegisterList: React.FC<RegisterListProps> = ({
         ) : registers.length === 0 ? (
           <div className="p-6 text-center text-gray-500">
             <p className="mb-2">No registers found matching your criteria.</p>
-            <button
-              onClick={handleResetFilters}
-              className="text-sm text-blue-600 hover:text-blue-800 underline"
-            >
-              Clear filters
-            </button> or 
-            <button
-              onClick={onCreateNew}
-              className="ml-1 text-sm text-blue-600 hover:text-blue-800 underline"
-            >
-              create a new register
-            </button>
+            {selectedPeriod || selectedGroup || selectedDay || selectedSession ? (
+              <button
+                onClick={handleResetFilters}
+                className="text-sm text-blue-600 hover:text-blue-800 underline"
+              >
+                Clear filters
+              </button>
+            ) : (
+              <button
+                onClick={onCreateNew}
+                className="text-sm text-blue-600 hover:text-blue-800 underline"
+              >
+                Create a new register
+              </button>
+            )}
           </div>
         ) : (
           <div>
@@ -413,12 +487,20 @@ const RegisterList: React.FC<RegisterListProps> = ({
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <button 
-                          onClick={() => onNavigate(register.id.toString())}
-                          className="text-blue-600 hover:text-blue-900 font-medium"
-                        >
-                          View
-                        </button>
+                        <div className="flex space-x-3">
+                          <button 
+                            onClick={() => onNavigate(register.id.toString())}
+                            className="text-blue-600 hover:text-blue-900 font-medium"
+                          >
+                            View
+                          </button>
+                          <button 
+                            onClick={() => onEdit(register.id.toString())}
+                            className="text-green-600 hover:text-green-900 font-medium"
+                          >
+                            Edit
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -435,12 +517,20 @@ const RegisterList: React.FC<RegisterListProps> = ({
                 <div key={register.id} className="p-4 border-b border-gray-200 hover:bg-gray-50">
                   <div className="flex justify-between">
                     <div className="font-medium text-gray-900">{formatDate(register.date)}</div>
-                    <button 
-                      onClick={() => onNavigate(register.id.toString())}
-                      className="text-blue-600 hover:text-blue-900 font-medium text-sm px-2 py-1 bg-blue-50 rounded"
-                    >
-                      View
-                    </button>
+                    <div className="flex space-x-2">
+                      <button 
+                        onClick={() => onNavigate(register.id.toString())}
+                        className="text-blue-600 hover:text-blue-900 font-medium text-sm px-2 py-1 bg-blue-50 rounded"
+                      >
+                        View
+                      </button>
+                      <button 
+                        onClick={() => onEdit(register.id.toString())}
+                        className="text-green-600 hover:text-green-900 font-medium text-sm px-2 py-1 bg-green-50 rounded"
+                      >
+                        Edit
+                      </button>
+                    </div>
                   </div>
                   <div className="mt-2 text-sm text-gray-700">{register.group_name}</div>
                   <div className="mt-1 text-sm text-gray-500">

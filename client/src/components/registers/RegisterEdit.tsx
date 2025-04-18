@@ -6,12 +6,13 @@ import { RegisterDetail, RegisterEntry, AttendanceStatus } from '../../types/reg
 interface RegisterEditProps {
   registerId: string;
   onNavigate: (path: string) => void;
-  onSaveSuccess: () => void;
+  onSaveSuccess?: () => void;
 }
 
 const RegisterEdit: React.FC<RegisterEditProps> = ({ 
   registerId, 
   onNavigate,
+  onSaveSuccess 
 }) => {
   const [register, setRegister] = useState<RegisterDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,24 +87,12 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
     setRegister({ ...register, entries: updatedEntries });
   };
 
-  const togglePredictedAttendance = (entryId: number) => {
-    if (!register) return;
-    
-    const updatedEntries = register.entries.map((entry: RegisterEntry) => {
-      if (entry.id === entryId) {
-        return { ...entry, predicted_attendance: !entry.predicted_attendance };
-      }
-      return entry;
-    });
-    
-    setRegister({ ...register, entries: updatedEntries });
-  };
-
   const handleSave = async () => {
     if (!register) return;
     
     try {
       setIsSaving(true);
+      setSaveMessage(null);
       
       // First update the entries
       const entriesResponse = await fetch(`/api/registers/${registerId}/entries`, {
@@ -114,7 +103,8 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
             id: entry.id,
             attendance_status: entry.attendance_status,
             notes: entry.notes,
-            predicted_attendance: entry.predicted_attendance
+            // We still need to send this even if we don't show it in UI
+            predicted_attendance: entry.predicted_attendance 
           }))
         })
       });
@@ -145,6 +135,10 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
       if (refreshResponse.ok) {
         const updatedData = await refreshResponse.json();
         setRegister(updatedData);
+      }
+      
+      if (onSaveSuccess) {
+        onSaveSuccess();
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An error occurred while saving';
@@ -181,6 +175,28 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
     }
   };
 
+  const handleMarkAllPresent = () => {
+    if (!register) return;
+    
+    const updatedEntries = register.entries.map((entry: RegisterEntry) => ({
+      ...entry, 
+      attendance_status: 'present' as AttendanceStatus
+    }));
+    
+    setRegister({ ...register, entries: updatedEntries });
+  };
+
+  const handleMarkAllAbsent = () => {
+    if (!register) return;
+    
+    const updatedEntries = register.entries.map((entry: RegisterEntry) => ({
+      ...entry, 
+      attendance_status: 'absent' as AttendanceStatus
+    }));
+    
+    setRegister({ ...register, entries: updatedEntries });
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -207,9 +223,9 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <h1 className="text-2xl font-bold">
-          Edit Register: {register.group.name} - {formatDate(register.date)}
+          Edit Register
         </h1>
         <div className="flex flex-wrap gap-2">
           <button
@@ -225,6 +241,13 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
           >
             Delete
           </button>
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="px-4 py-2 bg-blue-600 border border-transparent shadow-sm text-sm font-medium rounded-md text-white hover:bg-blue-700"
+          >
+            {isSaving ? 'Saving...' : 'Save Register'}
+          </button>
         </div>
       </div>
 
@@ -236,26 +259,26 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="p-6 border-b">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
             <div>
               <h3 className="text-sm font-medium text-gray-500">Group</h3>
-              <p className="mt-1 text-sm text-gray-900">{register.group.name}</p>
+              <p className="mt-1 text-base font-medium text-gray-900">{register.group.name}</p>
             </div>
             <div>
               <h3 className="text-sm font-medium text-gray-500">Session Time</h3>
-              <p className="mt-1 text-sm text-gray-900">
+              <p className="mt-1 text-base text-gray-900">
                 {register.time_slot.day} {register.time_slot.start_time}-{register.time_slot.end_time}
               </p>
             </div>
             <div>
               <h3 className="text-sm font-medium text-gray-500">Coach</h3>
-              <p className="mt-1 text-sm text-gray-900">{register.coach.name}</p>
+              <p className="mt-1 text-base text-gray-900">{register.coach.name}</p>
             </div>
             <div>
               <h3 className="text-sm font-medium text-gray-500">Date</h3>
-              <p className="mt-1 text-sm text-gray-900">{formatDate(register.date)}</p>
+              <p className="mt-1 text-base text-gray-900">{formatDate(register.date)}</p>
             </div>
-            <div className="md:col-span-2">
+            <div className="sm:col-span-2">
               <h3 className="text-sm font-medium text-gray-500">Session Notes</h3>
               <textarea
                 value={notes}
@@ -269,78 +292,88 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
         </div>
 
         <div className="p-6">
-          <h2 className="text-lg font-medium mb-4">Attendance</h2>
-          
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Student
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Predicted
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Notes
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {register.entries.map((entry: RegisterEntry) => (
-                  <tr key={entry.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {entry.student_name}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <select
-                        value={entry.attendance_status}
-                        onChange={(e) => updateAttendanceStatus(
-                          entry.id, 
-                          e.target.value as AttendanceStatus
-                        )}
-                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                      >
-                        <option value="present">Present</option>
-                        <option value="absent">Absent</option>
-                        <option value="sick">Sick</option>
-                        <option value="away_with_notice">Away With Notice</option>
-                      </select>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
-                      <input
-                        type="checkbox"
-                        checked={entry.predicted_attendance}
-                        onChange={() => togglePredictedAttendance(entry.id)}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                      />
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      <input
-                        type="text"
-                        value={entry.notes || ''}
-                        onChange={(e) => updateNotes(entry.id, e.target.value)}
-                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                        placeholder="Optional notes"
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-medium">Attendance</h2>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleMarkAllPresent}
+                className="px-3 py-1.5 text-xs rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700"
+              >
+                All Present
+              </button>
+              <button
+                type="button"
+                onClick={handleMarkAllAbsent}
+                className="px-3 py-1.5 text-xs rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700"
+              >
+                All Absent
+              </button>
+            </div>
           </div>
           
-          <div className="mt-6 flex justify-end space-x-3">
-          <button
-            onClick={() => handleSave()}
-            disabled={isSaving}
-            className="px-4 py-2 bg-blue-600 border border-transparent shadow-sm text-sm font-medium rounded-md text-white hover:bg-blue-700"
-          >
-            {isSaving ? 'Saving...' : 'Save Register'}
-          </button>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {register.entries.map((entry: RegisterEntry) => (
+              <div 
+                key={entry.id} 
+                className="border rounded-md p-3"
+              >
+                <div className="font-medium text-gray-900 mb-2">{entry.student_name}</div>
+                <div className="grid grid-cols-2 gap-1 mb-2">
+                  <button
+                    type="button"
+                    className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+                      entry.attendance_status === 'present' 
+                        ? 'bg-green-100 border-green-500 text-green-800' 
+                        : 'bg-gray-100 border-gray-300 text-gray-800'
+                    }`}
+                    onClick={() => updateAttendanceStatus(entry.id, 'present')}
+                  >
+                    Present
+                  </button>
+                  <button
+                    type="button"
+                    className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+                      entry.attendance_status === 'absent' 
+                        ? 'bg-red-100 border-red-500 text-red-800' 
+                        : 'bg-gray-100 border-gray-300 text-gray-800'
+                    }`}
+                    onClick={() => updateAttendanceStatus(entry.id, 'absent')}
+                  >
+                    Absent
+                  </button>
+                  <button
+                    type="button"
+                    className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+                      entry.attendance_status === 'away_with_notice' 
+                        ? 'bg-yellow-100 border-yellow-500 text-yellow-800' 
+                        : 'bg-gray-100 border-gray-300 text-gray-800'
+                    }`}
+                    onClick={() => updateAttendanceStatus(entry.id, 'away_with_notice')}
+                  >
+                    Away With Notice
+                  </button>
+                  <button
+                    type="button"
+                    className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+                      entry.attendance_status === 'sick' 
+                        ? 'bg-blue-100 border-blue-500 text-blue-800' 
+                        : 'bg-gray-100 border-gray-300 text-gray-800'
+                    }`}
+                    onClick={() => updateAttendanceStatus(entry.id, 'sick')}
+                  >
+                    Sick
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={entry.notes || ''}
+                  onChange={(e) => updateNotes(entry.id, e.target.value)}
+                  className="block w-full text-sm border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Notes"
+                />
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -359,6 +392,7 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
                 disabled={isDeleting}
                 className="px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
               >
+                Cancel
               </button>
               <button
                 onClick={handleDelete}

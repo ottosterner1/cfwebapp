@@ -48,6 +48,7 @@ interface SessionResponse {
   start_time: string;
   end_time: string;
   player_count?: number;
+  coach_player_count?: number; // Number of players assigned to the current coach
   [key: string]: any;
 }
 
@@ -62,6 +63,9 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
   const [availableTimeSlots, setAvailableTimeSlots] = useState<TimeSlot[]>([]);
   const [selectedTimeSlotId, setSelectedTimeSlotId] = useState<number | ''>('');
   const [selectedDate, setSelectedDate] = useState<string>('');
+  
+  // New state for showing all sessions
+  const [showAllSessions, setShowAllSessions] = useState<boolean>(false);
   
   // Session data
   const [players, setPlayers] = useState<Player[]>([]);
@@ -80,6 +84,9 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [expandedPlayerInfo, setExpandedPlayerInfo] = useState<{[key: number]: boolean}>({});
 
+  // Define days of week in Monday-Sunday order for consistency across the component
+  const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  
   // Fetch teaching periods on component mount
   useEffect(() => {
     const fetchTeachingPeriods = async () => {
@@ -131,13 +138,15 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         
         // Get current day of week
         const today = new Date();
-        const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const currentDay = daysOfWeek[today.getDay()];
+        const currentDayIndex = today.getDay();
+        // Convert JavaScript day index (0=Sunday) to our array (0=Monday)
+        const adjustedCurrentDayIndex = currentDayIndex === 0 ? 6 : currentDayIndex - 1;
+        const currentDay = daysOfWeek[adjustedCurrentDayIndex];
         
         // Since the API requires day_of_week, we need to make multiple requests for each day
         const allDays = new Set<string>();
         const fetchPromises = daysOfWeek.map(day => 
-          fetch(`/api/coach-sessions?day_of_week=${day}&teaching_period_id=${selectedPeriodId}`)
+          fetch(`/api/coach-sessions?day_of_week=${day}&teaching_period_id=${selectedPeriodId}&show_all=${showAllSessions}`)
             .then(response => {
               if (!response.ok) {
                 // Skip days that don't have sessions
@@ -161,7 +170,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         // Wait for all requests to complete
         await Promise.all(fetchPromises);
         
-        // Convert set to array and sort by day of week
+        // Convert set to array and sort by day of week (Monday-Sunday)
         const availableDaysList = Array.from(allDays).sort((a, b) => 
           daysOfWeek.indexOf(a) - daysOfWeek.indexOf(b)
         );
@@ -192,7 +201,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     };
     
     fetchAvailableDays();
-  }, [selectedPeriodId]);
+  }, [selectedPeriodId, showAllSessions]);
 
   // Fetch available groups when day changes
   useEffect(() => {
@@ -204,7 +213,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         setError(null);
         
         // Fetch sessions for the selected day and period
-        const response = await fetch(`/api/coach-sessions?day_of_week=${selectedDay}&teaching_period_id=${selectedPeriodId}`);
+        const response = await fetch(`/api/coach-sessions?day_of_week=${selectedDay}&teaching_period_id=${selectedPeriodId}&show_all=${showAllSessions}`);
         
         if (!response.ok) {
           throw new Error('Error fetching available groups');
@@ -230,12 +239,8 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         const groups = Object.values(uniqueGroups);
         setAvailableGroups(groups);
         
-        // Select first group by default if available
-        if (groups.length > 0) {
-          setSelectedGroupId(groups[0].id);
-        } else {
-          setSelectedGroupId('');
-        }
+        // Don't select any group by default, coach must select manually
+        setSelectedGroupId('');
         
         // Reset child selections
         setSelectedTimeSlotId('');
@@ -251,7 +256,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     };
     
     fetchAvailableGroups();
-  }, [selectedPeriodId, selectedDay]);
+  }, [selectedPeriodId, selectedDay, showAllSessions]);
 
   // Fetch available time slots when group changes
   useEffect(() => {
@@ -263,7 +268,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         setError(null);
         
         // Fetch sessions for the selected day, group, and period
-        const response = await fetch(`/api/coach-sessions?day_of_week=${selectedDay}&teaching_period_id=${selectedPeriodId}`);
+        const response = await fetch(`/api/coach-sessions?day_of_week=${selectedDay}&teaching_period_id=${selectedPeriodId}&show_all=${showAllSessions}`);
         
         if (!response.ok) {
           throw new Error('Error fetching available time slots');
@@ -300,8 +305,8 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         
         setAvailableTimeSlots(timeSlots);
         
-        // Select first time slot by default if available
-        if (timeSlots.length > 0) {
+        // Only auto-select time slot if there's exactly ONE option available
+        if (timeSlots.length === 1) {
           setSelectedTimeSlotId(timeSlots[0].id);
         } else {
           setSelectedTimeSlotId('');
@@ -309,11 +314,12 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         
         // Set default date to today or next occurrence of the selected day
         const today = new Date();
-        const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         const currentDayIndex = today.getDay();
+        // Adjust for Monday-Sunday ordering (Sunday is 0 in JS but 6 in our array)
+        const adjustedCurrentDayIndex = currentDayIndex === 0 ? 6 : currentDayIndex - 1;
         const selectedDayIndex = daysOfWeek.indexOf(selectedDay);
         
-        let daysToAdd = (selectedDayIndex - currentDayIndex + 7) % 7;
+        let daysToAdd = (selectedDayIndex - adjustedCurrentDayIndex + 7) % 7;
         if (daysToAdd === 0 && today.getHours() >= 19) { 
           // If it's the same day but after 7 PM, use next week
           daysToAdd = 7;
@@ -335,13 +341,17 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     };
     
     fetchAvailableTimeSlots();
-  }, [selectedPeriodId, selectedDay, selectedGroupId]);
+  }, [selectedPeriodId, selectedDay, selectedGroupId, showAllSessions]);
 
-  // Fetch players when time slot is selected
+  // Fetch players when all required criteria are set
   useEffect(() => {
+    // Clear players array if any required selections are missing
+    if (!selectedTimeSlotId || !selectedPeriodId || !selectedGroupId || !selectedDay) {
+      setPlayers([]);
+      return;
+    }
+    
     const fetchPlayers = async () => {
-      if (!selectedTimeSlotId || !selectedPeriodId) return;
-      
       try {
         setLoading(prev => ({ ...prev, players: true }));
         const response = await fetch(`/api/group-time-players?group_time_id=${selectedTimeSlotId}&teaching_period_id=${selectedPeriodId}`);
@@ -381,10 +391,17 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       }
     };
     
-    if (selectedTimeSlotId && selectedPeriodId) {
-      fetchPlayers();
-    }
-  }, [selectedTimeSlotId, selectedPeriodId]);
+    fetchPlayers();
+  }, [selectedTimeSlotId, selectedPeriodId, selectedGroupId, selectedDay]);
+
+  // Handle toggling show all sessions
+  const handleToggleShowAllSessions = () => {
+    setShowAllSessions(prev => !prev);
+    // Reset selections since the available options will change
+    setSelectedDay('');
+    setSelectedGroupId('');
+    setSelectedTimeSlotId('');
+  };
 
   // Handle updating player attendance status
   const updatePlayerAttendance = (playerId: number, status: 'present' | 'absent' | 'sick' | 'away_with_notice') => {
@@ -550,7 +567,30 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <form onSubmit={handleSubmit} className="p-6">
-          <h2 className="text-lg font-medium mb-4">Select Session</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-medium">Select Session</h2>
+            
+            {/* Show All Sessions Toggle */}
+            <div className="flex items-center">
+              <label htmlFor="showAllSessions" className="mr-2 text-sm text-gray-700">
+                {showAllSessions ? 'Showing all sessions' : 'Showing my sessions'}
+              </label>
+              <button
+                type="button"
+                id="showAllSessions"
+                onClick={handleToggleShowAllSessions}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full ${
+                  showAllSessions ? 'bg-blue-600' : 'bg-gray-300'
+                } transition-colors duration-300 focus:outline-none`}
+              >
+                <span 
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-300 ${
+                    showAllSessions ? 'translate-x-6' : 'translate-x-1'
+                  }`} 
+                />
+              </button>
+            </div>
+          </div>
           
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
             {/* Teaching Period Selector */}

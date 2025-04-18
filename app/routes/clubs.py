@@ -3,6 +3,7 @@ import boto3
 from flask import Blueprint, jsonify, request, render_template, flash, redirect, url_for, session, make_response, current_app
 from sqlalchemy import case
 from app import db
+from app.clubs.middleware import verify_club_access
 from app.models import (
     TennisClub, User, TennisGroup, TeachingPeriod, UserRole, Student, 
     ProgrammePlayers, CoachDetails, CoachQualification, CoachRole, CoachInvitation, 
@@ -870,7 +871,7 @@ def manage_groups(club_id):
 
 @club_management.route('/api/groups')
 @login_required
-@admin_required
+@verify_club_access()
 def get_groups():
     """API endpoint for getting all groups in the club"""
     groups = TennisGroup.query.filter_by(
@@ -1683,7 +1684,7 @@ def get_coaches():
 
 @club_management.route('/api/teaching-periods')
 @login_required
-@admin_required
+@verify_club_access()
 def get_teaching_periods():
     """API endpoint for getting all teaching periods in the club"""
     periods = TeachingPeriod.query.filter_by(

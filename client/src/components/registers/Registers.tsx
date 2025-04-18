@@ -48,7 +48,14 @@ const Registers: React.FC = () => {
   const renderView = () => {
     switch (currentView) {
       case RegisterView.LIST:
-        return <RegisterList onNavigate={navigateToDetail} onCreateNew={navigateToCreate} onViewStats={navigateToStats} />;
+        return (
+          <RegisterList 
+            onNavigate={navigateToDetail} 
+            onEdit={navigateToEdit} // Pass direct edit handler
+            onCreateNew={navigateToCreate} 
+            onViewStats={navigateToStats} 
+          />
+        );
       
       case RegisterView.DETAIL:
         return selectedRegisterId ? (
