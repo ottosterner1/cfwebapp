@@ -2085,3 +2085,154 @@ def get_group_times(group_id):
         current_app.logger.error(f"Error fetching group times: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
+    
+@club_management.route('/api/players/bulk-upload/<token>/process', methods=['POST'])
+@login_required
+@admin_required 
+def process_csv_chunk(token):
+    """Process a chunk of the uploaded CSV file"""
+    
+    # Get upload info from session
+    upload_info = session.get('upload_info')
+    if not upload_info or upload_info.get('token') != token:
+        return jsonify({'error': 'Invalid or expired upload token'}), 404
+    
+    # Verify club ownership
+    if upload_info['club_id'] != current_user.tennis_club_id:
+        return jsonify({'error': 'Unauthorized access'}), 403
+    
+    # Check if file exists
+    if not os.path.exists(upload_info['file_path']):
+        if 'upload_info' in session:
+            session.pop('upload_info')
+        return jsonify({'error': 'Upload file not found'}), 404
+    
+    try:
+        # Load CSV
+        try:
+            df = pd.read_csv(upload_info['file_path'], encoding='utf-8')
+        except UnicodeDecodeError:
+            df = pd.read_csv(upload_info['file_path'], encoding='latin-1')
+        
+        # Clean data
+        df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
+        df = df.replace('', pd.NA)
+        
+        # Determine batch size and indices
+        BATCH_SIZE = 25  # Process 25 rows at a time
+        start_idx = upload_info['processed_rows']
+        end_idx = min(start_idx + BATCH_SIZE, upload_info['total_rows'])
+        
+        # Check if already completed
+        if start_idx >= upload_info['total_rows']:
+            # Clean up file
+            if os.path.exists(upload_info['file_path']):
+                os.remove(upload_info['file_path'])
+            
+            # Get final results
+            result = {
+                'status': 'completed',
+                'processed_rows': upload_info['processed_rows'],
+                'total_rows': upload_info['total_rows'],
+                'students_created': upload_info['students_created'],
+                'players_created': upload_info['players_created'],
+                'progress_percentage': 100,
+                'warnings': upload_info['warnings'],
+                'errors': upload_info['errors'],
+                'has_more': False
+            }
+            
+            # Clear session data
+            session.pop('upload_info')
+            
+            return jsonify(result)
+        
+        # Process this batch
+        batch_df = df.iloc[start_idx:end_idx]
+        
+        # Get cached data needed for this batch
+        club_id = upload_info['club_id']
+        teaching_period_id = upload_info['teaching_period_id']
+        
+        # Get coaches and groups
+        coaches = {coach.email.lower(): coach for coach in 
+                 User.query.filter_by(tennis_club_id=club_id).all()}
+        
+        groups = {group.name.lower(): group for group in 
+                 TennisGroup.query.filter_by(tennis_club_id=club_id).all()}
+        
+        # Get teaching period
+        teaching_period = TeachingPeriod.query.get(teaching_period_id)
+        
+        # Process batch with validation and database update
+        batch_results = process_batch(
+            batch_df, 
+            club_id, 
+            teaching_period, 
+            coaches, 
+            groups
+        )
+        
+        # Update progress
+        upload_info['processed_rows'] = end_idx
+        upload_info['students_created'] += batch_results['students_created']
+        upload_info['players_created'] += batch_results['players_created']
+        upload_info['warnings'].extend(batch_results['warnings'])
+        upload_info['errors'].extend(batch_results['errors'])
+        
+        # Calculate progress percentage
+        progress = int((end_idx / upload_info['total_rows']) * 100)
+        
+        # Update session
+        session['upload_info'] = upload_info
+        
+        # Return updated status
+        return jsonify({
+            'status': 'processing',
+            'processed_rows': end_idx,
+            'total_rows': upload_info['total_rows'],
+            'students_created': upload_info['students_created'],
+            'players_created': upload_info['players_created'],
+            'progress_percentage': progress,
+            'warnings': batch_results['warnings'],
+            'errors': batch_results['errors'],
+            'has_more': end_idx < upload_info['total_rows'],
+            'elapsed_time': round(time.time() - upload_info['start_time'])
+        })
+        
+    except Exception as e:
+        # Log error
+        current_app.logger.error(f"Error processing batch: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        
+        # Update errors in session
+        if 'upload_info' in session:
+            upload_info = session['upload_info']
+            upload_info['errors'].append(f"Error processing batch: {str(e)}")
+            session['upload_info'] = upload_info
+        
+        # Return error
+        return jsonify({
+            'status': 'error',
+            'error': f'Error processing batch: {str(e)}',
+            'has_more': False
+        }), 500
+    
+@club_management.route('/api/template/download')
+@login_required
+@admin_required
+def download_template():
+    """API endpoint for downloading the CSV template"""
+    club = TennisClub.query.get_or_404(current_user.tennis_club_id)
+    
+    csv_content = [
+        "student_name,date_of_birth,contact_email,contact_number,emergency_contact_number,medical_information,coach_email,group_name,day_of_week,start_time,end_time,walk_home",
+        "John Smith,05-Nov-2013,parent@example.com,07123456789,07987654321,Asthma,coach@example.com,Red 1,Monday,16:00,17:00,true",
+        "Emma Jones,22-Mar-2014,emma.parent@example.com,07111222333,07444555666,,coach@example.com,Red 2,Tuesday,15:30,16:30,false"
+    ]
+    
+    response = make_response("\n".join(csv_content))
+    response.headers["Content-Type"] = "text/csv"
+    response.headers["Content-Disposition"] = f"attachment; filename=player_template_{club.name.lower().replace(' ', '_')}.csv"
+    
+    return response

@@ -1283,7 +1283,7 @@ const Dashboard = () => {
                                   </a>
                                   {player.can_edit && (
                                   <a
-                                    href={`/reports/${player.report_id}/edit`}
+                                    href={`/api/reports/${player.report_id}/edit`}
                                     className={`inline-flex items-center px-3 py-2 border shadow-sm text-sm font-medium rounded-md bg-white ${
                                       player.has_draft 
                                         ? 'border-indigo-300 text-indigo-700 hover:bg-indigo-50' 
@@ -1298,7 +1298,7 @@ const Dashboard = () => {
                                 // For reports that don't exist yet
                                 player.can_edit && player.has_template ? (
                                   <a 
-                                    href={`/report/new/${player.id}`}
+                                    href={`/api/report/new/${player.id}`}
                                     className="inline-flex items-center px-3 py-2 border border-green-300 shadow-sm text-sm font-medium rounded-md text-green-700 bg-white hover:bg-green-50"
                                   >
                                     Create Report

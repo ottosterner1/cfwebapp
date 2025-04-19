@@ -391,67 +391,6 @@ def submit_report(player_id):
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 400
 
-@report_routes.route('/reports/<int:report_id>/finalise', methods=['PUT'])
-@login_required
-@verify_club_access()
-def finalise_report(report_id):
-    """Convert a draft report to a final submission"""
-    report = Report.query.get_or_404(report_id)
-    
-    # Check permissions
-    if not current_user.is_admin and report.coach_id != current_user.id:
-        return jsonify({'error': 'Permission denied'}), 403
-        
-    if not report.is_draft:
-        return jsonify({'error': 'This report is already finalised'}), 400
-        
-    try:
-        data = request.get_json()
-        
-        # Extract and validate recommendedGroupId
-        recommended_group_id = data.get('recommendedGroupId')
-        
-        if not recommended_group_id:
-            return jsonify({'error': 'Recommended group is required'}), 400
-            
-        # Validate that the recommended group exists and belongs to the same club
-        recommended_group = TennisGroup.query.filter_by(
-            id=recommended_group_id,
-            tennis_club_id=report.student.tennis_club_id
-        ).first()
-        
-        if not recommended_group:
-            return jsonify({'error': 'Invalid recommended group'}), 400
-            
-        # Update report content if provided
-        if 'content' in data:
-            report.content = data['content']
-            
-        # Update recommended group
-        report.recommended_group_id = recommended_group_id
-        
-        # Mark as final submission
-        report.is_draft = False
-        report.date = datetime.utcnow()
-        
-        # Mark the programme player as having a submitted report
-        programme_player = ProgrammePlayers.query.get(report.programme_player_id)
-        if programme_player:
-            programme_player.report_submitted = True
-        
-        db.session.commit()
-        
-        return jsonify({
-            'message': 'Report finalised successfully',
-            'report_id': report.id
-        })
-        
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error finalising report: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
 @report_routes.route('/reports/template/<int:player_id>', methods=['GET'])
 @login_required
 def get_report_template(player_id):
@@ -1135,7 +1074,7 @@ def delete_report(report_id):
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
     
-@report_routes.route('/report/new/<int:player_id>', methods=['POST'])
+@report_routes.route('/report/new/<int:player_id>', methods=['GET','POST'])
 @login_required
 @verify_club_access()
 def new_report(player_id):
@@ -1161,3 +1100,17 @@ def new_report(player_id):
                          player_id=player_id,
                          student_name=player.student.name,
                          group_name=player.tennis_group.name)
+
+@report_routes.route('/reports/<int:report_id>/edit')
+@login_required
+@verify_club_access()
+def edit_report_page(report_id):
+    """Render the edit report page"""
+    report = Report.query.get_or_404(report_id)
+    
+    # Check permissions
+    if not current_user.is_admin and report.coach_id != current_user.id:
+        flash('You do not have permission to edit this report', 'error')
+        return redirect(url_for('main.dashboard'))
+        
+    return render_template('pages/edit_report.html', report_id=report_id)
