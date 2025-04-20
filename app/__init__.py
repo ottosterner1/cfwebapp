@@ -63,11 +63,8 @@ def register_extensions(app):
 
 def register_blueprints(app):
     """Register Flask blueprints."""
-    from app.routes import main
-    from app.clubs.routes import club_management
-    
-    app.register_blueprint(main)
-    app.register_blueprint(club_management, url_prefix='/clubs')
+    from app.routes import register_routes
+    register_routes(app)
 
 def configure_login_manager(app):
     """Configure the Flask-Login extension."""

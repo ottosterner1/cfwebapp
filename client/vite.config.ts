@@ -45,7 +45,11 @@ export default defineConfig({
         programme_management: path.resolve(__dirname, 'src/entry/programme_management.tsx'),
         edit_programme_player: path.resolve(__dirname, 'src/entry/edit_programme_player.tsx'),
         add_programme_player: path.resolve(__dirname, 'src/entry/add_programme_player.tsx'),
-        super_admin_dashboard: path.resolve(__dirname, 'src/entry/super_admin_dashboard.tsx')
+        super_admin_dashboard: path.resolve(__dirname, 'src/entry/super_admin_dashboard.tsx'),
+        registers: path.resolve(__dirname, 'src/entry/registers.tsx'),
+        create_register: path.resolve(__dirname, 'src/entry/create_register.tsx'),
+        edit_register: path.resolve(__dirname, 'src/entry/edit_register.tsx'),
+        view_register: path.resolve(__dirname, 'src/entry/view_register.tsx')
       }
     }
   }

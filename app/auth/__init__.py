@@ -1,3 +1,4 @@
+import os
 from authlib.integrations.flask_client import OAuth
 from authlib.jose import jwk
 from flask import current_app
@@ -18,6 +19,7 @@ def fetch_jwks(jwks_uri):
         return None
 
 def init_oauth(app):
+
     oauth.init_app(app)
 
     try:

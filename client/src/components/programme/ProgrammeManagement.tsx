@@ -241,17 +241,6 @@ const PlayersList: React.FC<{
                           <span className="font-medium text-gray-900">
                             {player.student_name}
                           </span>
-                          <span className="ml-2">
-                            {player.report_submitted ? (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                Completed Report
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                                Pending Report
-                              </span>
-                            )}
-                          </span>
                         </div>
                         {player.can_edit && (
                           <div className="flex space-x-2">

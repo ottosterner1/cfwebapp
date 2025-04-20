@@ -431,6 +431,13 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
                   <li>start_time (HH:MM format)</li>
                   <li>end_time (HH:MM format)</li>
                 </ul>
+                <p className="mt-2">Optional columns:</p>
+                <ul className="list-disc pl-5 mt-1">
+                  <li>contact_number</li>
+                  <li>emergency_contact_number</li>
+                  <li>medical_information</li>
+                  <li>walk_home (true/false)</li>
+                </ul>
                 <div className="mt-2">
                   <a
                     href="/clubs/api/template/download"

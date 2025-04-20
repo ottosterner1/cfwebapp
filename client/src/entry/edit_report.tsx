@@ -192,7 +192,7 @@ const EditReportApp: React.FC = () => {
       // If not a draft, redirect to view page after a short delay
       if (!formData.is_draft) {
         setTimeout(() => {
-          window.location.href = `/reports/${reportId}`;
+          window.location.href = `/api/reports/${reportId}`;
         }, 1500);
       }
     } catch (err) {
@@ -210,7 +210,7 @@ const EditReportApp: React.FC = () => {
       return;
     }
 
-    fetch(`/reports/delete/${reportId}`, { method: 'POST' })
+    fetch(`/api/reports/delete/${reportId}`, { method: 'POST' })
       .then(response => {
         if (!response.ok) {
           throw new Error('Failed to delete report');
@@ -276,14 +276,14 @@ const EditReportApp: React.FC = () => {
         
         <div className="mt-6 flex gap-4">
           <a 
-            href={`/reports/${submissionResult.report_id}`} 
+            href={`/api/reports/${submissionResult.report_id}`} 
             className={`px-4 py-2 rounded-md ${submissionResult.status === 'draft' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}
           >
             View Report
           </a>
           {submissionResult.status === 'draft' && (
             <a 
-              href={`/reports/${submissionResult.report_id}/edit`} 
+              href={`/api/reports/${submissionResult.report_id}/edit`} 
               className="px-4 py-2 bg-blue-100 text-blue-800 rounded-md"
             >
               Continue Editing
