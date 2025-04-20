@@ -1,5 +1,3 @@
-// client/src/components/registers/CreateRegister.tsx
-
 import React, { useState, useEffect } from 'react';
 
 interface TeachingPeriod {
@@ -457,6 +455,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     
     try {
       setLoading(prev => ({ ...prev, creating: true }));
+      setError(null);
       
       // First create the register
       const createResponse = await fetch('/api/registers', {
@@ -472,32 +471,47 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         }),
       });
       
-      if (!createResponse.ok) {
-        const errorData = await createResponse.json();
+      const data = await createResponse.json();
+      
+      // Special handling for conflict (register already exists)
+      if (createResponse.status === 409 && data.register_id) {
+        // Instead of trying to update the existing register (which might fail with permission denied),
+        // ask the user if they want to view the existing register
         
-        // Special handling for conflict (register already exists)
-        if (createResponse.status === 409 && errorData.register_id) {
-          // If we have players with attendance data, update the existing register
-          if (players.length > 0) {
-            await updateRegisterEntries(errorData.register_id);
-          }
-          
-          setSuccessMessage('Register updated successfully.');
-          setTimeout(() => {
-            onCreateSuccess(errorData.register_id.toString());
-          }, 1500);
-          return;
+        setLoading(prev => ({ ...prev, creating: false }));
+        
+        const groupInfo = availableGroups.find(g => g.id === selectedGroupId)?.name || 'this group';
+        const message = `A register already exists for ${groupInfo} on ${new Date(selectedDate).toLocaleDateString()}`;
+        
+        // Offer to view the existing register
+        if (window.confirm(`${message}. Would you like to view the existing register?`)) {
+          onNavigate(`/registers/${data.register_id}`);
         }
         
-        throw new Error(errorData.error || `Error creating register: ${createResponse.statusText}`);
+        return;
       }
       
-      const createData = await createResponse.json();
-      const registerId = createData.register_id;
+      if (!createResponse.ok) {
+        throw new Error(data.error || `Error creating register: ${createResponse.statusText}`);
+      }
+      
+      const registerId = data.register_id;
       
       // If we have players with attendance data, update the register entries
       if (players.length > 0) {
-        await updateRegisterEntries(registerId);
+        try {
+          await updateRegisterEntries(registerId);
+        } catch (error) {
+          // If updating entries fails, still allow viewing the register
+          console.error('Error updating register entries:', error);
+          
+          setSuccessMessage('Register created, but there was an error updating attendance data.');
+          setTimeout(() => {
+            onCreateSuccess(registerId.toString());
+          }, 1500);
+          
+          return;
+        }
       }
       
       setSuccessMessage('Register created and attendance recorded successfully');

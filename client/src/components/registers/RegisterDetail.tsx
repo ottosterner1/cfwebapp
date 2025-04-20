@@ -56,6 +56,21 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Function to normalize attendance status values
+  const normalizeAttendanceStatus = (status: string): AttendanceStatus => {
+    // Convert to lowercase and remove any spaces or special characters
+    const normalizedStatus = String(status).toLowerCase().trim();
+    
+    // Map to one of the valid AttendanceStatus types
+    if (normalizedStatus === 'present') return 'present';
+    if (normalizedStatus === 'absent') return 'absent';
+    if (normalizedStatus === 'sick') return 'sick';
+    if (normalizedStatus.includes('away') || normalizedStatus.includes('notice')) return 'away_with_notice';
+    
+    // Default fallback
+    return 'absent';
+  };
+
   useEffect(() => {
     const fetchRegister = async () => {
       try {
@@ -67,6 +82,15 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
         }
         
         const data = await response.json();
+        
+        // Normalize attendance status values in entries
+        if (data.entries) {
+          data.entries = data.entries.map((entry: any) => ({
+            ...entry,
+            attendance_status: normalizeAttendanceStatus(entry.attendance_status)
+          }));
+        }
+        
         setRegister(data);
         setError(null);
       } catch (err) {
@@ -92,34 +116,58 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
     });
   };
 
+  // Format attendance status for display
+  const formatAttendanceStatus = (status: AttendanceStatus): string => {
+    switch(status) {
+      case 'present':
+        return 'Present';
+      case 'absent':
+        return 'Absent';
+      case 'away_with_notice':
+        return 'Away With Notice';
+      case 'sick':
+        return 'Sick';
+      default:
+        // Use type assertion to handle the TypeScript error
+        const statusString = status as unknown as string;
+        if (typeof statusString === 'string') {
+          return statusString.charAt(0).toUpperCase() + 
+                 statusString.slice(1).replace(/_/g, ' ');
+        }
+        return 'Unknown';
+    }
+  };
+
   // Get attendance status class and color
   const getStatusClassAndIcon = (status: AttendanceStatus) => {
-    switch (status) {
-      case 'present':
-        return {
-          className: 'bg-green-100 text-green-800 border-green-500',
-          icon: '✓'
-        };
-      case 'absent':
-        return {
-          className: 'bg-red-100 text-red-800 border-red-500',
-          icon: '✗'
-        };
-      case 'away_with_notice':
-        return {
-          className: 'bg-yellow-100 text-yellow-800 border-yellow-500',
-          icon: '⏱'
-        };
-      case 'sick':
-        return {
-          className: 'bg-blue-100 text-blue-800 border-blue-500',
-          icon: '!'
-        };
-      default:
-        return {
-          className: 'bg-gray-100 text-gray-800 border-gray-500',
-          icon: '?'
-        };
+    // Normalize the status to handle any potential variations
+    const normalizedStatus = String(status).toLowerCase().trim();
+    
+    if (normalizedStatus === 'present') {
+      return {
+        className: 'bg-green-100 text-green-800 border-green-500',
+        icon: '✓'
+      };
+    } else if (normalizedStatus === 'absent') {
+      return {
+        className: 'bg-red-100 text-red-800 border-red-500',
+        icon: '✗'
+      };
+    } else if (normalizedStatus.includes('away') || normalizedStatus.includes('notice')) {
+      return {
+        className: 'bg-yellow-100 text-yellow-800 border-yellow-500',
+        icon: '⚠'
+      };
+    } else if (normalizedStatus === 'sick') {
+      return {
+        className: 'bg-blue-100 text-blue-800 border-blue-500',
+        icon: '🤒'
+      };
+    } else {
+      return {
+        className: 'bg-gray-100 text-gray-800 border-gray-500',
+        icon: '?'
+      };
     }
   };
 
@@ -134,21 +182,24 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
     };
     
     entries.forEach(entry => {
-      if (entry.attendance_status === 'present') counts.present++;
-      else if (entry.attendance_status === 'absent') counts.absent++;
-      else if (entry.attendance_status === 'away_with_notice') counts.away_with_notice++;
-      else if (entry.attendance_status === 'sick') counts.sick++;
+      const status = normalizeAttendanceStatus(entry.attendance_status as string);
+      if (status === 'present') counts.present++;
+      else if (status === 'absent') counts.absent++;
+      else if (status === 'away_with_notice') counts.away_with_notice++;
+      else if (status === 'sick') counts.sick++;
     });
     
     return counts;
   };
 
-  // Calculate attendance rate
+  // Calculate attendance rate - only counting PRESENT as attendance
   const calculateAttendanceRate = (entries: RegisterEntry[] = []) => {
     if (entries.length === 0) return 0;
     
     const counts = calculateAttendanceCounts(entries);
-    return Math.round(((counts.present + counts.away_with_notice) / counts.total) * 100);
+    const rate = Math.round((counts.present / counts.total) * 100);
+    
+    return rate;
   };
 
   if (loading) {
@@ -284,6 +335,9 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
             ></div>
           </div>
         </div>
+        <div className="mt-2 text-xs text-gray-500">
+          <p>* Attendance rate is calculated based on present students only</p>
+        </div>
       </div>
 
       {/* Attendance list */}
@@ -320,7 +374,7 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${className}`}>
                           <span className="mr-1">{icon}</span>
-                          {entry.attendance_status.charAt(0).toUpperCase() + entry.attendance_status.slice(1)}
+                          {formatAttendanceStatus(entry.attendance_status)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-pre-wrap">

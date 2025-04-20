@@ -17,6 +17,7 @@ export interface Register {
   date: string;
   group_name: string;
   coach_name: string;
+  coach_id: number; 
   time_slot: {
     day: string;
     start_time: string;

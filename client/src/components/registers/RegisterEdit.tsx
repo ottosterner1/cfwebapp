@@ -23,6 +23,21 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Function to normalize attendance status values
+  const normalizeAttendanceStatus = (status: string): AttendanceStatus => {
+    // Convert to lowercase and remove any spaces or special characters
+    const normalizedStatus = String(status).toLowerCase().trim();
+    
+    // Map to one of the valid AttendanceStatus types
+    if (normalizedStatus === 'present') return 'present';
+    if (normalizedStatus === 'absent') return 'absent';
+    if (normalizedStatus === 'sick') return 'sick';
+    if (normalizedStatus.includes('away') || normalizedStatus.includes('notice')) return 'away_with_notice';
+    
+    // Default fallback
+    return 'absent';
+  };
+
   useEffect(() => {
     const fetchRegister = async () => {
       try {
@@ -34,6 +49,15 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
         }
         
         const data = await response.json();
+        
+        // Normalize attendance status values in entries
+        if (data.entries) {
+          data.entries = data.entries.map((entry: any) => ({
+            ...entry,
+            attendance_status: normalizeAttendanceStatus(entry.attendance_status)
+          }));
+        }
+        
         setRegister(data);
         setNotes(data.notes || '');
         setError(null);
@@ -103,7 +127,6 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
             id: entry.id,
             attendance_status: entry.attendance_status,
             notes: entry.notes,
-            // We still need to send this even if we don't show it in UI
             predicted_attendance: entry.predicted_attendance 
           }))
         })
@@ -134,6 +157,15 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
       const refreshResponse = await fetch(`/api/registers/${registerId}`);
       if (refreshResponse.ok) {
         const updatedData = await refreshResponse.json();
+        
+        // Normalize attendance status values in refreshed data
+        if (updatedData.entries) {
+          updatedData.entries = updatedData.entries.map((entry: any) => ({
+            ...entry,
+            attendance_status: normalizeAttendanceStatus(entry.attendance_status)
+          }));
+        }
+        
         setRegister(updatedData);
       }
       
@@ -195,6 +227,20 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
     }));
     
     setRegister({ ...register, entries: updatedEntries });
+  };
+
+  // Helper function to check if a status is selected
+  const isStatusSelected = (entryStatus: AttendanceStatus, buttonStatus: AttendanceStatus): boolean => {
+    const normalizedEntryStatus = String(entryStatus).toLowerCase().trim();
+    const normalizedButtonStatus = String(buttonStatus).toLowerCase().trim();
+    
+    if (normalizedButtonStatus === 'away_with_notice') {
+      return normalizedEntryStatus === 'away_with_notice' || 
+             normalizedEntryStatus.includes('away') || 
+             normalizedEntryStatus.includes('notice');
+    }
+    
+    return normalizedEntryStatus === normalizedButtonStatus;
   };
 
   if (loading) {
@@ -323,7 +369,7 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
                   <button
                     type="button"
                     className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
-                      entry.attendance_status === 'present' 
+                      isStatusSelected(entry.attendance_status, 'present')
                         ? 'bg-green-100 border-green-500 text-green-800' 
                         : 'bg-gray-100 border-gray-300 text-gray-800'
                     }`}
@@ -334,7 +380,7 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
                   <button
                     type="button"
                     className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
-                      entry.attendance_status === 'absent' 
+                      isStatusSelected(entry.attendance_status, 'absent')
                         ? 'bg-red-100 border-red-500 text-red-800' 
                         : 'bg-gray-100 border-gray-300 text-gray-800'
                     }`}
@@ -345,7 +391,7 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
                   <button
                     type="button"
                     className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
-                      entry.attendance_status === 'away_with_notice' 
+                      isStatusSelected(entry.attendance_status, 'away_with_notice')
                         ? 'bg-yellow-100 border-yellow-500 text-yellow-800' 
                         : 'bg-gray-100 border-gray-300 text-gray-800'
                     }`}
@@ -356,7 +402,7 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
                   <button
                     type="button"
                     className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
-                      entry.attendance_status === 'sick' 
+                      isStatusSelected(entry.attendance_status, 'sick')
                         ? 'bg-blue-100 border-blue-500 text-blue-800' 
                         : 'bg-gray-100 border-gray-300 text-gray-800'
                     }`}

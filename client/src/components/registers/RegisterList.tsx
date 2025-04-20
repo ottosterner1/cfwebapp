@@ -13,9 +13,19 @@ interface Group {
   name: string;
 }
 
+interface Coach {
+  id: number;
+  name: string;
+}
+
+interface UserInfo {
+  is_admin: boolean;
+  coach_id?: number;
+}
+
 interface RegisterListProps {
   onNavigate: (registerId: string) => void;
-  onEdit: (registerId: string) => void; // New prop for direct editing
+  onEdit: (registerId: string) => void;
   onCreateNew: () => void;
   onViewStats: () => void;
   periodId?: number;
@@ -33,7 +43,12 @@ const RegisterList: React.FC<RegisterListProps> = ({
   // State for data
   const [registers, setRegisters] = useState<Register[]>([]);
   const [allRegisters, setAllRegisters] = useState<Register[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState({
+    periods: true,
+    groups: false,
+    coaches: true,
+    registers: true
+  });
   const [error, setError] = useState<string | null>(null);
   
   // State for filter options
@@ -42,11 +57,15 @@ const RegisterList: React.FC<RegisterListProps> = ({
   const [periodsError, setPeriodsError] = useState<string | null>(null);
   
   const [groups, setGroups] = useState<Group[]>([]);
+  const [coaches, setCoaches] = useState<Coach[]>([]);
+  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+  const [loadingUserInfo, setLoadingUserInfo] = useState(true);
   
   // State for selected filters
   const [selectedPeriod, setSelectedPeriod] = useState<number | undefined>(initialPeriodId);
   const [selectedGroup, setSelectedGroup] = useState<number | undefined>(initialGroupId);
   const [selectedDay, setSelectedDay] = useState<string>('');
+  const [selectedCoach, setSelectedCoach] = useState<number | undefined>(undefined);
   const [selectedSession, setSelectedSession] = useState<string>('');
   
   // State for filter visibility on mobile
@@ -72,6 +91,64 @@ const RegisterList: React.FC<RegisterListProps> = ({
     });
     return Array.from(sessions).sort();
   }, [allRegisters]);
+
+  // Load user info
+  useEffect(() => {
+    const fetchUserInfo = async () => {
+      try {
+        setLoadingUserInfo(true);
+        
+        const response = await fetch('/api/user/info');
+        if (!response.ok) {
+          throw new Error(`Failed to fetch user info: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        setUserInfo(data);
+        
+        // If user is a coach, set the selected coach filter to their ID
+        if (!data.is_admin && data.coach_id) {
+          setSelectedCoach(data.coach_id);
+        }
+      } catch (err) {
+        console.error('Error fetching user info:', err);
+      } finally {
+        setLoadingUserInfo(false);
+      }
+    };
+    
+    fetchUserInfo();
+  }, []);
+
+  // Load coaches
+  useEffect(() => {
+    const fetchCoaches = async () => {
+      try {
+        setLoading(prev => ({ ...prev, coaches: true }));
+        
+        const response = await fetch('/api/coaches'); // Fixed URL
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch coaches: ${response.status} ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!Array.isArray(data)) {
+          console.warn('Expected array of coaches but got:', data);
+          setCoaches([]);
+        } else {
+          setCoaches(data);
+        }
+      } catch (err) {
+        console.error('Error fetching coaches:', err);
+      } finally {
+        setLoading(prev => ({ ...prev, coaches: false }));
+      }
+    };
+    
+    fetchCoaches();
+  }, []);
 
   // Load teaching periods
   useEffect(() => {
@@ -108,12 +185,15 @@ const RegisterList: React.FC<RegisterListProps> = ({
   useEffect(() => {
     const fetchGroups = async () => {
       try {
+        setLoading(prev => ({ ...prev, groups: true }));
         const response = await fetch('/clubs/api/groups');
         if (!response.ok) throw new Error('Failed to fetch groups');
         const data = await response.json();
         setGroups(data);
       } catch (err) {
         console.error('Error fetching groups:', err);
+      } finally {
+        setLoading(prev => ({ ...prev, groups: false }));
       }
     };
     
@@ -124,7 +204,7 @@ const RegisterList: React.FC<RegisterListProps> = ({
   useEffect(() => {
     const fetchRegisters = async () => {
       try {
-        setLoading(true);
+        setLoading(prev => ({ ...prev, registers: true }));
         setError(null);
         
         // Build query params
@@ -146,7 +226,24 @@ const RegisterList: React.FC<RegisterListProps> = ({
         }
         
         const data = await response.json();
-        setAllRegisters(data);
+        
+        // Update the attendance rate calculation for each register to only count "present" as attendance
+        const updatedData = data.map((register: Register) => {
+          // Calculate new attendance rate - Only counting "present" as attendance
+          const total = register.stats.total;
+          const presentCount = register.stats.present;
+          const attendanceRate = total > 0 ? Math.round((presentCount / total) * 100 * 10) / 10 : 0;
+          
+          return {
+            ...register,
+            stats: {
+              ...register.stats,
+              attendance_rate: attendanceRate
+            }
+          };
+        });
+        
+        setAllRegisters(updatedData);
       } catch (err) {
         console.error('Error fetching registers:', err);
         const errorMessage = 
@@ -157,7 +254,7 @@ const RegisterList: React.FC<RegisterListProps> = ({
               : 'An error occurred';
         setError(errorMessage);
       } finally {
-        setLoading(false);
+        setLoading(prev => ({ ...prev, registers: false }));
       }
     };
     
@@ -165,7 +262,7 @@ const RegisterList: React.FC<RegisterListProps> = ({
       fetchRegisters();
     } else {
       // If no period is selected, clear loading state to avoid eternal spinner
-      setLoading(false);
+      setLoading(prev => ({ ...prev, registers: false }));
     }
   }, [selectedPeriod]);
 
@@ -189,6 +286,13 @@ const RegisterList: React.FC<RegisterListProps> = ({
       );
     }
     
+    // Apply coach filter
+    if (selectedCoach) {
+      filteredData = filteredData.filter(register => 
+        register.coach_id === selectedCoach
+      );
+    }
+    
     // Apply session filter
     if (selectedSession) {
       filteredData = filteredData.filter(register => 
@@ -197,7 +301,7 @@ const RegisterList: React.FC<RegisterListProps> = ({
     }
     
     setRegisters(filteredData);
-  }, [allRegisters, selectedGroup, selectedDay, selectedSession, groups]);
+  }, [allRegisters, selectedGroup, selectedDay, selectedCoach, selectedSession, groups]);
 
   // Format date to a more readable format
   const formatDate = (dateString: string) => {
@@ -228,6 +332,11 @@ const RegisterList: React.FC<RegisterListProps> = ({
     setSelectedDay(e.target.value);
   };
 
+  const handleCoachChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value;
+    setSelectedCoach(value ? Number(value) : undefined);
+  };
+
   const handleSessionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setSelectedSession(e.target.value);
   };
@@ -237,11 +346,20 @@ const RegisterList: React.FC<RegisterListProps> = ({
     setSelectedGroup(undefined);
     setSelectedDay('');
     setSelectedSession('');
+    // Only reset coach filter if user is admin
+    if (userInfo?.is_admin) {
+      setSelectedCoach(undefined);
+    }
   };
 
   // Toggle filter visibility on mobile
   const toggleFilters = () => {
     setShowFilters(prev => !prev);
+  };
+
+  // Calculate total absences (including sick and away with notice)
+  const getTotalAbsences = (register: Register) => {
+    return register.stats.absent + register.stats.sick + register.stats.away_with_notice;
   };
 
   // Handle case where we have no teaching periods
@@ -324,7 +442,7 @@ const RegisterList: React.FC<RegisterListProps> = ({
           </button>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {/* Term Filter */}
           <div>
             <label htmlFor="period" className="block text-sm font-medium text-gray-700 mb-1">
@@ -362,6 +480,34 @@ const RegisterList: React.FC<RegisterListProps> = ({
             </select>
           </div>
           
+          {/* Coach Filter */}
+          <div>
+            <label htmlFor="coach" className="block text-sm font-medium text-gray-700 mb-1">
+              Coach
+            </label>
+            <select
+              id="coach"
+              value={selectedCoach || ''}
+              onChange={handleCoachChange}
+              disabled={!userInfo?.is_admin || loadingUserInfo}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100"
+            >
+              <option value="">All Coaches</option>
+              {coaches.map(coach => (
+                <option key={coach.id} value={coach.id}>{coach.name}</option>
+              ))}
+            </select>
+            {loadingUserInfo ? (
+              <div className="text-xs text-gray-500 mt-1">Loading user info...</div>
+            ) : loading.coaches ? (
+              <div className="text-xs text-gray-500 mt-1">Loading coaches...</div>
+            ) : coaches.length === 0 ? (
+              <div className="text-xs text-yellow-600 mt-1">
+                No coaches found for your tennis club
+              </div>
+            ) : null}
+          </div>
+          
           {/* Group Filter */}
           <div>
             <label htmlFor="group" className="block text-sm font-medium text-gray-700 mb-1">
@@ -378,6 +524,9 @@ const RegisterList: React.FC<RegisterListProps> = ({
                 <option key={group.id} value={group.id}>{group.name}</option>
               ))}
             </select>
+            {loading.groups && (
+              <div className="text-xs text-gray-500 mt-1">Loading groups...</div>
+            )}
           </div>
           
           {/* Session Filter */}
@@ -402,7 +551,7 @@ const RegisterList: React.FC<RegisterListProps> = ({
 
       {/* Result display */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        {loading ? (
+        {loading.registers ? (
           <div className="flex justify-center items-center h-32">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-700"></div>
           </div>
@@ -411,7 +560,7 @@ const RegisterList: React.FC<RegisterListProps> = ({
         ) : registers.length === 0 ? (
           <div className="p-6 text-center text-gray-500">
             <p className="mb-2">No registers found matching your criteria.</p>
-            {selectedPeriod || selectedGroup || selectedDay || selectedSession ? (
+            {selectedPeriod || selectedGroup || selectedDay || selectedCoach || selectedSession ? (
               <button
                 onClick={handleResetFilters}
                 className="text-sm text-blue-600 hover:text-blue-800 underline"
@@ -447,7 +596,13 @@ const RegisterList: React.FC<RegisterListProps> = ({
                       Coach
                     </th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Attendance
+                      Present
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Absent
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Attendance Rate
                     </th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
@@ -468,6 +623,12 @@ const RegisterList: React.FC<RegisterListProps> = ({
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {register.coach_name}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {register.stats.present} / {register.stats.total}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-red-600">
+                        {getTotalAbsences(register)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
@@ -537,6 +698,10 @@ const RegisterList: React.FC<RegisterListProps> = ({
                     {register.time_slot.day} {register.time_slot.start_time}-{register.time_slot.end_time}
                   </div>
                   <div className="mt-1 text-sm text-gray-500">Coach: {register.coach_name}</div>
+                  <div className="mt-1 text-sm">
+                    <span className="text-green-600">Present: {register.stats.present}</span> / 
+                    <span className="text-red-600"> Absent: {getTotalAbsences(register)}</span>
+                  </div>
                   <div className="mt-2 flex items-center">
                     <span className="text-xs text-gray-500 mr-2">Attendance:</span>
                     <div className="flex-grow bg-gray-200 rounded-full h-2">
@@ -561,10 +726,10 @@ const RegisterList: React.FC<RegisterListProps> = ({
       </div>
       
       {/* Results summary */}
-      {!loading && !error && registers.length > 0 && (
+      {!loading.registers && !error && registers.length > 0 && (
         <div className="bg-white p-4 rounded-lg shadow text-sm text-gray-500">
           Showing {registers.length} {registers.length === 1 ? 'register' : 'registers'}
-          {(selectedPeriod || selectedGroup || selectedDay || selectedSession) && ' with applied filters'}
+          {(selectedPeriod || selectedGroup || selectedDay || selectedCoach || selectedSession) && ' with applied filters'}
         </div>
       )}
     </div>

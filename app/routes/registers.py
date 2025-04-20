@@ -18,6 +18,35 @@ register_routes = Blueprint('registers', __name__, url_prefix='/api')
 # View routes for HTML pages
 register_views = Blueprint('register_views', __name__, url_prefix='/registers')
 
+
+def serialize_attendance_status(status):
+    """
+    Convert AttendanceStatus to consistent string format for API responses.
+    Handles both enum instances and string values.
+    
+    Args:
+        status: An AttendanceStatus enum or string
+        
+    Returns:
+        Lowercase string value with underscores (e.g., 'away_with_notice')
+    """
+    if hasattr(status, 'value'):  # If it's an enum instance
+        return status.value
+    elif isinstance(status, str):
+        # If it's already the correct format, just return it
+        if status.lower() in [e.value for e in AttendanceStatus]:
+            return status.lower()
+        
+        # Try to match by enum name (e.g., "AWAY_WITH_NOTICE")
+        try:
+            return AttendanceStatus[status.upper()].value
+        except (KeyError, AttributeError):
+            # Fallback - convert to lowercase with underscores
+            return status.lower().replace(' ', '_')
+    
+    # Last resort fallback
+    return str(status).lower().replace(' ', '_')
+
 # =========================================================
 # VIEW ROUTES - For rendering HTML templates
 # =========================================================
@@ -73,20 +102,37 @@ def get_registers():
         # Parse query parameters
         teaching_period_id = request.args.get('period_id', type=int)
         group_id = request.args.get('group_id', type=int)
+        day_of_week = request.args.get('day_of_week')
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         coach_id = request.args.get('coach_id', type=int)
         
-        # Start with base query
-        query = Register.query.filter_by(tennis_club_id=current_user.tennis_club_id)
+        # Start with base query - be explicit about the model being queried
+        query = Register.query.filter(Register.tennis_club_id == current_user.tennis_club_id)
         
-        # Apply filters
+        # Apply filters - scope them correctly to the appropriate tables
         if teaching_period_id:
-            query = query.filter_by(teaching_period_id=teaching_period_id)
+            query = query.filter(Register.teaching_period_id == teaching_period_id)
+        
+        # Join with group_time for group and day filtering
+        if group_id or day_of_week:
+            query = query.join(TennisGroupTimes, Register.group_time_id == TennisGroupTimes.id)
             
-        if group_id:
-            query = query.join(TennisGroupTimes).filter(TennisGroupTimes.group_id == group_id)
-            
+            if group_id:
+                query = query.filter(TennisGroupTimes.group_id == group_id)
+                
+            if day_of_week:
+                from app.models.base import DayOfWeek
+                try:
+                    # Try to match by enum name (uppercase input expected)
+                    day_enum = DayOfWeek[day_of_week.upper()]
+                    query = query.filter(TennisGroupTimes.day_of_week == day_enum)
+                except KeyError:
+                    # Try to match by enum value (case insensitive)
+                    day_enum = next((day for day in DayOfWeek if day.value.upper() == day_of_week.upper()), None)
+                    if day_enum:
+                        query = query.filter(TennisGroupTimes.day_of_week == day_enum)
+        
         if start_date:
             try:
                 start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
@@ -101,11 +147,12 @@ def get_registers():
             except ValueError:
                 pass
                 
-        # Coach filter - admin can see all, coach can only see their own
-        if not current_user.is_admin:
-            query = query.filter_by(coach_id=current_user.id)
+        # Coach filter - admin/super_admin can see all, coach can only see their own
+        if not (current_user.is_admin or current_user.is_super_admin):
+            # Apply filter to Register.coach_id, not TennisGroupTimes
+            query = query.filter(Register.coach_id == current_user.id)
         elif coach_id:  # Admin filtering by specific coach
-            query = query.filter_by(coach_id=coach_id)
+            query = query.filter(Register.coach_id == coach_id)
         
         # Order by date (most recent first)
         registers = query.order_by(Register.date.desc()).all()
@@ -122,19 +169,25 @@ def get_registers():
             # Get group info from the group time
             group_name = register.group_time.tennis_group.name if register.group_time else "Unknown Group"
             
-            # Calculate attendance rate
+            # Calculate attendance rate - UPDATED: Only count PRESENT as attendance
             total_entries = len(register.entries)
-            attendance_rate = round((present_count + away_with_notice_count) / total_entries * 100, 1) if total_entries > 0 else 0
+            # Changed calculation to only count present (not away_with_notice)
+            attendance_rate = round((present_count / total_entries * 100), 1) if total_entries > 0 else 0
+            
+            # Add day of week info
+            day_of_week = register.group_time.day_of_week.value if register.group_time and register.group_time.day_of_week else None
             
             results.append({
                 'id': register.id,
                 'date': register.date.isoformat(),
                 'group_name': group_name,
+                'group_id': register.group_time.group_id if register.group_time else None,
                 'coach_name': register.coach.name,
+                'coach_id': register.coach_id,
                 'time_slot': {
-                    'day': register.group_time.day_of_week.value if register.group_time else None,
-                    'start_time': register.group_time.start_time.strftime('%H:%M') if register.group_time else None,
-                    'end_time': register.group_time.end_time.strftime('%H:%M') if register.group_time else None
+                    'day': day_of_week,
+                    'start_time': register.group_time.start_time.strftime('%H:%M') if register.group_time and register.group_time.start_time else None,
+                    'end_time': register.group_time.end_time.strftime('%H:%M') if register.group_time and register.group_time.end_time else None
                 },
                 'stats': {
                     'total': total_entries,
@@ -176,11 +229,12 @@ def get_register(register_id):
             student = player.student if player else None
             
             if student:
+                # Use the serializer function for consistent formatting
                 entries.append({
                     'id': entry.id,
                     'student_id': student.id,
                     'student_name': student.name,
-                    'attendance_status': entry.attendance_status.value,
+                    'attendance_status': serialize_attendance_status(entry.attendance_status),
                     'notes': entry.notes,
                     'player_id': player.id,
                     'predicted_attendance': entry.predicted_attendance
@@ -378,9 +432,10 @@ def update_register_entries(register_id):
                     errors.append(f"Entry not found for ID: {entry_id or 'None'}, Player ID: {player_id or 'None'}")
                     continue
                     
-                # Update attendance status using direct mapping
+                # Update attendance status using direct mapping with serializer
                 if 'attendance_status' in entry_data:
-                    status_value = entry_data['attendance_status']
+                    # Normalize the input status
+                    status_value = serialize_attendance_status(entry_data['attendance_status'])
                     if status_value in status_map:
                         entry.attendance_status = status_map[status_value]
                     else:
@@ -562,6 +617,7 @@ def get_attendance_stats():
         teaching_period_id = request.args.get('period_id', type=int)
         group_id = request.args.get('group_id', type=int)
         student_id = request.args.get('student_id', type=int)
+        coach_id = request.args.get('coach_id', type=int)  # Add coach_id parameter
         
         # Validate parameters
         if not teaching_period_id:
@@ -592,9 +648,16 @@ def get_attendance_stats():
         if student_id:
             query = query.filter(Student.id == student_id)
             
-        # Non-admins can only see their assigned groups
-        if not current_user.is_admin:
-            query = query.filter(Register.coach_id == current_user.id)
+        # Handle coach filtering
+        coach_filter = None
+        if not (current_user.is_admin or current_user.is_super_admin):
+            # Non-admin users can only see their assigned registers
+            coach_filter = Register.coach_id == current_user.id
+            query = query.filter(coach_filter)
+        elif coach_id:  # Admin filtering by specific coach
+            # Allow admins to filter by a specific coach
+            coach_filter = Register.coach_id == coach_id
+            query = query.filter(coach_filter)
             
         entries = query.all()
         
@@ -607,23 +670,30 @@ def get_attendance_stats():
             present_count = sum(1 for entry, *_ in entries if entry.attendance_status == AttendanceStatus.PRESENT)
             absent_count = sum(1 for entry, *_ in entries if entry.attendance_status == AttendanceStatus.ABSENT)
             sick_count = sum(1 for entry, *_ in entries if entry.attendance_status == AttendanceStatus.SICK)
-            late_count = sum(1 for entry, *_ in entries if entry.attendance_status == AttendanceStatus.AWAY_WITH_NOTICE)
+            away_with_notice_count = sum(1 for entry, *_ in entries if entry.attendance_status == AttendanceStatus.AWAY_WITH_NOTICE)
             
-            attendance_rate = round((present_count + late_count) / total_entries * 100, 1) if total_entries > 0 else 0
+            # UPDATED: Only count PRESENT as attendance (not away_with_notice)
+            attendance_rate = round((present_count / total_entries * 100), 1) if total_entries > 0 else 0
             
-            register_count = db.session.query(func.count(distinct(Register.id))).filter(
+            # Apply the same coach filter to the register count query
+            register_query = db.session.query(func.count(distinct(Register.id))).filter(
                 Register.tennis_club_id == current_user.tennis_club_id,
                 Register.teaching_period_id == teaching_period_id
-            ).scalar()
+            )
+            
+            # Apply the same coach filter to register count
+            if coach_filter:
+                register_query = register_query.filter(coach_filter)
+                
+            register_count = register_query.scalar()
 
-            # Then include it in the response
             return jsonify({
                 'total_registers': register_count,  
                 'total_sessions': total_entries,   
                 'present': present_count,
                 'absent': absent_count,
                 'sick': sick_count,
-                'away_with_notice': late_count,   
+                'away_with_notice': away_with_notice_count,
                 'attendance_rate': attendance_rate
             })
             
@@ -647,6 +717,7 @@ def get_attendance_stats():
                     
                 group_stats[group_id]['total'] += 1
                 
+                # Use direct enum comparison for counting
                 if entry.attendance_status == AttendanceStatus.PRESENT:
                     group_stats[group_id]['present'] += 1
                 elif entry.attendance_status == AttendanceStatus.ABSENT:
@@ -656,10 +727,10 @@ def get_attendance_stats():
                 elif entry.attendance_status == AttendanceStatus.AWAY_WITH_NOTICE:
                     group_stats[group_id]['away_with_notice'] += 1
             
-            # Calculate attendance rates
+            # Calculate attendance rates - UPDATED: Only count PRESENT as attendance
             for stats in group_stats.values():
                 stats['attendance_rate'] = round(
-                    (stats['present'] + stats['away_with_notice']) / stats['total'] * 100, 1
+                    (stats['present'] / stats['total'] * 100), 1
                 ) if stats['total'] > 0 else 0
                 
             return jsonify(list(group_stats.values()))
@@ -684,6 +755,7 @@ def get_attendance_stats():
                     
                 student_stats[student_id]['total'] += 1
                 
+                # Use direct enum comparison for counting
                 if entry.attendance_status == AttendanceStatus.PRESENT:
                     student_stats[student_id]['present'] += 1
                 elif entry.attendance_status == AttendanceStatus.ABSENT:
@@ -693,10 +765,10 @@ def get_attendance_stats():
                 elif entry.attendance_status == AttendanceStatus.AWAY_WITH_NOTICE:
                     student_stats[student_id]['away_with_notice'] += 1
             
-            # Calculate attendance rates
+            # Calculate attendance rates - UPDATED: Only count PRESENT as attendance
             for stats in student_stats.values():
                 stats['attendance_rate'] = round(
-                    (stats['present'] + stats['away_with_notice']) / stats['total'] * 100, 1
+                    (stats['present'] / stats['total'] * 100), 1
                 ) if stats['total'] > 0 else 0
                 
             return jsonify(list(student_stats.values()))
@@ -708,8 +780,6 @@ def get_attendance_stats():
         current_app.logger.error(f"Error generating attendance stats: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
-    
-# Add this new endpoint to your register_routes in app/routes/registers.py
 
 @register_routes.route('/group-time-players')
 @login_required
@@ -746,7 +816,7 @@ def get_group_time_players():
                 'emergency_contact_number': player.student.emergency_contact_number,
                 'medical_information': player.student.medical_information,
                 'walk_home': player.walk_home,
-                'attendance_status': 'present', 
+                'attendance_status': serialize_attendance_status('present'),  # Use serializer for consistency
                 'notes': '',
                 'predicted_attendance': False,
                 'date_of_birth': dob,
@@ -828,9 +898,6 @@ def get_coach_sessions():
             # Count players assigned to the current coach
             coach_player_count = sum(1 for p in players if p.coach_id == current_user.id)
             
-            # Log player counts for debugging
-            current_app.logger.info(f"Group time {group_time.id}: total players = {len(players)}, coach players = {coach_player_count}")
-            
             # For super admins and admins, always include the group time
             # For coaches, only include if they have assigned players unless show_all is True
             if current_user.is_super_admin or current_user.is_admin or show_all or coach_player_count > 0:
@@ -879,4 +946,192 @@ def get_coaches():
         ])
     except Exception as e:
         current_app.logger.error(f"Error fetching coaches: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+    
+@register_routes.route('/days-of-week')
+@login_required
+@verify_club_access()
+def get_days_of_week():
+    """Get unique days of week that have registers for the selected period"""
+    try:
+        teaching_period_id = request.args.get('period_id', type=int)
+        
+        if not teaching_period_id:
+            return jsonify([])
+            
+        # Query for unique days of week that have registers in this period
+        query = db.session.query(TennisGroupTimes.day_of_week)\
+            .join(Register, Register.group_time_id == TennisGroupTimes.id)\
+            .filter(Register.teaching_period_id == teaching_period_id,
+                   Register.tennis_club_id == current_user.tennis_club_id)\
+            .distinct()
+            
+        # Add coach filter for non-admins
+        if not (current_user.is_admin or current_user.is_super_admin):
+            query = query.filter(Register.coach_id == current_user.id)
+            
+        days = query.all()
+        
+        # Convert enum values to strings and sort them in weekday order
+        day_order = {
+            'MONDAY': 0, 
+            'TUESDAY': 1, 
+            'WEDNESDAY': 2, 
+            'THURSDAY': 3, 
+            'FRIDAY': 4, 
+            'SATURDAY': 5, 
+            'SUNDAY': 6
+        }
+        
+        day_list = [{'value': day[0].name, 'label': day[0].value} for day in days]
+        day_list.sort(key=lambda x: day_order.get(x['value'], 999))
+        
+        return jsonify(day_list)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching days of week: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+    
+@register_routes.route('/groups-by-day')
+@login_required
+@verify_club_access()
+def get_groups_by_day():
+    try:
+        teaching_period_id = request.args.get('period_id', type=int)
+        day_of_week = request.args.get('day_of_week')
+        
+        if not teaching_period_id or not day_of_week:
+            return jsonify([])
+            
+        # Convert day_of_week string to enum - IMPROVED CONVERSION
+        from app.models.base import DayOfWeek
+        day_enum = None
+        try:
+            # First try exact enum name match
+            day_enum = DayOfWeek[day_of_week.upper()]
+            current_app.logger.info(f"Found day enum by name: {day_enum}")
+        except KeyError:
+            try:
+                # Try to match by value (Monday, Tuesday, etc.)
+                day_enum = next((d for d in DayOfWeek if d.value.upper() == day_of_week.upper()), None)
+                current_app.logger.info(f"Found day enum by value: {day_enum}")
+                if not day_enum:
+                    # Try to match by first 3 letters (MON, TUE, etc.)
+                    day_enum = next((d for d in DayOfWeek if d.name[:3] == day_of_week.upper()[:3]), None)
+                    current_app.logger.info(f"Found day enum by prefix: {day_enum}")
+                    if not day_enum:
+                        return jsonify({'error': f'Invalid day of week: {day_of_week}'}), 400
+            except Exception as day_err:
+                current_app.logger.error(f"Day conversion error: {day_err}")
+                return jsonify({'error': f'Invalid day of week format: {day_of_week}'}), 400
+
+        # DEBUG - Print the actual SQL query
+        query = db.session.query(TennisGroup.id, TennisGroup.name)\
+            .join(TennisGroupTimes, TennisGroupTimes.group_id == TennisGroup.id)\
+            .join(Register, Register.group_time_id == TennisGroupTimes.id)\
+            .filter(TennisGroupTimes.day_of_week == day_enum,
+                   Register.teaching_period_id == teaching_period_id,
+                   Register.tennis_club_id == current_user.tennis_club_id)
+                   
+        # Apply coach filter for non-admins
+        if not (current_user.is_admin or current_user.is_super_admin):
+            query = query.filter(Register.coach_id == current_user.id)
+            
+        # Print SQL (very useful for debugging)
+        from sqlalchemy.dialects import postgresql
+        sql_str = query.statement.compile(dialect=postgresql.dialect(), 
+                                        compile_kwargs={"literal_binds": True})
+        current_app.logger.info(f"SQL Query: {sql_str}")
+            
+        groups = query.order_by(TennisGroup.name).all()
+        group_list = [{'id': group[0], 'name': group[1]} for group in groups]
+
+        return jsonify(group_list)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching groups by day: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+    
+@register_routes.route('/sessions')
+@login_required
+@verify_club_access()
+def get_sessions():
+    """Get sessions (time slots) for a specific group and day of week in the selected period"""
+    try:
+        teaching_period_id = request.args.get('period_id', type=int)
+        day_of_week = request.args.get('day_of_week')
+        group_id = request.args.get('group_id', type=int)
+        
+        if not teaching_period_id or not day_of_week or not group_id:
+            return jsonify([])
+            
+        # Convert day_of_week string to enum
+        from app.models.base import DayOfWeek
+        try:
+            day_enum = DayOfWeek[day_of_week.upper()]
+        except KeyError:
+            return jsonify({'error': f'Invalid day of week: {day_of_week}'}), 400
+            
+        # Query for sessions (time slots) for this group and day that have registers
+        query = db.session.query(
+                TennisGroupTimes.id,
+                TennisGroupTimes.start_time,
+                TennisGroupTimes.end_time,
+                func.count(Register.id).label('register_count')
+            )\
+            .join(Register, Register.group_time_id == TennisGroupTimes.id)\
+            .filter(TennisGroupTimes.day_of_week == day_enum,
+                   TennisGroupTimes.group_id == group_id,
+                   Register.teaching_period_id == teaching_period_id,
+                   Register.tennis_club_id == current_user.tennis_club_id)
+            
+        # Apply coach filter for non-admins
+        if not (current_user.is_admin or current_user.is_super_admin):
+            query = query.filter(Register.coach_id == current_user.id)
+            
+        # Group by time slot
+        query = query.group_by(
+            TennisGroupTimes.id,
+            TennisGroupTimes.start_time,
+            TennisGroupTimes.end_time
+        ).order_by(TennisGroupTimes.start_time)
+        
+        sessions = query.all()
+        
+        session_list = [
+            {
+                'id': session[0],
+                'start_time': session[1].strftime('%H:%M') if session[1] else None,
+                'end_time': session[2].strftime('%H:%M') if session[2] else None,
+                'time_display': f"{session[1].strftime('%H:%M')}-{session[2].strftime('%H:%M')}",
+                'register_count': session[3]
+            } 
+            for session in sessions
+        ]
+        return jsonify(session_list)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching sessions: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 
+
+@register_routes.route('/user/info')
+@login_required
+@verify_club_access()
+def get_user_info():
+    """Get current user information"""
+    try:
+        # Return basic user information needed for filtering
+        return jsonify({
+            'id': current_user.id,
+            'is_admin': current_user.is_admin or current_user.is_super_admin,
+            'is_super_admin': current_user.is_super_admin,
+            'coach_id': current_user.id if current_user.role == UserRole.COACH else None,
+            'name': current_user.name,
+            'tennis_club_id': current_user.tennis_club_id
+        })
+    except Exception as e:
+        current_app.logger.error(f"Error fetching user info: {str(e)}")
         return jsonify({'error': str(e)}), 500

@@ -569,20 +569,6 @@ def view_report(report_id):
         
     return render_template('pages/view_report.html', report_id=report_id)
 
-@main.route('/reports/<int:report_id>/edit')
-@login_required
-@verify_club_access()
-def edit_report_page(report_id):
-    """Render the edit report page"""
-    report = Report.query.get_or_404(report_id)
-    
-    # Check permissions
-    if not current_user.is_admin and report.coach_id != current_user.id:
-        flash('You do not have permission to edit this report', 'error')
-        return redirect(url_for('main.dashboard'))
-        
-    return render_template('pages/edit_report.html', report_id=report_id)
-
 @main.route('/download_single_report/<int:report_id>')
 @login_required
 @verify_club_access()
