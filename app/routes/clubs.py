@@ -248,6 +248,26 @@ def process_batch(batch_df, club_id, teaching_period, coaches, groups):
                 except ValueError as e:
                     batch_warnings.append(f"Row {row_number}: Couldn't parse date of birth '{row['date_of_birth']}', will be ignored. Error: {str(e)}")
             
+            # Extract contact information (optional)
+            if 'contact_number' in row and not pd.isna(row['contact_number']):
+                row_data['contact_number'] = str(row['contact_number'])
+            
+            if 'emergency_contact_number' in row and not pd.isna(row['emergency_contact_number']):
+                row_data['emergency_contact_number'] = str(row['emergency_contact_number'])
+            
+            if 'medical_information' in row and not pd.isna(row['medical_information']):
+                row_data['medical_information'] = str(row['medical_information'])
+            
+            # Handle walk_home field (optional) - properly convert to boolean
+            if 'walk_home' in row and not pd.isna(row['walk_home']):
+                walk_home_value = str(row['walk_home']).strip().lower()
+                if walk_home_value in ('true', 't', 'yes', 'y', '1'):
+                    row_data['walk_home'] = True
+                elif walk_home_value in ('false', 'f', 'no', 'n', '0'):
+                    row_data['walk_home'] = False
+                else:
+                    batch_warnings.append(f"Row {row_number}: Invalid walk_home value '{row['walk_home']}'. Using default (None).")
+            
             # Add to valid rows
             valid_rows.append(row_data)
             
@@ -308,14 +328,15 @@ def process_batch(batch_df, club_id, teaching_period, coaches, groups):
                                           f"at {row_data['day_of_week'].value} {row_data['start_time']}-{row_data['end_time']}")
                         continue
 
-                    # Create new player assignment
+                    # Create new player assignment with walk_home field
                     player = ProgrammePlayers(
                         student_id=student.id,
                         coach_id=row_data['coach'].id,
                         group_id=row_data['group'].id,
                         group_time_id=row_data['group_time'].id,
                         teaching_period_id=teaching_period.id,
-                        tennis_club_id=club_id
+                        tennis_club_id=club_id,
+                        walk_home=row_data.get('walk_home')  # Include walk_home field
                     )
                     db.session.add(player)
                     batch_players_created += 1
@@ -1903,7 +1924,7 @@ def create_player():
                 'error': 'Player is already assigned to this specific group and time slot'
             }), 400
 
-        # Create programme player assignment
+        # Create programme player assignment with walk_home field
         assignment = ProgrammePlayers(
             student_id=student.id,
             coach_id=data['coach_id'],
@@ -1911,7 +1932,7 @@ def create_player():
             group_time_id=data['group_time_id'],
             teaching_period_id=data['teaching_period_id'],
             tennis_club_id=club_id,
-            walk_home=data.get('walk_home')
+            walk_home=data.get('walk_home')  # Include walk_home field
         )
 
         db.session.add(assignment)
@@ -2228,7 +2249,8 @@ def download_template():
     csv_content = [
         "student_name,date_of_birth,contact_email,contact_number,emergency_contact_number,medical_information,coach_email,group_name,day_of_week,start_time,end_time,walk_home",
         "John Smith,05-Nov-2013,parent@example.com,07123456789,07987654321,Asthma,coach@example.com,Red 1,Monday,16:00,17:00,true",
-        "Emma Jones,22-Mar-2014,emma.parent@example.com,07111222333,07444555666,,coach@example.com,Red 2,Tuesday,15:30,16:30,false"
+        "Emma Jones,22-Mar-2014,emma.parent@example.com,07111222333,07444555666,,coach@example.com,Red 2,Tuesday,15:30,16:30,false",
+        "Alex Brown,15-Jun-2012,alex.parent@example.com,07999888777,,,coach@example.com,Blue 1,Wednesday,17:00,18:00,",
     ]
     
     response = make_response("\n".join(csv_content))
