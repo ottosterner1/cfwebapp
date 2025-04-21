@@ -310,22 +310,9 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
           setSelectedTimeSlotId('');
         }
         
-        // Set default date to today or next occurrence of the selected day
-        const today = new Date();
-        const currentDayIndex = today.getDay();
-        // Adjust for Monday-Sunday ordering (Sunday is 0 in JS but 6 in our array)
-        const adjustedCurrentDayIndex = currentDayIndex === 0 ? 6 : currentDayIndex - 1;
-        const selectedDayIndex = daysOfWeek.indexOf(selectedDay);
-        
-        let daysToAdd = (selectedDayIndex - adjustedCurrentDayIndex + 7) % 7;
-        if (daysToAdd === 0 && today.getHours() >= 19) { 
-          // If it's the same day but after 7 PM, use next week
-          daysToAdd = 7;
-        }
-        
-        const dateToUse = new Date(today);
-        dateToUse.setDate(today.getDate() + daysToAdd);
-        setSelectedDate(dateToUse.toISOString().split('T')[0]);
+        // CHANGED: Don't auto-set date anymore
+        // Leave the date field empty - user will need to select it
+        setSelectedDate('');
         
         // Reset players
         setPlayers([]);
@@ -391,6 +378,15 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     
     fetchPlayers();
   }, [selectedTimeSlotId, selectedPeriodId, selectedGroupId, selectedDay]);
+
+  // NEW: Handle date focus to default to current date
+  const handleDateFocus = () => {
+    // Only set the date if it's currently empty
+    if (!selectedDate) {
+      const today = new Date();
+      setSelectedDate(today.toISOString().split('T')[0]);
+    }
+  };
 
   // Handle toggling show all sessions
   const handleToggleShowAllSessions = () => {
@@ -703,7 +699,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
           </div>
           
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-6">
-            {/* Date Selector */}
+            {/* Date Selector - Updated with onFocus handler */}
             <div>
               <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-1">
                 Date*
@@ -713,6 +709,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
                 id="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
+                onFocus={handleDateFocus}
                 className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                 required
               />
@@ -738,7 +735,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
           {players.length > 0 && (
             <div className="mt-8">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-medium">Mark Attendance</h3>
+                <h3 className="text-lg font-medium">Attendance</h3>
                 <div className="flex gap-2">
                   <button
                     type="button"
