@@ -66,7 +66,7 @@ class AttendanceStatus(Enum):
     PRESENT = 'present'
     ABSENT = 'absent'
     SICK = 'sick'
-    AWAY_WITH_NOTICE = 'away with notice'
+    AWAY_WITH_NOTICE = 'away_with_notice'
 
 class RegisterStatus(Enum):
     DRAFT = 'draft'

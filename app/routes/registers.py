@@ -468,7 +468,7 @@ def update_register_entries(register_id):
 
 @register_routes.route('/registers/<int:register_id>', methods=['DELETE'])
 @login_required
-@admin_required  # Only admins can delete registers
+@verify_club_access()
 def delete_register(register_id):
     """Delete a register and all its entries"""
     try:
