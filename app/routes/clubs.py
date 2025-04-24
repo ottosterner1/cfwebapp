@@ -41,14 +41,6 @@ def utility_processor():
    from app.models import UserRole
    return {'UserRole': UserRole}
 
-def setup_default_groups(club_id):
-   groups = [
-       {"name": "Beginners", "description": "New players learning basics"},
-       {"name": "Intermediate", "description": "Players developing core skills"},
-       {"name": "Advanced", "description": "Competitive players"}
-   ]
-   for group in groups:
-       db.session.add(TennisGroup(tennis_club_id=club_id, **group))
 
 def setup_initial_teaching_period(club_id):
    start_date = datetime.now()
@@ -450,8 +442,6 @@ def onboard_club():
         
         db.session.add(admin)
         
-        # Create default club data
-        setup_default_groups(club.id)
         setup_initial_teaching_period(club.id)
         
         db.session.commit()
@@ -1440,45 +1430,6 @@ def switch_club_api():
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
-@club_management.route('/api/super-admin/load-data', methods=['POST'])
-@login_required
-def load_club_data():
-    """API endpoint to load default data for a club"""
-    if not current_user.is_super_admin:
-        return jsonify({'error': 'Unauthorized'}), 403
-    
-    data = request.get_json()
-    club_id = data.get('club_id')
-    data_type = data.get('data_type')
-    
-    if not club_id or not data_type:
-        return jsonify({'error': 'Missing required parameters'}), 400
-    
-    try:
-        # Verify club exists
-        club = TennisClub.query.get(club_id)
-        if not club:
-            return jsonify({'error': 'Tennis club not found'}), 404
-        
-        # Handle different data loading options
-        if data_type == 'default_groups':
-            setup_default_groups(club_id)
-            db.session.commit()
-            return jsonify({'message': 'Default groups created successfully'})
-        
-        elif data_type == 'initial_period':
-            setup_initial_teaching_period(club_id)
-            db.session.commit()
-            return jsonify({'message': 'Initial teaching period created successfully'})
-        
-        else:
-            return jsonify({'error': 'Invalid data type'}), 400
-            
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error loading data: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
 @club_management.route('/api/super-admin/invite-club', methods=['POST'])
 @login_required
 def invite_club():
@@ -1513,13 +1464,10 @@ def invite_club():
         # Prepare the club name
         club_name = "CourtFlow Tennis Management"
         
-        # In your invite_club function
+        # Create correct URL with proper query parameter format
         invite_url = url_for('club_management.accept_club_invitation', 
                             token=invitation.token,
                             _external=True)
-
-        # Add a query parameter to bypass client-side routing
-        invite_url += "&server_route=true"
         
         # Create HTML content
         html_content = f"""
@@ -1563,13 +1511,15 @@ def invite_club():
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error sending club invitation: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': 'An unexpected error occurred while sending the invitation'}), 500
+        current_app
 
 @club_management.route('/accept-club-invitation/<token>')
 def accept_club_invitation(token):
     """Handle a tennis club admin accepting an invitation"""
     current_app.logger.info(f"Processing club invitation with token: {token}")
+    # Print debug info to confirm this route is even being hit
+    current_app.logger.info(f"Request URL: {request.url}")
+    current_app.logger.info(f"Request args: {request.args}")
     
     try:
         # Get invitation and validate
@@ -1587,15 +1537,37 @@ def accept_club_invitation(token):
             flash('This invitation has expired. Please request a new invitation.', 'error')
             return redirect(url_for('main.index'))
 
+        # Generate state and store in session
+        state = secrets.token_urlsafe(32)
+        nonce = secrets.token_urlsafe(32)
+        session['oauth_state'] = state
+        session['oauth_nonce'] = nonce
+        
         # Store invitation info in session
         session['club_invitation'] = {
             'token': token,
             'email': invitation.email
         }
-        current_app.logger.info(f"Successfully stored club invitation in session, redirecting to onboarding")
+        current_app.logger.info(f"Stored club invitation in session: {session['club_invitation']}")
+
+        # Build the authorization URL with explicit parameters
+        cognito_domain = current_app.config['COGNITO_DOMAIN']
+        client_id = current_app.config['AWS_COGNITO_CLIENT_ID']
+        redirect_uri = url_for('auth.auth_callback', _external=True)
         
-        # Make sure onboarding page doesn't require authentication
-        return redirect(url_for('club_management.onboard_club'))
+        # Use the same direct construction method as in accept_invitation
+        auth_url = (
+            f"https://{cognito_domain}/login"
+            f"?client_id={client_id}"
+            f"&response_type=code"
+            f"&scope=openid+email+profile"
+            f"&redirect_uri={redirect_uri}"
+            f"&state={state}"
+            f"&nonce={nonce}"
+        )
+        
+        current_app.logger.info(f"Redirecting to Cognito: {auth_url}")
+        return redirect(auth_url)
         
     except Exception as e:
         current_app.logger.error(f"Error processing club invitation: {str(e)}")

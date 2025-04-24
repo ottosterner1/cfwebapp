@@ -128,11 +128,10 @@ def auth_callback():
 
         user = User.query.filter_by(email=email).first()
         
-        # Check for pending invitation first
+        # Check for pending coach invitation
         pending_invitation = session.get('pending_invitation')
         if pending_invitation:
-            
-            # Get the invitation data
+            # Process coach invitation
             invitation_token = pending_invitation.get('token')
             tennis_club_id = pending_invitation.get('tennis_club_id')
             invitation_email = pending_invitation.get('email')
@@ -198,6 +197,49 @@ def auth_callback():
                 # Email mismatch
                 current_app.logger.warning(f"Email mismatch: invitation for {invitation_email}, but logged in as {email}")
                 session.pop('pending_invitation', None)
+                flash('The email you logged in with does not match the invitation', 'error')
+                return redirect(url_for('auth.login'))
+        
+        # Check for club invitation (new section)
+        club_invitation = session.get('club_invitation')
+        if club_invitation:
+            # Process club invitation
+            invitation_token = club_invitation.get('token')
+            invitation_email = club_invitation.get('email')
+            
+            # Verify the invitation email matches the authenticated email
+            if email.lower() == invitation_email.lower():
+                from app.models import ClubInvitation
+                
+                invitation = ClubInvitation.query.filter_by(
+                    token=invitation_token,
+                    used=False,
+                    email=invitation_email
+                ).first()
+                
+                if invitation and not invitation.is_expired:
+                    # Store user info in session for club onboarding
+                    session['temp_user_info'] = {
+                        'email': email,
+                        'name': name,
+                        'provider_id': provider_id
+                    }
+                    
+                    # Clear the club invitation from session but keep temp_user_info
+                    session.pop('club_invitation', None)
+                    session.pop('oauth_state', None)
+                    
+                    # Redirect to club onboarding
+                    return redirect(url_for('club_management.onboard_club'))
+                else:
+                    # Invalid or expired invitation
+                    session.pop('club_invitation', None)
+                    flash('Invalid or expired club invitation', 'error')
+                    return redirect(url_for('auth.login'))
+            else:
+                # Email mismatch
+                current_app.logger.warning(f"Email mismatch: club invitation for {invitation_email}, but logged in as {email}")
+                session.pop('club_invitation', None)
                 flash('The email you logged in with does not match the invitation', 'error')
                 return redirect(url_for('auth.login'))
 
