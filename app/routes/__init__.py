@@ -13,6 +13,7 @@ def register_routes(app):
     from app.routes.players import player_routes  
     from app.routes.reports import report_routes
     from app.routes.admin import admin_routes
+    from app.routes.super_admin import super_admin_routes
     
     # Import register routes - both API and view routes
     from app.routes.registers import register_routes, register_views
@@ -25,6 +26,7 @@ def register_routes(app):
     app.register_blueprint(report_routes)
     app.register_blueprint(admin_routes)
     app.register_blueprint(register_routes)
+    app.register_blueprint(super_admin_routes)
     
     # Register the view routes for the register functionality
     app.register_blueprint(register_views)

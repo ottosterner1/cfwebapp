@@ -41,14 +41,6 @@ def utility_processor():
    from app.models import UserRole
    return {'UserRole': UserRole}
 
-def setup_default_groups(club_id):
-   groups = [
-       {"name": "Beginners", "description": "New players learning basics"},
-       {"name": "Intermediate", "description": "Players developing core skills"},
-       {"name": "Advanced", "description": "Competitive players"}
-   ]
-   for group in groups:
-       db.session.add(TennisGroup(tennis_club_id=club_id, **group))
 
 def setup_initial_teaching_period(club_id):
    start_date = datetime.now()
@@ -450,8 +442,6 @@ def onboard_club():
         
         db.session.add(admin)
         
-        # Create default club data
-        setup_default_groups(club.id)
         setup_initial_teaching_period(club.id)
         
         db.session.commit()
@@ -1438,45 +1428,6 @@ def switch_club_api():
         db.session.rollback()
         current_app.logger.error(f"Error switching club: {str(e)}")
         current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 500
-
-@club_management.route('/api/super-admin/load-data', methods=['POST'])
-@login_required
-def load_club_data():
-    """API endpoint to load default data for a club"""
-    if not current_user.is_super_admin:
-        return jsonify({'error': 'Unauthorized'}), 403
-    
-    data = request.get_json()
-    club_id = data.get('club_id')
-    data_type = data.get('data_type')
-    
-    if not club_id or not data_type:
-        return jsonify({'error': 'Missing required parameters'}), 400
-    
-    try:
-        # Verify club exists
-        club = TennisClub.query.get(club_id)
-        if not club:
-            return jsonify({'error': 'Tennis club not found'}), 404
-        
-        # Handle different data loading options
-        if data_type == 'default_groups':
-            setup_default_groups(club_id)
-            db.session.commit()
-            return jsonify({'message': 'Default groups created successfully'})
-        
-        elif data_type == 'initial_period':
-            setup_initial_teaching_period(club_id)
-            db.session.commit()
-            return jsonify({'message': 'Initial teaching period created successfully'})
-        
-        else:
-            return jsonify({'error': 'Invalid data type'}), 400
-            
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Error loading data: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @club_management.route('/api/super-admin/invite-club', methods=['POST'])
