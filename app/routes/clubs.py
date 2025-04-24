@@ -1513,13 +1513,10 @@ def invite_club():
         # Prepare the club name
         club_name = "CourtFlow Tennis Management"
         
-        # In your invite_club function
+        # Create correct URL with proper query parameter format
         invite_url = url_for('club_management.accept_club_invitation', 
                             token=invitation.token,
                             _external=True)
-
-        # Add a query parameter to bypass client-side routing
-        invite_url += "&server_route=true"
         
         # Create HTML content
         html_content = f"""
@@ -1563,13 +1560,15 @@ def invite_club():
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error sending club invitation: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': 'An unexpected error occurred while sending the invitation'}), 500
+        current_app
 
 @club_management.route('/accept-club-invitation/<token>')
 def accept_club_invitation(token):
     """Handle a tennis club admin accepting an invitation"""
     current_app.logger.info(f"Processing club invitation with token: {token}")
+    # Print debug info to confirm this route is even being hit
+    current_app.logger.info(f"Request URL: {request.url}")
+    current_app.logger.info(f"Request args: {request.args}")
     
     try:
         # Get invitation and validate
@@ -1587,15 +1586,37 @@ def accept_club_invitation(token):
             flash('This invitation has expired. Please request a new invitation.', 'error')
             return redirect(url_for('main.index'))
 
+        # Generate state and store in session
+        state = secrets.token_urlsafe(32)
+        nonce = secrets.token_urlsafe(32)
+        session['oauth_state'] = state
+        session['oauth_nonce'] = nonce
+        
         # Store invitation info in session
         session['club_invitation'] = {
             'token': token,
             'email': invitation.email
         }
-        current_app.logger.info(f"Successfully stored club invitation in session, redirecting to onboarding")
+        current_app.logger.info(f"Stored club invitation in session: {session['club_invitation']}")
+
+        # Build the authorization URL with explicit parameters
+        cognito_domain = current_app.config['COGNITO_DOMAIN']
+        client_id = current_app.config['AWS_COGNITO_CLIENT_ID']
+        redirect_uri = url_for('auth.auth_callback', _external=True)
         
-        # Make sure onboarding page doesn't require authentication
-        return redirect(url_for('club_management.onboard_club'))
+        # Use the same direct construction method as in accept_invitation
+        auth_url = (
+            f"https://{cognito_domain}/login"
+            f"?client_id={client_id}"
+            f"&response_type=code"
+            f"&scope=openid+email+profile"
+            f"&redirect_uri={redirect_uri}"
+            f"&state={state}"
+            f"&nonce={nonce}"
+        )
+        
+        current_app.logger.info(f"Redirecting to Cognito: {auth_url}")
+        return redirect(auth_url)
         
     except Exception as e:
         current_app.logger.error(f"Error processing club invitation: {str(e)}")

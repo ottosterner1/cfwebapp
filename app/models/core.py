@@ -261,7 +261,12 @@ class ClubInvitation(db.Model):
     @property
     def is_expired(self):
         """Check if the invitation has expired"""
-        return datetime.now(timezone.utc) > self.expires_at
+        now = datetime.now(timezone.utc)
+        # Make sure expires_at has timezone info before comparing
+        expires_at = self.expires_at
+        if expires_at.tzinfo is None:  # If it's naive (no timezone info)
+            expires_at = expires_at.replace(tzinfo=timezone.utc)  # Make it timezone-aware
+        return now > expires_at
     
     @classmethod
     def create_invitation(cls, email, invited_by_id, expiry_hours=48):
