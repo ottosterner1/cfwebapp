@@ -8,6 +8,7 @@ from sqlalchemy.types import Enum as PGEnum
 from app.extensions import db
 from datetime import datetime, timezone, timedelta
 from app.models.base import UserRole, CoachQualification, CoachRole, uk_timezone
+from app.models.club_feature import ClubFeature
 
 class TennisClub(db.Model):
     __tablename__ = 'tennis_club'
@@ -70,6 +71,28 @@ class TennisClub(db.Model):
             url, _ = self._get_presigned_url_with_timestamp()
             
         return url if url else ''
+    
+    def has_feature(self, feature_name):
+        """Check if a specific feature is enabled for this club
+        
+        Args:
+            feature_name (str): The name of the feature to check
+            
+        Returns:
+            bool: True if the feature is enabled, False otherwise
+        """
+        
+        feature = ClubFeature.query.filter_by(
+            tennis_club_id=self.id,
+            feature_name=feature_name
+        ).first()
+        
+        # If the feature record doesn't exist in the database, 
+        # consider it enabled by default
+        if not feature:
+            return True
+            
+        return feature.is_enabled
 
 class User(UserMixin, db.Model):
     __tablename__ = 'user'
