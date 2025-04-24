@@ -35,6 +35,14 @@ interface UploadStatus {
   };
 }
 
+interface Feature {
+  name: string;
+  display_name: string;
+  description: string;
+  icon: string;
+  is_enabled: boolean;
+}
+
 const SuperAdminDashboard: React.FC = () => {
   const [allClubs, setAllClubs] = useState<TennisClub[]>([]);
   const [selectedClubId, setSelectedClubId] = useState<number | null>(null);
@@ -54,6 +62,11 @@ const SuperAdminDashboard: React.FC = () => {
   const [clubUsers, setClubUsers] = useState<User[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(false);
   const [updateInProgress, setUpdateInProgress] = useState<number | null>(null);
+  
+  // Feature management state
+  const [features, setFeatures] = useState<Feature[]>([]);
+  const [isLoadingFeatures, setIsLoadingFeatures] = useState<boolean>(false);
+  const [isUpdatingFeatures, setIsUpdatingFeatures] = useState<boolean>(false);
   
   // File upload ref
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -127,13 +140,15 @@ const SuperAdminDashboard: React.FC = () => {
       const club = allClubs.find(c => c.id === selectedClubId) || null;
       setSelectedClub(club);
       
-      // Fetch club users when a club is selected
+      // Fetch club users and features when a club is selected
       if (club) {
         fetchClubUsers(club.id);
+        fetchClubFeatures(club.id);
       }
     } else {
       setSelectedClub(null);
       setClubUsers([]);
+      setFeatures([]);
     }
   }, [selectedClubId, allClubs]);
 
@@ -159,6 +174,31 @@ const SuperAdminDashboard: React.FC = () => {
       console.error('Error fetching club users:', error);
     } finally {
       setIsLoadingUsers(false);
+    }
+  };
+
+  // Function to fetch features for a specific club
+  const fetchClubFeatures = async (clubId: number): Promise<void> => {
+    setIsLoadingFeatures(true);
+    try {
+      const response = await fetch(`/clubs/api/super-admin/clubs/${clubId}/features`, {
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      });
+      
+      if (response.ok) {
+        const featuresData = await response.json() as Feature[];
+        setFeatures(featuresData);
+      } else {
+        console.error('Failed to fetch club features');
+      }
+    } catch (error) {
+      console.error('Error fetching club features:', error);
+    } finally {
+      setIsLoadingFeatures(false);
     }
   };
 
@@ -361,6 +401,66 @@ const SuperAdminDashboard: React.FC = () => {
         ...uploadStatus,
         fileName: files[0].name
       });
+    }
+  };
+
+  // Function to handle feature toggle
+  const handleToggleFeature = (featureName: string) => {
+    setFeatures(prevFeatures => 
+      prevFeatures.map(feature => 
+        feature.name === featureName 
+          ? { ...feature, is_enabled: !feature.is_enabled } 
+          : feature
+      )
+    );
+  };
+
+  // Function to save feature settings
+  const handleSaveFeatures = async () => {
+    if (!selectedClubId) return;
+    
+    setIsUpdatingFeatures(true);
+    setNotification(null);
+    
+    try {
+      const response = await fetch(`/clubs/api/super-admin/clubs/${selectedClubId}/features`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify(features),
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setNotification({
+          type: 'success',
+          message: data.message || 'Features updated successfully'
+        });
+      } else {
+        let errorMessage = 'Failed to update features';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          console.error('Error parsing response:', e);
+        }
+        setNotification({
+          type: 'error',
+          message: errorMessage
+        });
+      }
+    } catch (error) {
+      console.error('Error updating features:', error);
+      setNotification({
+        type: 'error',
+        message: 'Network error while updating features'
+      });
+    } finally {
+      setIsUpdatingFeatures(false);
     }
   };
 
@@ -636,116 +736,6 @@ const SuperAdminDashboard: React.FC = () => {
             </form>
           </div>
           
-          {/* New Section: CSV Upload for Groups and Time Slots */}
-          {selectedClub && (
-            <div className="border rounded-md p-4 mb-6">
-              <h3 className="font-medium mb-4 flex items-center">
-                <Database className="h-5 w-5 mr-2 text-indigo-500" />
-                Import Groups & Time Slots
-              </h3>
-              <div className="mb-4">
-                <p className="text-sm text-gray-600 mb-2">
-                  Upload a CSV file containing groups and time slots for {selectedClub.name}. 
-                  The CSV should include group name, description, day of week, start time, and end time.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleDownloadTemplate} 
-                  className="text-indigo-600 hover:text-indigo-800 text-sm flex items-center"
-                >
-                  <FileText className="h-4 w-4 mr-1" />
-                  Download Template
-                </button>
-              </div>
-              
-              <form onSubmit={handleGroupsUpload} className="space-y-4">
-                <div className="relative border-2 border-dashed border-gray-300 rounded-md p-6 flex flex-col items-center justify-center">
-                  <UploadCloud className="h-8 w-8 text-gray-400 mb-2" />
-                  <p className="text-sm text-gray-600 mb-2">Click to browse or drag and drop</p>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".csv"
-                    onChange={handleFileChange}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  />
-                  {uploadStatus.fileName && (
-                    <div className="mt-2 text-sm text-gray-800 flex items-center">
-                      <FileText className="h-4 w-4 mr-1" />
-                      {uploadStatus.fileName}
-                    </div>
-                  )}
-                </div>
-                
-                {uploadStatus.isUploading && (
-                  <div className="mt-2">
-                    <div className="bg-gray-200 rounded-full h-2.5 mb-2">
-                      <div 
-                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
-                        style={{ width: `${uploadStatus.progress}%` }}
-                      ></div>
-                    </div>
-                    <p className="text-xs text-gray-600 text-right">
-                      {uploadStatus.progress}% uploaded
-                    </p>
-                  </div>
-                )}
-                
-                {uploadStatus.result && (
-                  <div className="mt-2 p-3 bg-gray-50 rounded-md text-sm">
-                    <div className="flex justify-between text-gray-700 mb-1">
-                      <span>Groups created:</span>
-                      <span>{uploadStatus.result.groupsCreated}</span>
-                    </div>
-                    <div className="flex justify-between text-gray-700 mb-1">
-                      <span>Time slots created:</span>
-                      <span>{uploadStatus.result.timeSlotsCreated}</span>
-                    </div>
-                    
-                    {uploadStatus.result.warnings.length > 0 && (
-                      <div className="mt-2">
-                        <h4 className="text-yellow-600 font-medium text-xs mb-1">Warnings:</h4>
-                        <ul className="text-xs text-yellow-700 pl-4 list-disc">
-                          {uploadStatus.result.warnings.slice(0, 3).map((warning, i) => (
-                            <li key={i}>{warning}</li>
-                          ))}
-                          {uploadStatus.result.warnings.length > 3 && (
-                            <li>...and {uploadStatus.result.warnings.length - 3} more warnings</li>
-                          )}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {uploadStatus.result.errors.length > 0 && (
-                      <div className="mt-2">
-                        <h4 className="text-red-600 font-medium text-xs mb-1">Errors:</h4>
-                        <ul className="text-xs text-red-700 pl-4 list-disc">
-                          {uploadStatus.result.errors.slice(0, 3).map((error, i) => (
-                            <li key={i}>{error}</li>
-                          ))}
-                          {uploadStatus.result.errors.length > 3 && (
-                            <li>...and {uploadStatus.result.errors.length - 3} more errors</li>
-                          )}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-                
-                <div className="flex justify-end">
-                  <button 
-                    type="submit"
-                    className={`py-2 px-4 rounded-md text-white flex items-center ${isActionLoading ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'}`}
-                    disabled={isActionLoading || !uploadStatus.fileName}
-                  >
-                    <UploadCloud className="h-4 w-4 mr-2" />
-                    {isActionLoading ? 'Uploading...' : 'Upload File'}
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-          
           {/* Selected Club Info and Actions */}
           {selectedClub && (
             <>
@@ -767,6 +757,192 @@ const SuperAdminDashboard: React.FC = () => {
                     </button>
                   </div>
                 </div>
+              </div>
+              
+              {/* Feature Management Section */}
+              <div className="border rounded-md p-4 mb-6">
+                <h3 className="font-medium mb-4 flex items-center text-lg">
+                  <Settings className="h-5 w-5 mr-2 text-indigo-500" />
+                  Feature Management
+                </h3>
+                
+                <p className="text-sm text-gray-600 mb-4">
+                  Enable or disable features for {selectedClub.name}. This controls which features are available to users of this club.
+                </p>
+                
+                {isLoadingFeatures ? (
+                  <div className="flex justify-center p-4">
+                    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-600"></div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-4 max-h-96 overflow-y-auto p-1">
+                      {features.map(feature => (
+                        <div 
+                          key={feature.name} 
+                          className="flex items-center justify-between p-4 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors"
+                        >
+                          <div className="flex items-start space-x-3">
+                            <div className="text-2xl">{feature.icon}</div>
+                            <div>
+                              <h4 className="font-medium text-gray-800">{feature.display_name}</h4>
+                              <p className="text-sm text-gray-600">{feature.description}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleFeature(feature.name)}
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
+                                feature.is_enabled ? 'bg-indigo-600' : 'bg-gray-200'
+                              }`}
+                              aria-pressed={feature.is_enabled}
+                              aria-labelledby={`${feature.name}-label`}
+                            >
+                              <span className="sr-only">
+                                {feature.is_enabled ? `Disable ${feature.display_name}` : `Enable ${feature.display_name}`}
+                              </span>
+                              <span
+                                className={`${
+                                  feature.is_enabled ? 'translate-x-6' : 'translate-x-1'
+                                } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
+                              />
+                            </button>
+                            <span id={`${feature.name}-label`} className="ml-2 text-sm text-gray-600">
+                              {feature.is_enabled ? 'Enabled' : 'Disabled'}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {features.length === 0 && (
+                      <div className="text-center py-8 text-gray-500">
+                        No features available to configure
+                      </div>
+                    )}
+                    
+                    <div className="mt-6 flex justify-end">
+                      <button 
+                        type="button"
+                        className={`py-2 px-4 rounded-md text-white ${isUpdatingFeatures ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'} flex items-center`}
+                        onClick={handleSaveFeatures}
+                        disabled={isUpdatingFeatures}
+                      >
+                        <Settings className="h-4 w-4 mr-2" />
+                        {isUpdatingFeatures ? 'Saving...' : 'Save Features'}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+              
+              {/* CSV Upload for Groups and Time Slots */}
+              <div className="border rounded-md p-4 mb-6">
+                <h3 className="font-medium mb-4 flex items-center">
+                  <Database className="h-5 w-5 mr-2 text-indigo-500" />
+                  Import Groups & Time Slots
+                </h3>
+                <div className="mb-4">
+                  <p className="text-sm text-gray-600 mb-2">
+                    Upload a CSV file containing groups and time slots for {selectedClub.name}. 
+                    The CSV should include group name, description, day of week, start time, and end time.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleDownloadTemplate} 
+                    className="text-indigo-600 hover:text-indigo-800 text-sm flex items-center"
+                  >
+                    <FileText className="h-4 w-4 mr-1" />
+                    Download Template
+                  </button>
+                </div>
+                
+                <form onSubmit={handleGroupsUpload} className="space-y-4">
+                  <div className="relative border-2 border-dashed border-gray-300 rounded-md p-6 flex flex-col items-center justify-center">
+                    <UploadCloud className="h-8 w-8 text-gray-400 mb-2" />
+                    <p className="text-sm text-gray-600 mb-2">Click to browse or drag and drop</p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".csv"
+                      onChange={handleFileChange}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                    {uploadStatus.fileName && (
+                      <div className="mt-2 text-sm text-gray-800 flex items-center">
+                        <FileText className="h-4 w-4 mr-1" />
+                        {uploadStatus.fileName}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {uploadStatus.isUploading && (
+                    <div className="mt-2">
+                      <div className="bg-gray-200 rounded-full h-2.5 mb-2">
+                        <div 
+                          className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+                          style={{ width: `${uploadStatus.progress}%` }}
+                        ></div>
+                      </div>
+                      <p className="text-xs text-gray-600 text-right">
+                        {uploadStatus.progress}% uploaded
+                      </p>
+                    </div>
+                  )}
+                  
+                  {uploadStatus.result && (
+                    <div className="mt-2 p-3 bg-gray-50 rounded-md text-sm">
+                      <div className="flex justify-between text-gray-700 mb-1">
+                        <span>Groups created:</span>
+                        <span>{uploadStatus.result.groupsCreated}</span>
+                      </div>
+                      <div className="flex justify-between text-gray-700 mb-1">
+                        <span>Time slots created:</span>
+                        <span>{uploadStatus.result.timeSlotsCreated}</span>
+                      </div>
+                      
+                      {uploadStatus.result.warnings.length > 0 && (
+                        <div className="mt-2">
+                          <h4 className="text-yellow-600 font-medium text-xs mb-1">Warnings:</h4>
+                          <ul className="text-xs text-yellow-700 pl-4 list-disc">
+                            {uploadStatus.result.warnings.slice(0, 3).map((warning, i) => (
+                              <li key={i}>{warning}</li>
+                            ))}
+                            {uploadStatus.result.warnings.length > 3 && (
+                              <li>...and {uploadStatus.result.warnings.length - 3} more warnings</li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {uploadStatus.result.errors.length > 0 && (
+                        <div className="mt-2">
+                          <h4 className="text-red-600 font-medium text-xs mb-1">Errors:</h4>
+                          <ul className="text-xs text-red-700 pl-4 list-disc">
+                            {uploadStatus.result.errors.slice(0, 3).map((error, i) => (
+                              <li key={i}>{error}</li>
+                            ))}
+                            {uploadStatus.result.errors.length > 3 && (
+                              <li>...and {uploadStatus.result.errors.length - 3} more errors</li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  <div className="flex justify-end">
+                    <button 
+                      type="submit"
+                      className={`py-2 px-4 rounded-md text-white flex items-center ${isActionLoading ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                      disabled={isActionLoading || !uploadStatus.fileName}
+                    >
+                      <UploadCloud className="h-4 w-4 mr-2" />
+                      {isActionLoading ? 'Uploading...' : 'Upload File'}
+                    </button>
+                  </div>
+                </form>
               </div>
               
               {/* User Role Management Section */}

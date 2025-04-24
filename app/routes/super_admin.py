@@ -7,6 +7,8 @@ import io
 import os
 import traceback
 from datetime import datetime
+from app.models.club_feature import ClubFeature
+from app.utils.feature_types import FeatureType
 
 super_admin_routes = Blueprint('super_admin', __name__, url_prefix='/clubs/api/super-admin')
 
@@ -256,3 +258,82 @@ def get_groups_template():
     except Exception as e:
         current_app.logger.error(f"Error generating template: {str(e)}")
         return jsonify({'error': 'Failed to generate template'}), 500
+    
+@super_admin_routes.route('/clubs/<int:club_id>/features', methods=['GET'])
+@login_required
+def get_club_features(club_id):
+    """Get all feature settings for a club"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    club = TennisClub.query.get_or_404(club_id)
+    
+    # Get all defined features
+    all_features = FeatureType.get_all_features()
+    
+    # Get current settings from database
+    club_features = ClubFeature.query.filter_by(tennis_club_id=club_id).all()
+    
+    # Create a map for easier lookup
+    features_map = {f.feature_name: f.is_enabled for f in club_features}
+    
+    # Combine all defined features with their current settings
+    result = []
+    for feature in all_features:
+        result.append({
+            'name': feature['name'],
+            'display_name': feature['display_name'],
+            'description': feature['description'],
+            'icon': feature.get('icon', ''),
+            'is_enabled': features_map.get(feature['name'], True)  # Default to True if not found
+        })
+    
+    return jsonify(result)
+
+@super_admin_routes.route('/clubs/<int:club_id>/features', methods=['PUT'])
+@login_required
+def update_club_features(club_id):
+    """Update feature settings for a club"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    club = TennisClub.query.get_or_404(club_id)
+    
+    data = request.get_json()
+    if not data or not isinstance(data, list):
+        return jsonify({'error': 'Invalid data format'}), 400
+        
+    try:
+        # Process each feature in the request
+        for feature_data in data:
+            feature_name = feature_data.get('name')
+            is_enabled = feature_data.get('is_enabled', True)
+            
+            if not feature_name:
+                continue
+                
+            # Find existing feature or create new one
+            feature = ClubFeature.query.filter_by(
+                tennis_club_id=club_id,
+                feature_name=feature_name
+            ).first()
+            
+            if feature:
+                # Update existing
+                feature.is_enabled = is_enabled
+            else:
+                # Create new
+                feature = ClubFeature(
+                    tennis_club_id=club_id,
+                    feature_name=feature_name,
+                    is_enabled=is_enabled
+                )
+                db.session.add(feature)
+                
+        db.session.commit()
+        return jsonify({'message': 'Features updated successfully'})
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating features: {str(e)}")
+        return jsonify({'error': str(e)}), 500
