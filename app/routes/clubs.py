@@ -53,8 +53,6 @@ def setup_initial_teaching_period(club_id):
 
 def parse_date(date_str):
     """Parse date from either YYYY-MM-DD or DD-MMM-YYYY format"""
-    print(f"Attempting to parse date: '{date_str}'")
-    print(date_str)
     
     # Return None for empty strings or None values
     if not date_str or date_str.strip() == '':
@@ -64,7 +62,6 @@ def parse_date(date_str):
         # First try YYYY-MM-DD format (HTML5 date input)
         try:
             parsed_date = datetime.strptime(date_str.strip(), '%Y-%m-%d').date()
-            print(f"Successfully parsed date (YYYY-MM-DD): {parsed_date}")
             return parsed_date
         except ValueError:
             # If that fails, try DD-MMM-YYYY format
@@ -79,7 +76,6 @@ def parse_date(date_str):
             
             # Parse using strptime
             parsed_date = datetime.strptime(formatted_date_str, '%d-%b-%Y').date()
-            print(f"Successfully parsed date (DD-MMM-YYYY): {parsed_date}")
             return parsed_date
             
     except ValueError as e:
