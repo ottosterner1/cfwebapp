@@ -52,9 +52,7 @@ def setup_initial_teaching_period(club_id):
    ))
 
 def parse_date(date_str):
-    """Parse date from either YYYY-MM-DD or DD-MMM-YYYY format"""
-    print(f"Attempting to parse date: '{date_str}'")
-    print(date_str)
+    """Parse date from various formats including YYYY-MM-DD, DD-MMM-YYYY, or DD-MMM-YY"""
     
     # Return None for empty strings or None values
     if not date_str or date_str.strip() == '':
@@ -64,27 +62,60 @@ def parse_date(date_str):
         # First try YYYY-MM-DD format (HTML5 date input)
         try:
             parsed_date = datetime.strptime(date_str.strip(), '%Y-%m-%d').date()
-            print(f"Successfully parsed date (YYYY-MM-DD): {parsed_date}")
             return parsed_date
         except ValueError:
-            # If that fails, try DD-MMM-YYYY format
+            # If that fails, try DD-MMM-YYYY or DD-MMM-YY format
             date_str = date_str.strip()
-            day, month, year = date_str.split('-')
             
-            # Ensure month is properly capitalized
-            month = month.capitalize()
+            # Handle different dash/separator types
+            if '-' in date_str:
+                parts = date_str.split('-')
+            elif '/' in date_str:
+                parts = date_str.split('/')
+            else:
+                raise ValueError(f"Cannot parse date format: {date_str}")
+                
+            if len(parts) != 3:
+                raise ValueError(f"Date should have 3 parts (day, month, year): {date_str}")
+                
+            day, month, year = parts
             
-            # Reconstruct date string in proper format
-            formatted_date_str = f"{day}-{month}-{year}"
+            # Ensure month is properly capitalized if it's a text month
+            if not month.isdigit():
+                month = month.capitalize()
             
-            # Parse using strptime
-            parsed_date = datetime.strptime(formatted_date_str, '%d-%b-%Y').date()
-            print(f"Successfully parsed date (DD-MMM-YYYY): {parsed_date}")
+            # Handle 2-digit years by converting to 4-digit (assuming 20xx for recent years)
+            if len(year) == 2:
+                # Convert 2-digit year to 4-digit
+                # Years 00-69 are treated as 2000-2069, years 70-99 as 1970-1999
+                year_int = int(year)
+                if year_int < 70:
+                    year = f"20{year}"
+                else:
+                    year = f"19{year}"
+            
+            # Try different date formats based on the type of month (text vs numeric)
+            if month.isdigit():
+                try:
+                    # Try MM/DD/YYYY format (common in US)
+                    parsed_date = datetime.strptime(f"{month}/{day}/{year}", '%m/%d/%Y').date()
+                except ValueError:
+                    # Try DD/MM/YYYY format (common outside US)
+                    parsed_date = datetime.strptime(f"{day}/{month}/{year}", '%d/%m/%Y').date()
+            else:
+                # Month is text like "Jun" - use DD-MMM-YYYY format
+                formatted_date_str = f"{day}-{month}-{year}"
+                parsed_date = datetime.strptime(formatted_date_str, '%d-%b-%Y').date()
+                
             return parsed_date
             
-    except ValueError as e:
-        print(f"Date parsing failed: {str(e)}")
-        raise ValueError(f"Invalid date format for '{date_str}'. Use either YYYY-MM-DD or DD-MMM-YYYY format (e.g., 2024-12-25 or 25-Dec-2024)")
+    except Exception as e:
+        # Log the error but return None instead of raising to prevent crashes
+        current_app.logger.error(f"Date parsing failed for '{date_str}': {str(e)}")
+        # Instead of just raising, return a default date far in the past if needed
+        # return datetime(1900, 1, 1).date()  # Uncomment to use default date
+        # Or raise with a clear message
+        raise ValueError(f"Invalid date format: '{date_str}'. Please use YYYY-MM-DD or DD-MMM-YYYY format.")
 
 def parse_birth_date(date_str):
     """Parse birth date string to date object."""
@@ -2130,10 +2161,20 @@ def process_csv_chunk(token):
                 'students_created': upload_info['students_created'],
                 'players_created': upload_info['players_created'],
                 'progress_percentage': 100,
-                'warnings': upload_info['warnings'],
-                'errors': upload_info['errors'],
-                'has_more': False
+                'warnings': upload_info['warnings'][-50:],  # Only keep the last 50 warnings
+                'errors': upload_info['errors'][-50:],      # Only keep the last 50 errors
+                'has_more': False,
+                'total_warnings': len(upload_info['warnings']),
+                'total_errors': len(upload_info['errors'])
             }
+            
+            # Save complete errors and warnings to a file instead of keeping in session
+            error_log_file = os.path.join(os.path.dirname(upload_info['file_path']), f"errors_{token}.json")
+            with open(error_log_file, 'w') as f:
+                json.dump({
+                    'warnings': upload_info['warnings'],
+                    'errors': upload_info['errors']
+                }, f)
             
             # Clear session data
             session.pop('upload_info')
@@ -2176,6 +2217,12 @@ def process_csv_chunk(token):
         # Calculate progress percentage
         progress = int((end_idx / upload_info['total_rows']) * 100)
         
+        # To prevent session overflow, only keep the most recent errors and warnings
+        if len(upload_info['warnings']) > 100:
+            upload_info['warnings'] = upload_info['warnings'][-100:]
+        if len(upload_info['errors']) > 100:
+            upload_info['errors'] = upload_info['errors'][-100:]
+        
         # Update session
         session['upload_info'] = upload_info
         
@@ -2198,11 +2245,11 @@ def process_csv_chunk(token):
         current_app.logger.error(f"Error processing batch: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         
-        # Update errors in session
-        if 'upload_info' in session:
-            upload_info = session['upload_info']
-            upload_info['errors'].append(f"Error processing batch: {str(e)}")
-            session['upload_info'] = upload_info
+        # Instead of storing in session, log to file
+        error_log_file = os.path.join(os.path.dirname(upload_info.get('file_path', '/tmp')), f"error_{token}.log")
+        with open(error_log_file, 'a') as f:
+            f.write(f"Error processing batch: {str(e)}\n")
+            f.write(traceback.format_exc())
         
         # Return error
         return jsonify({

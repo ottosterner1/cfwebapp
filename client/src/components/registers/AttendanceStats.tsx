@@ -74,11 +74,334 @@ interface WeeklyStats {
   attendance_rate: number;
 }
 
+// New interfaces for notes
+interface StudentNote {
+  id: number;
+  student_id: number;
+  student_name: string;
+  notes: string;
+  player_id: number;
+  attendance_status: string;
+}
+
+interface RegisterNote {
+  id: number;
+  date: string;
+  group: {
+    id: number;
+    name: string;
+  };
+  time_slot: {
+    day: string;
+    start_time: string;
+    end_time: string;
+  };
+  coach: {
+    id: number;
+    name: string;
+  };
+  notes: string;
+  entries_with_notes: StudentNote[];
+  teaching_period: {
+    id: number;
+    name: string;
+  };
+}
+
 interface AttendanceStatsProps {
   onNavigate: (path: string) => void;
   periodId?: number;
   groupId?: number;
 }
+
+// Notes Summary component - simplified version with just counts
+const NotesSummary: React.FC<{
+  registerNotes: RegisterNote[];
+  loading: boolean;
+  error: string | null;
+  onViewDetails: () => void;
+}> = ({ registerNotes, loading, error, onViewDetails }) => {
+  if (loading) {
+    return (
+      <div className="bg-white rounded-lg shadow p-6 flex justify-center items-center h-24">
+        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-700"></div>
+      </div>
+    );
+  }
+  
+  if (error) {
+    return (
+      <div className="bg-red-50 p-4 rounded-md text-red-700">
+        Error loading notes: {error}
+      </div>
+    );
+  }
+
+  // Calculate notes statistics
+  const totalRegistersWithNotes = registerNotes.length;
+  const sessionNotesCount = registerNotes.filter(note => note.notes?.trim()).length;
+  const playerNotesCount = registerNotes.reduce(
+    (sum, note) => sum + note.entries_with_notes.length, 0
+  );
+  const totalNotesCount = sessionNotesCount + playerNotesCount;
+  
+  if (totalNotesCount === 0) {
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-medium mb-2">Coach Notes</h3>
+        <p className="text-gray-500">No notes found for the selected filters</p>
+      </div>
+    );
+  }
+  
+  return (
+    <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="p-6">
+        <h3 className="text-lg font-medium mb-2">Coach Notes</h3>
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="bg-blue-50 p-4 rounded-lg text-center">
+            <div className="text-2xl font-bold text-blue-700">{totalRegistersWithNotes}</div>
+            <div className="text-sm text-blue-500">Registers with Notes</div>
+          </div>
+          <div className="bg-yellow-50 p-4 rounded-lg text-center">
+            <div className="text-2xl font-bold text-yellow-700">{totalNotesCount}</div>
+            <div className="text-sm text-yellow-500">Total Notes</div>
+          </div>
+        </div>
+        
+        <div className="flex flex-col space-y-2">
+          {sessionNotesCount > 0 && (
+            <div className="text-sm">
+              <span className="font-medium">{sessionNotesCount}</span> session {sessionNotesCount === 1 ? 'note' : 'notes'}
+            </div>
+          )}
+          {playerNotesCount > 0 && (
+            <div className="text-sm">
+              <span className="font-medium">{playerNotesCount}</span> player {playerNotesCount === 1 ? 'note' : 'notes'}
+            </div>
+          )}
+        </div>
+        
+        <button
+          onClick={onViewDetails}
+          className="mt-4 w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-150"
+        >
+          View All Notes
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Notes list modal component
+const NotesListModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  registerNotes: RegisterNote[];
+  onViewRegister: (registerId: number) => void;
+  formatDate: (dateString: string) => string;
+}> = ({ isOpen, onClose, registerNotes, onViewRegister, formatDate }) => {
+  const [selectedNote, setSelectedNote] = useState<RegisterNote | null>(null);
+  
+  if (!isOpen) return null;
+  
+  // Handler for viewing a specific note's details
+  const handleViewNoteDetails = (note: RegisterNote) => {
+    setSelectedNote(note);
+  };
+  
+  // Handler for going back to the notes list
+  const handleBackToList = () => {
+    setSelectedNote(null);
+  };
+  
+  // Calculate total notes
+  const totalRegistersWithNotes = registerNotes.length;
+  const sessionNotesCount = registerNotes.filter(note => note.notes?.trim()).length;
+  const playerNotesCount = registerNotes.reduce(
+    (sum, note) => sum + note.entries_with_notes.length, 0
+  );
+  const totalNotesCount = sessionNotesCount + playerNotesCount;
+  
+  return (
+    <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-screen overflow-hidden">
+        {/* Modal header */}
+        <div className="px-6 py-4 border-b flex justify-between items-center">
+          {selectedNote ? (
+            <>
+              <div>
+                <button
+                  onClick={handleBackToList}
+                  className="text-blue-600 hover:text-blue-800 flex items-center"
+                >
+                  <svg className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  Back to List
+                </button>
+                <h3 className="text-lg font-medium text-gray-900 mt-1">
+                  Notes from {formatDate(selectedNote.date)}
+                </h3>
+                <p className="text-sm text-gray-500">
+                  {selectedNote.group.name} • {selectedNote.time_slot.day} {selectedNote.time_slot.start_time}-{selectedNote.time_slot.end_time} • Coach: {selectedNote.coach.name}
+                </p>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <h3 className="text-lg font-medium text-gray-900">
+                  Coach Notes Summary
+                </h3>
+                <p className="text-sm text-gray-500">
+                  {totalNotesCount} notes across {totalRegistersWithNotes} registers
+                </p>
+              </div>
+            </>
+          )}
+          
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-500"
+          >
+            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        
+        {/* Modal body */}
+        <div className="px-6 py-4 max-h-96 overflow-y-auto">
+          {selectedNote ? (
+            // Show detailed note view
+            <>
+              {/* Register note */}
+              {selectedNote.notes && (
+                <div className="mb-6">
+                  <h4 className="text-sm font-medium text-gray-900 mb-2">Session Notes</h4>
+                  <div className="bg-yellow-50 p-4 rounded-md">
+                    <p className="text-sm text-gray-800 whitespace-pre-wrap">{selectedNote.notes}</p>
+                  </div>
+                </div>
+              )}
+              
+              {/* Student notes */}
+              {selectedNote.entries_with_notes.length > 0 && (
+                <div>
+                  <h4 className="text-sm font-medium text-gray-900 mb-2">Player Notes</h4>
+                  <div className="space-y-4">
+                    {selectedNote.entries_with_notes.map(entry => (
+                      <div key={entry.id} className="bg-blue-50 p-4 rounded-md">
+                        <div className="flex justify-between">
+                          <h5 className="font-medium text-gray-900">{entry.student_name}</h5>
+                          <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                            entry.attendance_status === 'present' ? 'bg-green-100 text-green-800' :
+                            entry.attendance_status === 'absent' ? 'bg-red-100 text-red-800' :
+                            entry.attendance_status === 'sick' ? 'bg-indigo-100 text-indigo-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {entry.attendance_status.replace('_', ' ')}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">{entry.notes}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
+              {/* View register button */}
+              <div className="mt-6 flex justify-end">
+                <button
+                  onClick={() => onViewRegister(selectedNote.id)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                >
+                  View Register
+                </button>
+              </div>
+            </>
+          ) : (
+            // Show notes list
+            <div className="divide-y divide-gray-200">
+              {registerNotes.length === 0 ? (
+                <p className="py-4 text-gray-500">No notes found for the selected filters</p>
+              ) : (
+                registerNotes.map(note => {
+                  // Count notes in this register
+                  const hasRegisterNote = note.notes && note.notes.trim() !== '';
+                  const studentNotes = note.entries_with_notes.length;
+                  const notesCount = (hasRegisterNote ? 1 : 0) + studentNotes;
+                  
+                  return (
+                    <div 
+                      key={note.id} 
+                      className="py-4 cursor-pointer hover:bg-gray-50 transition-colors duration-150"
+                      onClick={() => handleViewNoteDetails(note)}
+                    >
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="font-medium text-gray-900">
+                            {formatDate(note.date)} - {note.group.name}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            {note.coach.name} • {note.time_slot.day} {note.time_slot.start_time}-{note.time_slot.end_time}
+                          </p>
+                        </div>
+                        <span className="bg-blue-100 text-blue-800 py-1 px-3 rounded-full text-xs font-medium">
+                          {notesCount} {notesCount === 1 ? 'Note' : 'Notes'}
+                        </span>
+                      </div>
+                      
+                      {/* Preview of notes content */}
+                      {hasRegisterNote && (
+                        <div className="mt-2 text-sm">
+                          <span className="font-medium">Session note:</span>{' '}
+                          <span className="text-gray-600">
+                            {note.notes.length > 60 ? note.notes.substring(0, 60) + '...' : note.notes}
+                          </span>
+                        </div>
+                      )}
+                      
+                      {studentNotes > 0 && (
+                        <div className="mt-1 text-sm">
+                          <span className="font-medium">Player notes:</span>{' '}
+                          <span className="text-gray-600">
+                            {studentNotes} player{studentNotes !== 1 ? 's' : ''} with notes
+                          </span>
+                        </div>
+                      )}
+                      
+                      {/* View details button */}
+                      <div className="mt-2">
+                        <button className="text-sm text-blue-600 hover:text-blue-800 flex items-center">
+                          View Details
+                          <svg className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+        
+        {/* Modal footer */}
+        <div className="px-6 py-4 border-t flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const AttendanceStats: React.FC<AttendanceStatsProps> = ({
   onNavigate,
@@ -107,10 +430,17 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
   const [groupStats, setGroupStats] = useState<GroupAttendanceStats[]>([]);
   const [overallStats, setOverallStats] = useState<IAttendanceStats | null>(null);
   
+  // New states for notes
+  const [registerNotes, setRegisterNotes] = useState<RegisterNote[]>([]);
+  const [loadingNotes, setLoadingNotes] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const [showNotesListModal, setShowNotesListModal] = useState(false);
+  
   // UI states
   const [loading, setLoading] = useState(true);
   const [loadingCoaches, setLoadingCoaches] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const previousDay = React.useRef('');
 
   // Fetch user info
   useEffect(() => {
@@ -146,7 +476,7 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
       try {
         setLoadingCoaches(true);
         
-        const response = await fetch('/api/coaches'); // Fixed URL
+        const response = await fetch('/api/coaches');
         
         if (!response.ok) {
           throw new Error(`Failed to fetch coaches: ${response.status} ${response.statusText}`);
@@ -199,7 +529,6 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
       try {
         setLoading(true);
         
-        // Fixed URL - removed /registers from the path
         const response = await fetch(`/api/days-of-week?period_id=${selectedPeriodId}`);
         
         if (!response.ok) {
@@ -227,20 +556,28 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
     fetchDays();
   }, [selectedPeriodId]);
 
-  // Fetch groups when day changes
+  // Fetch groups whenever period or coach changes (not just when day changes)
   useEffect(() => {
     const fetchGroups = async () => {
-      if (!selectedPeriodId || !selectedDay) return;
+      if (!selectedPeriodId) return;
       
       try {
         setLoading(true);
         
-        // Build query parameters including coach filter if set
-        let url = `/api/groups-by-day?period_id=${selectedPeriodId}&day_of_week=${selectedDay}`;
+        // Build query parameters
+        let url = `/api/groups-by-day?period_id=${selectedPeriodId}`;
+        
+        // Add day filter if selected
+        if (selectedDay) {
+          url += `&day_of_week=${selectedDay}`;
+        }
+        
+        // Add coach filter if set
         if (selectedCoachId) {
           url += `&coach_id=${selectedCoachId}`;
         }
         
+        console.log("Fetching groups from:", url);
         const response = await fetch(url);
         
         if (!response.ok) {
@@ -248,12 +585,16 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
         }
         
         const data = await response.json();
+        console.log("Groups response:", data);
         setGroups(data);
         
-        // Reset group selection
-        setSelectedGroupId(undefined);
-        setSelectedSessionId(undefined);
+        // Only reset group selection if day changes
+        if (selectedDay !== previousDay.current) {
+          setSelectedGroupId(undefined);
+          setSelectedSessionId(undefined);
+        }
         
+        previousDay.current = selectedDay;
         setError(null);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
@@ -264,15 +605,15 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
       }
     };
     
-    if (selectedDay) {
-      fetchGroups();
-    }
-  }, [selectedPeriodId, selectedDay, selectedCoachId]);
+    // Always fetch groups when period or coach changes
+    fetchGroups();
+    
+  }, [selectedPeriodId, selectedDay, selectedCoachId]); // Dependencies include period and coach
 
   // Fetch sessions when group changes
   useEffect(() => {
     const fetchSessions = async () => {
-      if (!selectedPeriodId || !selectedDay || !selectedGroupId) return;
+      if (!selectedPeriodId || !selectedGroupId) return;
       
       try {
         setLoading(true);
@@ -400,6 +741,52 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
     
     fetchRegisters();
   }, [selectedPeriodId, selectedDay, selectedCoachId, selectedGroupId, selectedSessionId]);
+
+  // NEW: Fetch register notes
+  useEffect(() => {
+    const fetchRegisterNotes = async () => {
+      if (!selectedPeriodId) return;
+      
+      try {
+        setLoadingNotes(true);
+        
+        // Build query params for notes
+        const params = new URLSearchParams();
+        params.append('period_id', selectedPeriodId.toString());
+        params.append('has_notes_only', 'true'); // Only get registers with notes
+        
+        if (selectedDay) {
+          params.append('day_of_week', selectedDay);
+        }
+        
+        if (selectedCoachId) {
+          params.append('coach_id', selectedCoachId.toString());
+        }
+        
+        if (selectedGroupId) {
+          params.append('group_id', selectedGroupId.toString());
+        }
+        
+        const response = await fetch(`/api/registers/notes?${params.toString()}`);
+        
+        if (!response.ok) {
+          throw new Error(`Error fetching register notes: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        setRegisterNotes(data);
+        setNotesError(null);
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'An error occurred';
+        setNotesError(errorMessage);
+        console.error('Error fetching register notes:', err);
+      } finally {
+        setLoadingNotes(false);
+      }
+    };
+    
+    fetchRegisterNotes();
+  }, [selectedPeriodId, selectedDay, selectedCoachId, selectedGroupId]);
 
   // Calculate weekly stats from registers
   const calculateWeeklyStats = (registers: RegisterSummary[]) => {
@@ -924,6 +1311,7 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
         </button>
       </div>
       
+      {/* Filters section */}
       <div className="bg-white p-6 rounded-lg shadow">
         <h2 className="text-lg font-semibold mb-3">Filters</h2>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
@@ -981,15 +1369,6 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
                 <option key={coach.id} value={coach.id}>{coach.name}</option>
               ))}
             </select>
-            {loadingUserInfo ? (
-              <div className="text-xs text-gray-500 mt-1">Loading user info...</div>
-            ) : loadingCoaches ? (
-              <div className="text-xs text-gray-500 mt-1">Loading coaches...</div>
-            ) : coaches.length === 0 ? (
-              <div className="text-xs text-yellow-600 mt-1">
-                No coaches found for your tennis club
-              </div>
-            ) : null}
           </div>
           
           {/* Group Filter */}
@@ -1001,7 +1380,7 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
               id="group"
               value={selectedGroupId || ''}
               onChange={handleGroupChange}
-              disabled={!selectedDay || groups.length === 0}
+              disabled={groups.length === 0}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100"
             >
               <option value="">All Groups</option>
@@ -1009,9 +1388,6 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
                 <option key={group.id} value={group.id}>{group.name}</option>
               ))}
             </select>
-            {selectedDay && groups.length === 0 && (
-              <p className="text-sm text-red-500 mt-1">No groups found for this day</p>
-            )}
           </div>
           
           {/* Session Filter */}
@@ -1044,27 +1420,95 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
           {error}
         </div>
       ) : (
-        <>
-          {/* Overall Stats Card */}
+        <div className="space-y-6">
+          {/* Main stats card */}
           {renderStatsCard()}
           
+          {/* Coach Notes Summary - Now placed below the main stats */}
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            <div className="p-6">
+              <h3 className="text-lg font-medium mb-2">Coach Notes</h3>
+              
+              {loadingNotes ? (
+                <div className="flex justify-center items-center h-24">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-700"></div>
+                </div>
+              ) : notesError ? (
+                <div className="bg-red-50 p-4 rounded-md text-red-700">
+                  Error loading notes: {notesError}
+                </div>
+              ) : registerNotes.length === 0 ? (
+                <p className="text-gray-500">No notes found for the selected filters</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div className="bg-blue-50 p-4 rounded-lg text-center">
+                      <div className="text-2xl font-bold text-blue-700">{registerNotes.length}</div>
+                      <div className="text-sm text-blue-500">Registers with Notes</div>
+                    </div>
+                    
+                    <div className="bg-yellow-50 p-4 rounded-lg text-center">
+                      <div className="text-2xl font-bold text-yellow-700">
+                        {registerNotes.filter(note => note.notes?.trim()).length + 
+                         registerNotes.reduce((sum, note) => sum + note.entries_with_notes.length, 0)}
+                      </div>
+                      <div className="text-sm text-yellow-500">Total Notes</div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex flex-col space-y-2">
+                    {registerNotes.filter(note => note.notes?.trim()).length > 0 && (
+                      <div className="text-sm">
+                        <span className="font-medium">{registerNotes.filter(note => note.notes?.trim()).length}</span> session {registerNotes.filter(note => note.notes?.trim()).length === 1 ? 'note' : 'notes'}
+                      </div>
+                    )}
+                    
+                    {registerNotes.reduce((sum, note) => sum + note.entries_with_notes.length, 0) > 0 && (
+                      <div className="text-sm">
+                        <span className="font-medium">{registerNotes.reduce((sum, note) => sum + note.entries_with_notes.length, 0)}</span> player {registerNotes.reduce((sum, note) => sum + note.entries_with_notes.length, 0) === 1 ? 'note' : 'notes'}
+                      </div>
+                    )}
+                  </div>
+                  
+                  <button
+                    onClick={() => setShowNotesListModal(true)}
+                    className="mt-4 w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-150"
+                  >
+                    View All Notes
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+          
           {/* Weekly Stats Table */}
-          <div className="mt-8">
+          <div>
             {renderWeeklyStats()}
           </div>
           
           {/* Group Stats Table (shown only when multiple groups are in results) */}
           {groupStats.length > 1 && (
-            <div className="mt-8">
+            <div>
               {renderGroupStats()}
             </div>
           )}
           
           {/* Individual Register Table */}
-          <div className="mt-8">
+          <div>
             {renderRegisterStats()}
           </div>
-        </>
+        </div>
+      )}
+      
+      {/* Notes List Modal */}
+      {showNotesListModal && (
+        <NotesListModal
+          isOpen={showNotesListModal}
+          onClose={() => setShowNotesListModal(false)}
+          registerNotes={registerNotes}
+          onViewRegister={handleViewRegister}
+          formatDate={formatDate}
+        />
       )}
     </div>
   );

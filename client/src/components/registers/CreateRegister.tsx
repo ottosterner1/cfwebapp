@@ -62,6 +62,11 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
   const [selectedTimeSlotId, setSelectedTimeSlotId] = useState<number | ''>('');
   const [selectedDate, setSelectedDate] = useState<string>('');
   
+  // New state for make up class
+  const [isMakeupClass, setIsMakeupClass] = useState<boolean>(false);
+  // New state for available dates based on day of week
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  
   // New state for showing all sessions
   const [showAllSessions, setShowAllSessions] = useState<boolean>(false);
   
@@ -81,6 +86,9 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [expandedPlayerInfo, setExpandedPlayerInfo] = useState<{[key: number]: boolean}>({});
+  
+  // NEW: Add state for the "show all player info" toggle - default to true
+  const [showAllPlayerInfo, setShowAllPlayerInfo] = useState<boolean>(true);
 
   // Define days of week in Monday-Sunday order for consistency across the component
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -310,8 +318,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
           setSelectedTimeSlotId('');
         }
         
-        // CHANGED: Don't auto-set date anymore
-        // Leave the date field empty - user will need to select it
+        // Reset date selection
         setSelectedDate('');
         
         // Reset players
@@ -327,6 +334,85 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     
     fetchAvailableTimeSlots();
   }, [selectedPeriodId, selectedDay, selectedGroupId, showAllSessions]);
+
+  // Generate available dates for the selected day of week
+  useEffect(() => {
+    if (!selectedDay) {
+      setAvailableDates([]);
+      return;
+    }
+
+    // Get the current date
+    const today = new Date();
+    
+    // Map day names directly to their JS day index values
+    const dayToIndex: {[key: string]: number} = {
+      'Monday': 1,
+      'Tuesday': 2, 
+      'Wednesday': 3, 
+      'Thursday': 4, 
+      'Friday': 5, 
+      'Saturday': 6, 
+      'Sunday': 0
+    };
+    
+    const targetDayIndex = dayToIndex[selectedDay];
+    if (targetDayIndex === undefined) {
+      console.error(`Invalid day selected: ${selectedDay}`);
+      return;
+    }
+    
+    // Clear existing dates
+    const matchingDates: string[] = [];
+    
+    // Find the previous occurrence of the target day (up to 7 days ago)
+    let previousDate = new Date(today);
+    // Go back up to 7 days to find the most recent past occurrence
+    for (let i = 0; i < 7; i++) {
+      previousDate = new Date(previousDate.getTime() - 24 * 60 * 60 * 1000);
+      if (previousDate.getDay() === targetDayIndex) {
+        matchingDates.push(previousDate.toISOString().split('T')[0]);
+        break;
+      }
+    }
+    
+    // Check if today is the target day
+    if (today.getDay() === targetDayIndex) {
+      matchingDates.push(today.toISOString().split('T')[0]);
+    } else {
+      // Find the next occurrence of the target day (which might be today)
+      let nextDate = new Date(today);
+      while (nextDate.getDay() !== targetDayIndex) {
+        nextDate = new Date(nextDate.getTime() + 24 * 60 * 60 * 1000);
+      }
+      matchingDates.push(nextDate.toISOString().split('T')[0]);
+    }
+    
+    // Get additional future occurrences of the selected day
+    let futureDate = new Date(matchingDates[matchingDates.length - 1]);
+    for (let i = 0; i < 4; i++) {  // Add 4 more future dates
+      futureDate = new Date(futureDate.getTime() + 7 * 24 * 60 * 60 * 1000); // Add exactly 7 days
+      matchingDates.push(futureDate.toISOString().split('T')[0]);
+    }
+    
+    // Sort dates chronologically
+    matchingDates.sort();
+    
+    // Update available dates
+    setAvailableDates(matchingDates);
+    
+    // Find today's date
+    const todayStr = today.toISOString().split('T')[0];
+    
+    // Find the date that's today or the next upcoming one
+    let defaultDateIndex = matchingDates.findIndex(date => date >= todayStr);
+    if (defaultDateIndex === -1) defaultDateIndex = matchingDates.length - 1;
+    
+    // Auto-select the current date or next upcoming one if none is selected
+    if (matchingDates.length > 0 && !selectedDate) {
+      setSelectedDate(matchingDates[defaultDateIndex]);
+    }
+  }, [selectedDay, selectedTimeSlotId, selectedDate]);
 
   // Fetch players when all required criteria are set
   useEffect(() => {
@@ -358,10 +444,10 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
           
           setPlayers(validatedPlayers);
           
-          // Initialize expanded state for all players as false
+          // Initialize expanded state for all players based on the showAllPlayerInfo state
           const expandedState: {[key: number]: boolean} = {};
           validatedPlayers.forEach(player => {
-            expandedState[player.id] = false;
+            expandedState[player.id] = showAllPlayerInfo;
           });
           setExpandedPlayerInfo(expandedState);
         } else {
@@ -377,14 +463,13 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     };
     
     fetchPlayers();
-  }, [selectedTimeSlotId, selectedPeriodId, selectedGroupId, selectedDay]);
+  }, [selectedTimeSlotId, selectedPeriodId, selectedGroupId, selectedDay, showAllPlayerInfo]);
 
-  // NEW: Handle date focus to default to current date
+  // Handle date focus for makeup class
   const handleDateFocus = () => {
-    // Only set the date if it's currently empty
-    if (!selectedDate) {
-      const today = new Date();
-      setSelectedDate(today.toISOString().split('T')[0]);
+    // Only set date for non-makeup classes if it's currently empty
+    if (!selectedDate && !isMakeupClass && availableDates.length > 0) {
+      setSelectedDate(availableDates[0]);
     }
   };
 
@@ -395,6 +480,26 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     setSelectedDay('');
     setSelectedGroupId('');
     setSelectedTimeSlotId('');
+  };
+
+  // NEW: Handle makeup class toggle
+  const handleMakeupClassToggle = () => {
+    setIsMakeupClass(prev => !prev);
+    // Clear the date when toggling to allow selection of any date when makeup is true
+    setSelectedDate('');
+  };
+
+  // NEW: Handle toggle all player info
+  const handleToggleAllPlayerInfo = () => {
+    const newShowAllValue = !showAllPlayerInfo;
+    setShowAllPlayerInfo(newShowAllValue);
+    
+    // Update all individual player toggles
+    const updatedExpandedState: {[key: number]: boolean} = {};
+    players.forEach(player => {
+      updatedExpandedState[player.id] = newShowAllValue;
+    });
+    setExpandedPlayerInfo(updatedExpandedState);
   };
 
   // Handle updating player attendance status
@@ -699,20 +804,86 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
           </div>
           
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-6">
-            {/* Date Selector - Updated with onFocus handler */}
+            {/* Date Selector - UPDATED with new date filtering */}
             <div>
-              <label htmlFor="date" className="block text-sm font-medium text-gray-700 mb-1">
-                Date*
-              </label>
-              <input
-                type="date"
-                id="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                onFocus={handleDateFocus}
-                className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                required
-              />
+              <div className="flex justify-between items-center mb-1">
+                <label htmlFor="date" className="block text-sm font-medium text-gray-700">
+                  Date*
+                </label>
+                <div className="flex items-center">
+                  <label htmlFor="makeupClass" className="text-xs text-gray-600 mr-2">
+                    Makeup Class
+                  </label>
+                  <button
+                    type="button"
+                    id="makeupClass"
+                    onClick={handleMakeupClassToggle}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full ${
+                      isMakeupClass ? 'bg-blue-600' : 'bg-gray-300'
+                    } transition-colors duration-300 focus:outline-none`}
+                  >
+                    <span 
+                      className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform duration-300 ${
+                        isMakeupClass ? 'translate-x-5' : 'translate-x-1'
+                      }`} 
+                    />
+                  </button>
+                </div>
+              </div>
+              
+              {isMakeupClass ? (
+                // For makeup classes, allow any date selection
+                <input
+                  type="date"
+                  id="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  required
+                />
+              ) : (
+                // For regular classes, only show dates that match the day of week
+                <select
+                  id="dateSelect"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  onFocus={handleDateFocus}
+                  className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  required
+                  disabled={availableDates.length === 0}
+                >
+                  <option value="">Select Date</option>
+                  {availableDates.map((date) => {
+                    const dateObj = new Date(date);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0); // Normalize today's date for comparison
+                    
+                    // Check if date is in the past
+                    const isPast = dateObj < today;
+                    
+                    return (
+                      <option 
+                        key={date} 
+                        value={date}
+                        className={isPast ? 'text-gray-500 italic' : ''}
+                      >
+                        {dateObj.toLocaleDateString('en-US', { 
+                          weekday: 'long',  // Show full day name 
+                          day: 'numeric',
+                          month: 'long'
+                        })}
+                        {isPast ? ' (Past)' : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
+              
+              {selectedDay && availableDates.length === 0 && !isMakeupClass && (
+                <div className="mt-1 text-xs text-orange-500">
+                  No dates available for {selectedDay}. Enable "Makeup Class" to select any date.
+                </div>
+              )}
             </div>
             
             {/* Session Notes */}
@@ -737,6 +908,16 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-medium">Attendance</h3>
                 <div className="flex gap-2">
+                  {/* NEW: Toggle All Player Info Button */}
+                  <button
+                    type="button"
+                    onClick={handleToggleAllPlayerInfo}
+                    className={`px-3 py-1.5 text-xs rounded-md shadow-sm text-white ${
+                      showAllPlayerInfo ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-600 hover:bg-gray-700'
+                    }`}
+                  >
+                    {showAllPlayerInfo ? 'Hide All Info' : 'Show All Info'}
+                  </button>
                   <button
                     type="button"
                     onClick={handleMarkAllPresent}

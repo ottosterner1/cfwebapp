@@ -19,8 +19,6 @@ player_routes = Blueprint('players', __name__, url_prefix='/api')
 
 def parse_date(date_str):
     """Parse date from either YYYY-MM-DD or DD-MMM-YYYY format"""
-    print(f"Attempting to parse date: '{date_str}'")
-    print(date_str)
     
     # Return None for empty strings or None values
     if not date_str or date_str.strip() == '':
