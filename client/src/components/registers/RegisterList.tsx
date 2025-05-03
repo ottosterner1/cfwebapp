@@ -266,7 +266,7 @@ const RegisterList: React.FC<RegisterListProps> = ({
     }
   }, [selectedPeriod]);
 
-  // Apply all filters to the registers
+  // Apply all filters to the registers and sort by newest date first
   useEffect(() => {
     let filteredData = [...allRegisters];
     
@@ -299,6 +299,14 @@ const RegisterList: React.FC<RegisterListProps> = ({
         `${register.time_slot.start_time}-${register.time_slot.end_time}` === selectedSession
       );
     }
+    
+    // Sort registers by date in reverse chronological order (newest first)
+    filteredData.sort((a, b) => {
+      const dateA = new Date(a.date);
+      const dateB = new Date(b.date);
+      // Sort descending (newest first)
+      return dateB.getTime() - dateA.getTime();
+    });
     
     setRegisters(filteredData);
   }, [allRegisters, selectedGroup, selectedDay, selectedCoach, selectedSession, groups]);

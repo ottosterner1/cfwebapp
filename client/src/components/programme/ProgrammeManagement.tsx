@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback} from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Alert, AlertDescription } from '../../components/ui/alert';
-import { Download, PlusCircle, Pencil, Trash2 } from 'lucide-react';
+import { Download, PlusCircle, Pencil, Trash2, Search } from 'lucide-react';
 import BulkUploadSection from './BulkUploadSection';
 import ProgrammeAnalytics from './ProgrammeAnalytics';
 
@@ -25,21 +25,6 @@ interface Player {
   report_submitted: boolean;
   report_id: number | null;
   can_edit: boolean;
-}
-
-interface GroupedPlayers {
-  [groupId: string]: {
-    groupName: string;
-    timeSlots: {
-      [timeSlotId: string]: {
-        dayOfWeek: string;
-        startTime: string;
-        endTime: string;
-        players: Player[];
-      };
-    };
-    unassignedPlayers: Player[];
-  };
 }
 
 // PeriodFilter Component
@@ -102,10 +87,23 @@ const getTimeValue = (timeStr: string): number => {
 
 const PlayersList: React.FC<{
   players: Player[];
+  filteredPlayers: Player[];
   loading: boolean;
   clubId: number;
   onDeletePlayer: (playerId: number) => Promise<void>;
-}> = ({ players, loading, clubId, onDeletePlayer }) => {
+  searchQuery: string;
+  selectedGroup: string | null;
+  selectedDay: string | null;
+}> = ({ 
+  players, 
+  filteredPlayers, 
+  loading, 
+  clubId, 
+  onDeletePlayer, 
+  searchQuery, 
+  selectedGroup, 
+  selectedDay 
+}) => {
   const [deleteInProgress, setDeleteInProgress] = useState<Record<number, boolean>>({});
   
   if (loading) {
@@ -117,42 +115,63 @@ const PlayersList: React.FC<{
     );
   }
 
-  if (!players.length) {
+  if (!filteredPlayers.length) {
     return (
       <div className="text-center py-8 bg-gray-50 rounded-lg">
-        No players found for this teaching period.
+        {players.length > 0 
+          ? `No players match your search criteria${searchQuery ? ` for "${searchQuery}"` : ''}${selectedGroup ? ` in group "${selectedGroup}"` : ''}${selectedDay ? ` on ${selectedDay}` : ''}`
+          : "No players found for this teaching period."}
       </div>
     );
   }
-
-  const groupedPlayers: GroupedPlayers = players.reduce((acc, player) => {
-    const groupId = String(player.group_id);
-    const timeSlotId = player.group_time_id ? String(player.group_time_id) : 'unassigned';
-
-    if (!acc[groupId]) {
-      acc[groupId] = {
-        groupName: player.group_name,
-        timeSlots: {},
-        unassignedPlayers: []
+  
+  const groupPlayers = (players: Player[]) => {
+    interface GroupedPlayers {
+      [groupId: string]: {
+        groupName: string;
+        timeSlots: {
+          [timeSlotId: string]: {
+            dayOfWeek: string;
+            startTime: string;
+            endTime: string;
+            players: Player[];
+          };
+        };
+        unassignedPlayers: Player[];
       };
     }
+    
+    return players.reduce((acc, player) => {
+      const groupId = String(player.group_id);
+      const timeSlotId = player.group_time_id ? String(player.group_time_id) : 'unassigned';
 
-    if (player.time_slot) {
-      if (!acc[groupId].timeSlots[timeSlotId]) {
-        acc[groupId].timeSlots[timeSlotId] = {
-          dayOfWeek: player.time_slot.day_of_week,
-          startTime: player.time_slot.start_time,
-          endTime: player.time_slot.end_time,
-          players: []
+      if (!acc[groupId]) {
+        acc[groupId] = {
+          groupName: player.group_name,
+          timeSlots: {},
+          unassignedPlayers: []
         };
       }
-      acc[groupId].timeSlots[timeSlotId].players.push(player);
-    } else {
-      acc[groupId].unassignedPlayers.push(player);
-    }
 
-    return acc;
-  }, {} as GroupedPlayers);
+      if (player.time_slot) {
+        if (!acc[groupId].timeSlots[timeSlotId]) {
+          acc[groupId].timeSlots[timeSlotId] = {
+            dayOfWeek: player.time_slot.day_of_week,
+            startTime: player.time_slot.start_time,
+            endTime: player.time_slot.end_time,
+            players: []
+          };
+        }
+        acc[groupId].timeSlots[timeSlotId].players.push(player);
+      } else {
+        acc[groupId].unassignedPlayers.push(player);
+      }
+
+      return acc;
+    }, {} as GroupedPlayers);
+  };
+
+  const groupedPlayers = groupPlayers(filteredPlayers);
 
   const formatTime = (time: string) => {
     return new Date(`2000-01-01T${time}`).toLocaleTimeString([], {
@@ -190,8 +209,20 @@ const PlayersList: React.FC<{
     }
   };
 
+  // Results summary
+  const resultsSummary = (
+    <div className="mb-4 text-sm text-gray-500">
+      Showing {filteredPlayers.length} of {players.length} players
+      {selectedGroup && ` in group "${selectedGroup}"`}
+      {selectedDay && ` on ${selectedDay}`}
+      {searchQuery && ` matching "${searchQuery}"`}
+    </div>
+  );
+
   return (
     <div className="space-y-8">
+      {resultsSummary}
+      
       {Object.entries(groupedPlayers).map(([groupId, group]) => (
         <div key={groupId} className="bg-white shadow rounded-lg overflow-hidden">
           <div className="p-4 bg-gray-50">
@@ -240,6 +271,17 @@ const PlayersList: React.FC<{
                         <div>
                           <span className="font-medium text-gray-900">
                             {player.student_name}
+                          </span>
+                          <span className="ml-2">
+                            {player.report_submitted ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                Completed
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                Pending
+                              </span>
+                            )}
                           </span>
                         </div>
                         {player.can_edit && (
@@ -348,10 +390,11 @@ const ProgrammeManagement = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
-
-  // Separate useEffect for tracking showBulkUpload changes
-  useEffect(() => {
-  }, [showBulkUpload]);
+  
+  // Search and filter states
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   // Fetch user data
   useEffect(() => {
@@ -452,9 +495,7 @@ const ProgrammeManagement = () => {
   }, [loading]);
 
   const toggleBulkUpload = () => {
-    setShowBulkUpload(prev => {
-      return !prev;
-    });
+    setShowBulkUpload(prev => !prev);
   };
 
   const handleBulkUploadSuccess = () => {
@@ -497,6 +538,55 @@ const ProgrammeManagement = () => {
       console.error('Error deleting player:', error);
       alert('Failed to delete player. Please try again.');
     }
+  };
+  
+  // Get unique groups and days for filter options
+  const { groups, days } = useMemo(() => {
+    const groupsSet = new Set<string>();
+    const daysSet = new Set<string>();
+    
+    players.forEach(player => {
+      groupsSet.add(player.group_name);
+      if (player.time_slot) {
+        daysSet.add(player.time_slot.day_of_week);
+      }
+    });
+    
+    return {
+      groups: Array.from(groupsSet).sort(),
+      days: Array.from(daysSet).sort((a, b) => getDayOrder(a) - getDayOrder(b))
+    };
+  }, [players]);
+
+  // Filter players based on search and filters
+  const filteredPlayers = useMemo(() => {
+    return players.filter(player => {
+      // Search filter
+      const searchLower = searchQuery.toLowerCase();
+      if (searchQuery && !player.student_name.toLowerCase().includes(searchLower) && 
+          !player.group_name.toLowerCase().includes(searchLower)) {
+        return false;
+      }
+      
+      // Group filter
+      if (selectedGroup && player.group_name !== selectedGroup) {
+        return false;
+      }
+      
+      // Day filter
+      if (selectedDay && (!player.time_slot || player.time_slot.day_of_week !== selectedDay)) {
+        return false;
+      }
+      
+      return true;
+    });
+  }, [players, searchQuery, selectedGroup, selectedDay]);
+  
+  // Clear all filters
+  const clearFilters = () => {
+    setSearchQuery('');
+    setSelectedGroup(null);
+    setSelectedDay(null);
   };
 
   if (error) {
@@ -558,9 +648,7 @@ const ProgrammeManagement = () => {
               <BulkUploadSection
                 periodId={selectedPeriod}
                 onSuccess={handleBulkUploadSuccess}
-                onCancel={() => {
-                  setShowBulkUpload(false);
-                }}
+                onCancel={() => setShowBulkUpload(false)}
               />
             </div>
           )}
@@ -568,12 +656,67 @@ const ProgrammeManagement = () => {
           {/* Analytics Section */}
           <ProgrammeAnalytics players={players} />
 
+                    {/* Search and Filter Bar */}
+                    <div className="p-4 border rounded-lg bg-gray-50 mb-6">
+            <div className="flex flex-col md:flex-row gap-3">
+              {/* Search Input */}
+              <div className="relative flex-grow">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-4 w-4 text-gray-400" />
+                </div>
+                <input
+                  type="text"
+                  placeholder="Search players or groups..."
+                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+              
+              {/* Group Filter */}
+              <select
+                className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                value={selectedGroup || ''}
+                onChange={(e) => setSelectedGroup(e.target.value || null)}
+              >
+                <option value="">All Groups</option>
+                {groups.map(group => (
+                  <option key={group} value={group}>{group}</option>
+                ))}
+              </select>
+              
+              {/* Day Filter */}
+              <select
+                className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                value={selectedDay || ''}
+                onChange={(e) => setSelectedDay(e.target.value || null)}
+              >
+                <option value="">All Days</option>
+                {days.map(day => (
+                  <option key={day} value={day}>{day}</option>
+                ))}
+              </select>
+              
+              {/* Clear Filters Button */}
+              <button 
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                onClick={clearFilters}
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+
           {/* Players List */}
           <PlayersList
             players={players}
+            filteredPlayers={filteredPlayers}
             loading={loading}
             clubId={clubId}
             onDeletePlayer={handleDeletePlayer}
+            searchQuery={searchQuery}
+            selectedGroup={selectedGroup}
+            selectedDay={selectedDay}
           />
         </CardContent>
       </Card>

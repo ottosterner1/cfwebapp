@@ -258,7 +258,7 @@ def get_register(register_id):
                 'id': register.coach_id,
                 'name': register.coach.name
             },
-            'notes': register.notes,
+            'notes': register.notes, 
             'entries': entries,
             'teaching_period': {
                 'id': register.teaching_period_id,
@@ -617,7 +617,7 @@ def get_attendance_stats():
         teaching_period_id = request.args.get('period_id', type=int)
         group_id = request.args.get('group_id', type=int)
         student_id = request.args.get('student_id', type=int)
-        coach_id = request.args.get('coach_id', type=int)  # Add coach_id parameter
+        coach_id = request.args.get('coach_id', type=int) 
         
         # Validate parameters
         if not teaching_period_id:
@@ -936,7 +936,6 @@ def get_coaches():
         # Get coaches who are assigned to players
         coaches = db.session.query(User).filter(
             User.tennis_club_id == current_user.tennis_club_id,
-            User.role == UserRole.COACH,
             User.is_active == True
         ).all()
         
@@ -1001,52 +1000,49 @@ def get_groups_by_day():
         teaching_period_id = request.args.get('period_id', type=int)
         day_of_week = request.args.get('day_of_week')
         
-        if not teaching_period_id or not day_of_week:
+        if not teaching_period_id:
             return jsonify([])
             
-        # Convert day_of_week string to enum - IMPROVED CONVERSION
-        from app.models.base import DayOfWeek
-        day_enum = None
-        try:
-            # First try exact enum name match
-            day_enum = DayOfWeek[day_of_week.upper()]
-            current_app.logger.info(f"Found day enum by name: {day_enum}")
-        except KeyError:
-            try:
-                # Try to match by value (Monday, Tuesday, etc.)
-                day_enum = next((d for d in DayOfWeek if d.value.upper() == day_of_week.upper()), None)
-                current_app.logger.info(f"Found day enum by value: {day_enum}")
-                if not day_enum:
-                    # Try to match by first 3 letters (MON, TUE, etc.)
-                    day_enum = next((d for d in DayOfWeek if d.name[:3] == day_of_week.upper()[:3]), None)
-                    current_app.logger.info(f"Found day enum by prefix: {day_enum}")
-                    if not day_enum:
-                        return jsonify({'error': f'Invalid day of week: {day_of_week}'}), 400
-            except Exception as day_err:
-                current_app.logger.error(f"Day conversion error: {day_err}")
-                return jsonify({'error': f'Invalid day of week format: {day_of_week}'}), 400
-
-        # DEBUG - Print the actual SQL query
+        # Base query for all groups with registers in this period
         query = db.session.query(TennisGroup.id, TennisGroup.name)\
             .join(TennisGroupTimes, TennisGroupTimes.group_id == TennisGroup.id)\
             .join(Register, Register.group_time_id == TennisGroupTimes.id)\
-            .filter(TennisGroupTimes.day_of_week == day_enum,
-                   Register.teaching_period_id == teaching_period_id,
+            .filter(Register.teaching_period_id == teaching_period_id,
                    Register.tennis_club_id == current_user.tennis_club_id)
-                   
-        # Apply coach filter for non-admins
+        
+        # Add day filter only if provided
+        if day_of_week:
+            from app.models.base import DayOfWeek
+            day_enum = None
+            try:
+                day_enum = DayOfWeek[day_of_week.upper()]
+                query = query.filter(TennisGroupTimes.day_of_week == day_enum)
+            except KeyError:
+                # Fallback conversion methods
+                try:
+                    day_enum = next((d for d in DayOfWeek if d.value.upper() == day_of_week.upper()), None)
+                    if day_enum:
+                        query = query.filter(TennisGroupTimes.day_of_week == day_enum)
+                    else:
+                        day_enum = next((d for d in DayOfWeek if d.name[:3] == day_of_week.upper()[:3]), None)
+                        if day_enum:
+                            query = query.filter(TennisGroupTimes.day_of_week == day_enum)
+                except Exception as e:
+                    current_app.logger.error(f"Day conversion error: {e}")
+                    # Don't return - just continue without the day filter
+        
+        # Apply coach filter if needed
         if not (current_user.is_admin or current_user.is_super_admin):
             query = query.filter(Register.coach_id == current_user.id)
-            
-        # Print SQL (very useful for debugging)
-        from sqlalchemy.dialects import postgresql
-        sql_str = query.statement.compile(dialect=postgresql.dialect(), 
-                                        compile_kwargs={"literal_binds": True})
-        current_app.logger.info(f"SQL Query: {sql_str}")
-            
-        groups = query.order_by(TennisGroup.name).all()
+        elif request.args.get('coach_id', type=int):
+            query = query.filter(Register.coach_id == request.args.get('coach_id', type=int))
+        
+        # Get distinct groups and sort by name
+        query = query.distinct().order_by(TennisGroup.name)
+        
+        groups = query.all()
         group_list = [{'id': group[0], 'name': group[1]} for group in groups]
-
+        
         return jsonify(group_list)
         
     except Exception as e:
@@ -1058,23 +1054,17 @@ def get_groups_by_day():
 @login_required
 @verify_club_access()
 def get_sessions():
-    """Get sessions (time slots) for a specific group and day of week in the selected period"""
+    """Get sessions (time slots) for a specific group in the selected period, optionally filtered by day"""
     try:
         teaching_period_id = request.args.get('period_id', type=int)
         day_of_week = request.args.get('day_of_week')
         group_id = request.args.get('group_id', type=int)
         
-        if not teaching_period_id or not day_of_week or not group_id:
+        # Only require teaching period and group ID
+        if not teaching_period_id or not group_id:
             return jsonify([])
             
-        # Convert day_of_week string to enum
-        from app.models.base import DayOfWeek
-        try:
-            day_enum = DayOfWeek[day_of_week.upper()]
-        except KeyError:
-            return jsonify({'error': f'Invalid day of week: {day_of_week}'}), 400
-            
-        # Query for sessions (time slots) for this group and day that have registers
+        # Base query for all sessions for this group with registers
         query = db.session.query(
                 TennisGroupTimes.id,
                 TennisGroupTimes.start_time,
@@ -1082,10 +1072,30 @@ def get_sessions():
                 func.count(Register.id).label('register_count')
             )\
             .join(Register, Register.group_time_id == TennisGroupTimes.id)\
-            .filter(TennisGroupTimes.day_of_week == day_enum,
-                   TennisGroupTimes.group_id == group_id,
+            .filter(TennisGroupTimes.group_id == group_id,
                    Register.teaching_period_id == teaching_period_id,
                    Register.tennis_club_id == current_user.tennis_club_id)
+        
+        # Add day filter only if provided
+        if day_of_week:
+            from app.models.base import DayOfWeek
+            try:
+                day_enum = DayOfWeek[day_of_week.upper()]
+                query = query.filter(TennisGroupTimes.day_of_week == day_enum)
+            except KeyError:
+                try:
+                    # Try to match by value (Monday, Tuesday, etc.)
+                    day_enum = next((d for d in DayOfWeek if d.value.upper() == day_of_week.upper()), None)
+                    if day_enum:
+                        query = query.filter(TennisGroupTimes.day_of_week == day_enum)
+                    else:
+                        # Try to match by first 3 letters (MON, TUE, etc.)
+                        day_enum = next((d for d in DayOfWeek if d.name[:3] == day_of_week.upper()[:3]), None)
+                        if day_enum:
+                            query = query.filter(TennisGroupTimes.day_of_week == day_enum)
+                except Exception as e:
+                    current_app.logger.error(f"Day conversion error: {e}")
+                    # Don't return - just continue without the day filter
             
         # Apply coach filter for non-admins
         if not (current_user.is_admin or current_user.is_super_admin):
@@ -1110,12 +1120,14 @@ def get_sessions():
             } 
             for session in sessions
         ]
+        
+        current_app.logger.info(f"Returning {len(session_list)} sessions for group {group_id}")
         return jsonify(session_list)
         
     except Exception as e:
         current_app.logger.error(f"Error fetching sessions: {str(e)}")
         current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': str(e)}), 
+        return jsonify({'error': str(e)}), 500 
 
 @register_routes.route('/user/info')
 @login_required
@@ -1134,4 +1146,132 @@ def get_user_info():
         })
     except Exception as e:
         current_app.logger.error(f"Error fetching user info: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+    
+@register_routes.route('/registers/notes')
+@login_required
+@verify_club_access()
+def get_all_register_notes():
+    """Get all notes from registers with filtering options"""
+    try:
+        # Parse query parameters
+        teaching_period_id = request.args.get('period_id', type=int)
+        group_id = request.args.get('group_id', type=int)
+        day_of_week = request.args.get('day_of_week')
+        coach_id = request.args.get('coach_id', type=int)
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        has_notes_only = request.args.get('has_notes_only', 'false').lower() == 'true'
+        
+        # Query for registers
+        query = Register.query.filter(
+            Register.tennis_club_id == current_user.tennis_club_id
+        )
+        
+        # Apply filters
+        if teaching_period_id:
+            query = query.filter(Register.teaching_period_id == teaching_period_id)
+        
+        if group_id:
+            query = query.join(
+                TennisGroupTimes, Register.group_time_id == TennisGroupTimes.id
+            ).filter(TennisGroupTimes.group_id == group_id)
+            
+        if day_of_week:
+            from app.models.base import DayOfWeek
+            try:
+                day_enum = DayOfWeek[day_of_week.upper()]
+                query = query.join(
+                    TennisGroupTimes, Register.group_time_id == TennisGroupTimes.id
+                ).filter(TennisGroupTimes.day_of_week == day_enum)
+            except KeyError:
+                pass
+                
+        if coach_id:
+            query = query.filter(Register.coach_id == coach_id)
+        elif not current_user.is_admin:
+            query = query.filter(Register.coach_id == current_user.id)
+            
+        if start_date:
+            try:
+                start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+                query = query.filter(Register.date >= start_date)
+            except ValueError:
+                pass
+                
+        if end_date:
+            try:
+                end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+                query = query.filter(Register.date <= end_date)
+            except ValueError:
+                pass
+                
+        # Get all entries for registers
+        results = []
+        
+        for register in query.all():
+            # Skip registers without notes if filter is applied
+            if has_notes_only and not register.notes:
+                # Check if any entries have notes
+                entry_has_notes = False
+                for entry in register.entries:
+                    if entry.notes:
+                        entry_has_notes = True
+                        break
+                        
+                if not entry_has_notes:
+                    continue
+                    
+            # Process register
+            group_time = register.group_time
+            group = group_time.tennis_group if group_time else None
+            
+            # Get entries with notes
+            entries_with_notes = []
+            for entry in register.entries:
+                if entry.notes:  # Only include entries with notes
+                    player = entry.programme_player
+                    student = player.student if player else None
+                    
+                    if student:
+                        entries_with_notes.append({
+                            'id': entry.id,
+                            'student_id': student.id,
+                            'student_name': student.name,
+                            'notes': entry.notes,
+                            'player_id': player.id,
+                            'attendance_status': serialize_attendance_status(entry.attendance_status)
+                        })
+            
+            # Include register only if it has notes or entries with notes
+            if register.notes or entries_with_notes:
+                results.append({
+                    'id': register.id,
+                    'date': register.date.isoformat(),
+                    'group': {
+                        'id': group.id if group else None,
+                        'name': group.name if group else 'Unknown Group'
+                    },
+                    'time_slot': {
+                        'day': group_time.day_of_week.value if group_time else None,
+                        'start_time': group_time.start_time.strftime('%H:%M') if group_time and group_time.start_time else None,
+                        'end_time': group_time.end_time.strftime('%H:%M') if group_time and group_time.end_time else None
+                    },
+                    'coach': {
+                        'id': register.coach_id,
+                        'name': register.coach.name
+                    },
+                    'notes': register.notes,  # Register-level notes
+                    'entries_with_notes': entries_with_notes,
+                    'teaching_period': {
+                        'id': register.teaching_period_id,
+                        'name': register.teaching_period.name
+                    }
+                })
+                
+        return jsonify(results)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching register notes: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
