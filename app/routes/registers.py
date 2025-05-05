@@ -1172,20 +1172,24 @@ def get_all_register_notes():
         if teaching_period_id:
             query = query.filter(Register.teaching_period_id == teaching_period_id)
         
-        if group_id:
+        # First, check if we need either filter
+        if group_id or day_of_week:
+            # Do the join only once
             query = query.join(
                 TennisGroupTimes, Register.group_time_id == TennisGroupTimes.id
-            ).filter(TennisGroupTimes.group_id == group_id)
+            )
             
-        if day_of_week:
-            from app.models.base import DayOfWeek
-            try:
-                day_enum = DayOfWeek[day_of_week.upper()]
-                query = query.join(
-                    TennisGroupTimes, Register.group_time_id == TennisGroupTimes.id
-                ).filter(TennisGroupTimes.day_of_week == day_enum)
-            except KeyError:
-                pass
+            # Then apply individual filters to the already joined table
+            if group_id:
+                query = query.filter(TennisGroupTimes.group_id == group_id)
+                
+            if day_of_week:
+                from app.models.base import DayOfWeek
+                try:
+                    day_enum = DayOfWeek[day_of_week.upper()]
+                    query = query.filter(TennisGroupTimes.day_of_week == day_enum)
+                except KeyError:
+                    pass
                 
         if coach_id:
             query = query.filter(Register.coach_id == coach_id)
