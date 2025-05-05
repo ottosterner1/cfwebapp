@@ -20,9 +20,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install
+# Copy requirements and install dependencies in smaller batches to reduce memory usage
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Install pip tools first
+RUN pip install --no-cache-dir --progress-bar off pip setuptools wheel
+
+# Install boto3 separately as it's the largest package
+RUN pip install --no-cache-dir --progress-bar off boto3 botocore
+
+# Install remaining packages in smaller batches with reduced memory usage
+RUN pip install --no-cache-dir --progress-bar off -r requirements.txt --no-deps && \
+    pip install --no-cache-dir --progress-bar off -r requirements.txt
 
 # Copy the backend application
 COPY . .
