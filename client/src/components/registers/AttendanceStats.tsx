@@ -126,6 +126,11 @@ const NotesListModal: React.FC<{
   
   if (!isOpen) return null;
   
+  // Sort the register notes by date in descending order (newest first)
+  const sortedRegisterNotes = [...registerNotes].sort((a, b) => {
+    return new Date(b.date).getTime() - new Date(a.date).getTime();
+  });
+  
   // Handler for viewing a specific note's details
   const handleViewNoteDetails = (note: RegisterNote) => {
     setSelectedNote(note);
@@ -243,12 +248,12 @@ const NotesListModal: React.FC<{
               </div>
             </>
           ) : (
-            // Show notes list
+            // Show notes list - now using sortedRegisterNotes instead of registerNotes
             <div className="divide-y divide-gray-200">
-              {registerNotes.length === 0 ? (
+              {sortedRegisterNotes.length === 0 ? (
                 <p className="py-4 text-gray-500">No notes found for the selected filters</p>
               ) : (
-                registerNotes.map(note => {
+                sortedRegisterNotes.map(note => {
                   // Count notes in this register
                   const hasRegisterNote = note.notes && note.notes.trim() !== '';
                   const studentNotes = note.entries_with_notes.length;
