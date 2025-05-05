@@ -20,18 +20,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install dependencies in smaller batches to reduce memory usage
+# Copy requirements file
 COPY requirements.txt .
 
-# Install pip tools first
+# Install dependencies in extremely small batches to minimize memory usage
 RUN pip install --no-cache-dir --progress-bar off pip setuptools wheel
 
-# Install boto3 separately as it's the largest package
-RUN pip install --no-cache-dir --progress-bar off boto3 botocore
+# Extract packages from requirements.txt into a file for processing
+RUN cat requirements.txt | grep -v '^#' | grep -v '^$' > packages.txt
 
-# Install remaining packages in smaller batches with reduced memory usage
-RUN pip install --no-cache-dir --progress-bar off -r requirements.txt --no-deps && \
-    pip install --no-cache-dir --progress-bar off -r requirements.txt
+# Install the largest packages individually to manage memory usage
+RUN pip install --no-cache-dir --progress-bar off boto3
+RUN pip install --no-cache-dir --progress-bar off botocore
+RUN pip install --no-cache-dir --progress-bar off cryptography
+RUN pip install --no-cache-dir --progress-bar off psycopg2-binary
+
+# Install remaining packages in small batches
+RUN pip install --no-cache-dir --progress-bar off flask flask-login flask-sqlalchemy flask-migrate
+RUN pip install --no-cache-dir --progress-bar off gunicorn
+RUN pip install --no-cache-dir --progress-bar off python-dotenv
+RUN pip install --no-cache-dir --progress-bar off pillow
+
+# Install any remaining packages
+RUN pip install --no-cache-dir --progress-bar off -r requirements.txt
 
 # Copy the backend application
 COPY . .
