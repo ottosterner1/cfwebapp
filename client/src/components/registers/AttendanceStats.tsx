@@ -114,85 +114,6 @@ interface AttendanceStatsProps {
   groupId?: number;
 }
 
-// Notes Summary component - simplified version with just counts
-const NotesSummary: React.FC<{
-  registerNotes: RegisterNote[];
-  loading: boolean;
-  error: string | null;
-  onViewDetails: () => void;
-}> = ({ registerNotes, loading, error, onViewDetails }) => {
-  if (loading) {
-    return (
-      <div className="bg-white rounded-lg shadow p-6 flex justify-center items-center h-24">
-        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-700"></div>
-      </div>
-    );
-  }
-  
-  if (error) {
-    return (
-      <div className="bg-red-50 p-4 rounded-md text-red-700">
-        Error loading notes: {error}
-      </div>
-    );
-  }
-
-  // Calculate notes statistics
-  const totalRegistersWithNotes = registerNotes.length;
-  const sessionNotesCount = registerNotes.filter(note => note.notes?.trim()).length;
-  const playerNotesCount = registerNotes.reduce(
-    (sum, note) => sum + note.entries_with_notes.length, 0
-  );
-  const totalNotesCount = sessionNotesCount + playerNotesCount;
-  
-  if (totalNotesCount === 0) {
-    return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium mb-2">Coach Notes</h3>
-        <p className="text-gray-500">No notes found for the selected filters</p>
-      </div>
-    );
-  }
-  
-  return (
-    <div className="bg-white rounded-lg shadow overflow-hidden">
-      <div className="p-6">
-        <h3 className="text-lg font-medium mb-2">Coach Notes</h3>
-        <div className="grid grid-cols-2 gap-4 mb-4">
-          <div className="bg-blue-50 p-4 rounded-lg text-center">
-            <div className="text-2xl font-bold text-blue-700">{totalRegistersWithNotes}</div>
-            <div className="text-sm text-blue-500">Registers with Notes</div>
-          </div>
-          <div className="bg-yellow-50 p-4 rounded-lg text-center">
-            <div className="text-2xl font-bold text-yellow-700">{totalNotesCount}</div>
-            <div className="text-sm text-yellow-500">Total Notes</div>
-          </div>
-        </div>
-        
-        <div className="flex flex-col space-y-2">
-          {sessionNotesCount > 0 && (
-            <div className="text-sm">
-              <span className="font-medium">{sessionNotesCount}</span> session {sessionNotesCount === 1 ? 'note' : 'notes'}
-            </div>
-          )}
-          {playerNotesCount > 0 && (
-            <div className="text-sm">
-              <span className="font-medium">{playerNotesCount}</span> player {playerNotesCount === 1 ? 'note' : 'notes'}
-            </div>
-          )}
-        </div>
-        
-        <button
-          onClick={onViewDetails}
-          className="mt-4 w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors duration-150"
-        >
-          View All Notes
-        </button>
-      </div>
-    </div>
-  );
-};
-
 // Notes list modal component
 const NotesListModal: React.FC<{
   isOpen: boolean;
@@ -438,7 +359,7 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
   
   // UI states
   const [loading, setLoading] = useState(true);
-  const [loadingCoaches, setLoadingCoaches] = useState(true);
+  const [, setLoadingCoaches] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const previousDay = React.useRef('');
 
