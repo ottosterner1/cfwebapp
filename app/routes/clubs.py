@@ -51,6 +51,20 @@ def setup_initial_teaching_period(club_id):
        end_date=start_date + timedelta(weeks=12)
    ))
 
+def clean_phone_number(phone_str):
+    """Clean phone number by removing leading apostrophe and whitespace."""
+    if phone_str is None or pd.isna(phone_str):
+        return None
+        
+    # Convert to string if it's not already
+    phone_str = str(phone_str).strip()
+    
+    # Remove leading apostrophe if present
+    if phone_str.startswith("'"):
+        phone_str = phone_str[1:]
+        
+    return phone_str
+
 def parse_date(date_str):
     """Parse date from various formats including YYYY-MM-DD, DD-MMM-YYYY, or DD-MMM-YY"""
     
@@ -271,12 +285,12 @@ def process_batch(batch_df, club_id, teaching_period, coaches, groups):
                 except ValueError as e:
                     batch_warnings.append(f"Row {row_number}: Couldn't parse date of birth '{row['date_of_birth']}', will be ignored. Error: {str(e)}")
             
-            # Extract contact information (optional)
+            # Extract contact information (optional) - MODIFIED THIS SECTION
             if 'contact_number' in row and not pd.isna(row['contact_number']):
-                row_data['contact_number'] = str(row['contact_number'])
+                row_data['contact_number'] = clean_phone_number(row['contact_number'])
             
             if 'emergency_contact_number' in row and not pd.isna(row['emergency_contact_number']):
-                row_data['emergency_contact_number'] = str(row['emergency_contact_number'])
+                row_data['emergency_contact_number'] = clean_phone_number(row['emergency_contact_number'])
             
             if 'medical_information' in row and not pd.isna(row['medical_information']):
                 row_data['medical_information'] = str(row['medical_information'])
