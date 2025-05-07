@@ -1,5 +1,5 @@
 # Build frontend
-FROM node:18-alpine as frontend-build
+FROM node:18-alpine AS frontend-build
 
 WORKDIR /frontend
 COPY client/package*.json ./
@@ -20,9 +20,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install
+# Copy requirements file
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Install dependencies in extremely small batches to minimize memory usage
+RUN pip install --no-cache-dir --progress-bar off pip setuptools wheel
+
+# Extract packages from requirements.txt into a file for processing
+RUN cat requirements.txt | grep -v '^#' | grep -v '^$' > packages.txt
+
+# Install the largest packages individually to manage memory usage
+RUN pip install --no-cache-dir --progress-bar off boto3
+RUN pip install --no-cache-dir --progress-bar off botocore
+RUN pip install --no-cache-dir --progress-bar off cryptography
+RUN pip install --no-cache-dir --progress-bar off psycopg2-binary
+
+# Install remaining packages in small batches
+RUN pip install --no-cache-dir --progress-bar off flask flask-login flask-sqlalchemy flask-migrate
+RUN pip install --no-cache-dir --progress-bar off gunicorn
+RUN pip install --no-cache-dir --progress-bar off python-dotenv
+RUN pip install --no-cache-dir --progress-bar off pillow
+
+# Install any remaining packages
+RUN pip install --no-cache-dir --progress-bar off -r requirements.txt
 
 # Copy the backend application
 COPY . .

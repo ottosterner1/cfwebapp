@@ -12,13 +12,17 @@ interface GroupTime {
 
 interface FormData {
   id: number;
-  student_name: string;
+  player_name: string;
   date_of_birth: string;
   contact_email: string;
+  contact_number: string;
+  emergency_contact_number: string;
+  medical_information: string;
   coach_id: string;
   group_id: string;
   group_time_id: string;
   teaching_period_id: string;
+  walk_home: string; // "yes", "no", or "na"
 }
 
 const EditProgrammePlayer: React.FC = () => {
@@ -30,13 +34,17 @@ const EditProgrammePlayer: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<FormData>({
     id: parseInt(playerId),
-    student_name: '',
+    player_name: '',
     date_of_birth: '',
     contact_email: '',
+    contact_number: '',
+    emergency_contact_number: '',
+    medical_information: '',
     coach_id: '',
     group_id: '',
     group_time_id: '',
-    teaching_period_id: ''
+    teaching_period_id: '',
+    walk_home: 'na'
   });
 
   const [coaches, setCoaches] = useState<Coach[]>([]);
@@ -67,16 +75,28 @@ const EditProgrammePlayer: React.FC = () => {
           periodsRes.json()
         ]);
 
+        // Convert walk_home boolean to string value
+        let walkHomeValue = 'na';
+        if (playerData.walk_home === true) {
+          walkHomeValue = 'yes';
+        } else if (playerData.walk_home === false) {
+          walkHomeValue = 'no';
+        }
+
         // Set player data to form
         setFormData({
           id: playerData.id,
-          student_name: playerData.student_name,
-          date_of_birth: playerData.date_of_birth,
-          contact_email: playerData.contact_email,
+          player_name: playerData.student?.name || '', 
+          date_of_birth: playerData.student?.date_of_birth || '',
+          contact_email: playerData.student?.contact_email || '',
+          contact_number: playerData.student?.contact_number || '',
+          emergency_contact_number: playerData.student?.emergency_contact_number || '',
+          medical_information: playerData.student?.medical_information || '',
           coach_id: playerData.coach_id.toString(),
           group_id: playerData.group_id.toString(),
           group_time_id: playerData.group_time_id ? playerData.group_time_id.toString() : '',
-          teaching_period_id: playerData.teaching_period_id.toString()
+          teaching_period_id: playerData.teaching_period_id.toString(),
+          walk_home: walkHomeValue
         });
 
         // Set other form data
@@ -124,7 +144,7 @@ const EditProgrammePlayer: React.FC = () => {
     fetchGroupTimes();
   }, [formData.group_id]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>): void => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>): void => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
@@ -135,14 +155,26 @@ const EditProgrammePlayer: React.FC = () => {
     setError(null);
 
     try {
+      // Convert walk_home string value to boolean or null for the API
+      let walkHomeValue = null;
+      if (formData.walk_home === 'yes') {
+        walkHomeValue = true;
+      } else if (formData.walk_home === 'no') {
+        walkHomeValue = false;
+      }
+
       const submissionData = {
-        student_name: formData.student_name,
+        student_name: formData.player_name, // Backend still uses student_name
         date_of_birth: formData.date_of_birth,
         contact_email: formData.contact_email,
+        contact_number: formData.contact_number || null,
+        emergency_contact_number: formData.emergency_contact_number || null,
+        medical_information: formData.medical_information || null,
         coach_id: parseInt(formData.coach_id),
         group_id: parseInt(formData.group_id),
         group_time_id: formData.group_time_id ? parseInt(formData.group_time_id) : null,
-        teaching_period_id: parseInt(formData.teaching_period_id)
+        teaching_period_id: parseInt(formData.teaching_period_id),
+        walk_home: walkHomeValue
       };
 
       const response = await fetch(`/clubs/api/players/${playerId}`, {
@@ -203,7 +235,7 @@ const EditProgrammePlayer: React.FC = () => {
     });
   };
 
-  if (loading && formData.student_name === '') {
+  if (loading && formData.player_name === '') {
     return (
       <div className="text-center py-8">
         <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500 mx-auto"></div>
@@ -229,15 +261,20 @@ const EditProgrammePlayer: React.FC = () => {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            {/* Player Information */}
+            <div className="space-y-2 col-span-2">
+              <h2 className="text-lg font-semibold border-b pb-2 text-gray-700">Player Information</h2>
+            </div>
+
             <div className="space-y-2">
-              <label htmlFor="student_name" className="block text-sm font-medium text-gray-700">
-                Student Name
+              <label htmlFor="player_name" className="block text-sm font-medium text-gray-700">
+                Player Name*
               </label>
               <input
-                id="student_name"
-                name="student_name"
+                id="player_name"
+                name="player_name"
                 type="text"
-                value={formData.student_name}
+                value={formData.player_name}
                 onChange={handleInputChange}
                 required
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
@@ -246,7 +283,7 @@ const EditProgrammePlayer: React.FC = () => {
 
             <div className="space-y-2">
               <label htmlFor="date_of_birth" className="block text-sm font-medium text-gray-700">
-                Date of Birth
+                Date of Birth*
               </label>
               <input
                 id="date_of_birth"
@@ -261,7 +298,7 @@ const EditProgrammePlayer: React.FC = () => {
 
             <div className="space-y-2">
               <label htmlFor="contact_email" className="block text-sm font-medium text-gray-700">
-                Contact Email
+                Contact Email*
               </label>
               <input
                 id="contact_email"
@@ -275,8 +312,73 @@ const EditProgrammePlayer: React.FC = () => {
             </div>
 
             <div className="space-y-2">
+              <label htmlFor="contact_number" className="block text-sm font-medium text-gray-700">
+                Contact Number
+              </label>
+              <input
+                id="contact_number"
+                name="contact_number"
+                type="tel"
+                value={formData.contact_number}
+                onChange={handleInputChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="emergency_contact_number" className="block text-sm font-medium text-gray-700">
+                Emergency Contact Number
+              </label>
+              <input
+                id="emergency_contact_number"
+                name="emergency_contact_number"
+                type="tel"
+                value={formData.emergency_contact_number}
+                onChange={handleInputChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div className="space-y-2 col-span-2">
+              <label htmlFor="medical_information" className="block text-sm font-medium text-gray-700">
+                Medical Information
+              </label>
+              <textarea
+                id="medical_information"
+                name="medical_information"
+                rows={3}
+                value={formData.medical_information}
+                onChange={handleInputChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                placeholder="Enter any relevant medical information, allergies, or special needs"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="walk_home" className="block text-sm font-medium text-gray-700">
+                Walk Home Permission
+              </label>
+              <select
+                id="walk_home"
+                name="walk_home"
+                value={formData.walk_home}
+                onChange={handleInputChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+              >
+                <option value="na">Not Applicable</option>
+                <option value="yes">Yes - Allowed to walk home unaccompanied</option>
+                <option value="no">No - Must be collected by guardian</option>
+              </select>
+            </div>
+
+            {/* Programme Assignment */}
+            <div className="space-y-2 col-span-2 mt-4">
+              <h2 className="text-lg font-semibold border-b pb-2 text-gray-700">Programme Assignment</h2>
+            </div>
+
+            <div className="space-y-2">
               <label htmlFor="coach_id" className="block text-sm font-medium text-gray-700">
-                Coach
+                Coach*
               </label>
               <select
                 id="coach_id"
@@ -297,7 +399,7 @@ const EditProgrammePlayer: React.FC = () => {
 
             <div className="space-y-2">
               <label htmlFor="group_id" className="block text-sm font-medium text-gray-700">
-                Group
+                Group*
               </label>
               <select
                 id="group_id"
@@ -318,7 +420,7 @@ const EditProgrammePlayer: React.FC = () => {
 
             <div className="space-y-2">
               <label htmlFor="group_time_id" className="block text-sm font-medium text-gray-700">
-                Group Time
+                Group Time*
               </label>
               <select
                 id="group_time_id"
@@ -339,7 +441,7 @@ const EditProgrammePlayer: React.FC = () => {
 
             <div className="space-y-2">
               <label htmlFor="teaching_period_id" className="block text-sm font-medium text-gray-700">
-                Teaching Period
+                Teaching Period*
               </label>
               <select
                 id="teaching_period_id"

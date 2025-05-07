@@ -152,7 +152,7 @@ const CreateReportApp = () => {
 
       // Navigate to next player's report page if available
       if (nextPlayer) {
-        window.location.href = `/report/new/${nextPlayer.id}`;
+        window.location.href = `/api/report/new/${nextPlayer.id}`;
       } else {
         window.location.href = '/dashboard';
       }
@@ -181,14 +181,14 @@ const CreateReportApp = () => {
         
         <div className="mt-6 flex gap-4">
           <a 
-            href={`/reports/${submissionResult.report_id}`} 
+            href={`/api/reports/${submissionResult.report_id}`} 
             className={`px-4 py-2 rounded-md ${submissionResult.status === 'draft' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}`}
           >
             View Report
           </a>
           {submissionResult.status === 'draft' && (
             <a 
-              href={`/reports/${submissionResult.report_id}/edit`} 
+              href={`/api/reports/${submissionResult.report_id}/edit`} 
               className="px-4 py-2 bg-blue-100 text-blue-800 rounded-md"
             >
               Continue Editing

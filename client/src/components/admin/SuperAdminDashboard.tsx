@@ -1,5 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle, Mail, Users, Calendar, Settings, Shield, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  AlertCircle, CheckCircle, Mail, Users, Calendar, Settings, Shield, 
+  ArrowUpCircle, ArrowDownCircle, UploadCloud, FileText, Database
+} from 'lucide-react';
 
 // Define type interfaces
 interface TennisClub {
@@ -20,6 +23,26 @@ interface Notification {
   message: string;
 }
 
+interface UploadStatus {
+  isUploading: boolean;
+  progress: number;
+  fileName: string;
+  result?: {
+    groupsCreated: number;
+    timeSlotsCreated: number;
+    warnings: string[];
+    errors: string[];
+  };
+}
+
+interface Feature {
+  name: string;
+  display_name: string;
+  description: string;
+  icon: string;
+  is_enabled: boolean;
+}
+
 const SuperAdminDashboard: React.FC = () => {
   const [allClubs, setAllClubs] = useState<TennisClub[]>([]);
   const [selectedClubId, setSelectedClubId] = useState<number | null>(null);
@@ -29,11 +52,24 @@ const SuperAdminDashboard: React.FC = () => {
   const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
   const [notification, setNotification] = useState<Notification | null>(null);
   const [inviteEmail, setInviteEmail] = useState<string>('');
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>({
+    isUploading: false,
+    progress: 0,
+    fileName: ''
+  });
   
   // User management state
   const [clubUsers, setClubUsers] = useState<User[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(false);
   const [updateInProgress, setUpdateInProgress] = useState<number | null>(null);
+  
+  // Feature management state
+  const [features, setFeatures] = useState<Feature[]>([]);
+  const [isLoadingFeatures, setIsLoadingFeatures] = useState<boolean>(false);
+  const [isUpdatingFeatures, setIsUpdatingFeatures] = useState<boolean>(false);
+  
+  // File upload ref
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch all clubs on component mount
   useEffect(() => {
@@ -104,13 +140,15 @@ const SuperAdminDashboard: React.FC = () => {
       const club = allClubs.find(c => c.id === selectedClubId) || null;
       setSelectedClub(club);
       
-      // Fetch club users when a club is selected
+      // Fetch club users and features when a club is selected
       if (club) {
         fetchClubUsers(club.id);
+        fetchClubFeatures(club.id);
       }
     } else {
       setSelectedClub(null);
       setClubUsers([]);
+      setFeatures([]);
     }
   }, [selectedClubId, allClubs]);
 
@@ -128,7 +166,6 @@ const SuperAdminDashboard: React.FC = () => {
       
       if (response.ok) {
         const userData = await response.json() as User[];
-        console.log('Fetched users:', userData); // Debug log
         setClubUsers(userData);
       } else {
         console.error('Failed to fetch club users');
@@ -140,12 +177,40 @@ const SuperAdminDashboard: React.FC = () => {
     }
   };
 
+  // Function to fetch features for a specific club
+  const fetchClubFeatures = async (clubId: number): Promise<void> => {
+    setIsLoadingFeatures(true);
+    try {
+      const response = await fetch(`/clubs/api/super-admin/clubs/${clubId}/features`, {
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      });
+      
+      if (response.ok) {
+        const featuresData = await response.json() as Feature[];
+        setFeatures(featuresData);
+      } else {
+        console.error('Failed to fetch club features');
+      }
+    } catch (error) {
+      console.error('Error fetching club features:', error);
+    } finally {
+      setIsLoadingFeatures(false);
+    }
+  };
+
   const handleClubChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
-    const id = parseInt(e.target.value);
+    e.preventDefault(); // Prevent any default action
+    const id = parseInt(e.target.value, 10);
     setSelectedClubId(isNaN(id) ? null : id);
   };
 
-  const handleSwitchClub = async (): Promise<void> => {
+  const handleSwitchClub = async (e: React.MouseEvent): Promise<void> => {
+    e.preventDefault(); // Prevent default button action
+    
     if (!selectedClubId) return;
     
     setIsActionLoading(true);
@@ -199,60 +264,6 @@ const SuperAdminDashboard: React.FC = () => {
       setNotification({
         type: 'error',
         message: error instanceof Error ? error.message : 'An error occurred while switching club'
-      });
-    } finally {
-      setIsActionLoading(false);
-    }
-  };
-  
-  const handleLoadData = async (dataType: string): Promise<void> => {
-    if (!selectedClubId) return;
-    
-    setIsActionLoading(true);
-    setNotification(null);
-    
-    try {
-      const response = await fetch('/clubs/api/super-admin/load-data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify({ 
-          club_id: selectedClubId,
-          data_type: dataType
-        }),
-        credentials: 'include'
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setNotification({
-          type: 'success',
-          message: data.message || `Successfully loaded ${dataType}`
-        });
-      } else {
-        let errorMessage = `Failed to load ${dataType}`;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorMessage;
-        } catch (e) {
-          // If can't parse JSON, try to get text content
-          const textError = await response.text();
-          console.error('Error response:', textError.substring(0, 200));
-        }
-        
-        setNotification({
-          type: 'error',
-          message: errorMessage
-        });
-      }
-    } catch (error) {
-      console.error(`Error loading ${dataType}:`, error);
-      setNotification({
-        type: 'error',
-        message: error instanceof Error ? error.message : `An error occurred while loading ${dataType}`
       });
     } finally {
       setIsActionLoading(false);
@@ -382,6 +393,238 @@ const SuperAdminDashboard: React.FC = () => {
     }
   };
 
+  // Function to handle file selection
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      setUploadStatus({
+        ...uploadStatus,
+        fileName: files[0].name
+      });
+    }
+  };
+
+  // Function to handle feature toggle
+  const handleToggleFeature = (featureName: string) => {
+    setFeatures(prevFeatures => 
+      prevFeatures.map(feature => 
+        feature.name === featureName 
+          ? { ...feature, is_enabled: !feature.is_enabled } 
+          : feature
+      )
+    );
+  };
+
+  // Function to save feature settings
+  const handleSaveFeatures = async () => {
+    if (!selectedClubId) return;
+    
+    setIsUpdatingFeatures(true);
+    setNotification(null);
+    
+    try {
+      const response = await fetch(`/clubs/api/super-admin/clubs/${selectedClubId}/features`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify(features),
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setNotification({
+          type: 'success',
+          message: data.message || 'Features updated successfully'
+        });
+      } else {
+        let errorMessage = 'Failed to update features';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          console.error('Error parsing response:', e);
+        }
+        setNotification({
+          type: 'error',
+          message: errorMessage
+        });
+      }
+    } catch (error) {
+      console.error('Error updating features:', error);
+      setNotification({
+        type: 'error',
+        message: 'Network error while updating features'
+      });
+    } finally {
+      setIsUpdatingFeatures(false);
+    }
+  };
+
+  // Function to handle CSV upload for groups and time slots
+  const handleGroupsUpload = async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault();
+    
+    if (!selectedClubId) {
+      setNotification({
+        type: 'error',
+        message: 'Please select a club first'
+      });
+      return;
+    }
+    
+    const fileInput = fileInputRef.current;
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+      setNotification({
+        type: 'error',
+        message: 'Please select a CSV file to upload'
+      });
+      return;
+    }
+    
+    const file = fileInput.files[0];
+    if (!file.name.endsWith('.csv')) {
+      setNotification({
+        type: 'error',
+        message: 'Only CSV files are supported'
+      });
+      return;
+    }
+    
+    setIsActionLoading(true);
+    setUploadStatus({
+      isUploading: true,
+      progress: 10,
+      fileName: file.name
+    });
+    setNotification(null);
+    
+    try {
+      // Create form data to send the file
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('club_id', selectedClubId.toString());
+      
+      const response = await fetch('/clubs/api/super-admin/import-groups', {
+        method: 'POST',
+        body: formData,
+        credentials: 'include'
+      });
+      
+      // Update progress
+      setUploadStatus(prev => ({...prev, progress: 50}));
+      
+      if (response.ok) {
+        const result = await response.json();
+        
+        // Show full progress
+        setUploadStatus({
+          isUploading: false,
+          progress: 100,
+          fileName: file.name,
+          result: {
+            groupsCreated: result.groups_created || 0,
+            timeSlotsCreated: result.time_slots_created || 0,
+            warnings: result.warnings || [],
+            errors: result.errors || []
+          }
+        });
+        
+        setNotification({
+          type: 'success',
+          message: `Successfully imported ${result.groups_created} groups and ${result.time_slots_created} time slots`
+        });
+        
+        // Reset file input
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      } else {
+        let errorMessage = 'Failed to upload file';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (e) {
+          // If can't parse JSON, try to get text content
+          const textError = await response.text();
+          console.error('Error response:', textError.substring(0, 200));
+        }
+        
+        setUploadStatus({
+          isUploading: false,
+          progress: 0,
+          fileName: file.name
+        });
+        
+        setNotification({
+          type: 'error',
+          message: errorMessage
+        });
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      
+      setUploadStatus({
+        isUploading: false,
+        progress: 0,
+        fileName: file.name
+      });
+      
+      setNotification({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'An error occurred while uploading the file'
+      });
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  // Function to download the CSV template
+  const handleDownloadTemplate = async (e: React.MouseEvent) => {
+    e.preventDefault(); // Prevent default action
+    e.stopPropagation(); // Stop event propagation
+    
+    try {
+      const response = await fetch('/clubs/api/super-admin/groups-template', {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        // Create a blob from the response
+        const blob = await response.blob();
+        
+        // Create a download link
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = 'groups_template.csv';
+        
+        // Append to the document and trigger the download
+        document.body.appendChild(a);
+        a.click();
+        
+        // Clean up
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+      } else {
+        setNotification({
+          type: 'error',
+          message: 'Failed to download template'
+        });
+      }
+    } catch (error) {
+      console.error('Error downloading template:', error);
+      setNotification({
+        type: 'error',
+        message: 'Error downloading template file'
+      });
+    }
+  };
+
   // Get role badge styles based on role
   const getRoleBadgeClasses = (role: string): string => {
     const normRole = role.toUpperCase();
@@ -436,8 +679,9 @@ const SuperAdminDashboard: React.FC = () => {
             <h3 className="font-medium mb-4">Switch Tennis Club</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Select Tennis Club</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="club-select">Select Tennis Club</label>
                 <select 
+                  id="club-select"
                   className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                   value={selectedClubId?.toString() || ''}
                   onChange={handleClubChange}
@@ -452,6 +696,7 @@ const SuperAdminDashboard: React.FC = () => {
               </div>
               <div className="flex items-end">
                 <button 
+                  type="button" 
                   className={`w-full py-2 px-4 rounded-md text-white ${isActionLoading ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'}`}
                   onClick={handleSwitchClub}
                   disabled={!selectedClubId || isActionLoading}
@@ -467,8 +712,9 @@ const SuperAdminDashboard: React.FC = () => {
             <h3 className="font-medium mb-4">Invite New Tennis Club</h3>
             <form onSubmit={handleSendInvitation} className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="invite-email">Email Address</label>
                 <input 
+                  id="invite-email"
                   type="email" 
                   className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                   value={inviteEmail}
@@ -502,6 +748,7 @@ const SuperAdminDashboard: React.FC = () => {
                   </div>
                   <div className="flex justify-end">
                     <button 
+                      type="button"
                       className={`py-2 px-4 rounded-md text-white ${isActionLoading ? 'bg-blue-400' : 'bg-blue-600 hover:bg-blue-700'}`}
                       onClick={handleSwitchClub}
                       disabled={isActionLoading}
@@ -512,7 +759,193 @@ const SuperAdminDashboard: React.FC = () => {
                 </div>
               </div>
               
-              {/* User Role Management Section - IMPROVED */}
+              {/* Feature Management Section */}
+              <div className="border rounded-md p-4 mb-6">
+                <h3 className="font-medium mb-4 flex items-center text-lg">
+                  <Settings className="h-5 w-5 mr-2 text-indigo-500" />
+                  Feature Management
+                </h3>
+                
+                <p className="text-sm text-gray-600 mb-4">
+                  Enable or disable features for {selectedClub.name}. This controls which features are available to users of this club.
+                </p>
+                
+                {isLoadingFeatures ? (
+                  <div className="flex justify-center p-4">
+                    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-600"></div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-4 max-h-96 overflow-y-auto p-1">
+                      {features.map(feature => (
+                        <div 
+                          key={feature.name} 
+                          className="flex items-center justify-between p-4 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors"
+                        >
+                          <div className="flex items-start space-x-3">
+                            <div className="text-2xl">{feature.icon}</div>
+                            <div>
+                              <h4 className="font-medium text-gray-800">{feature.display_name}</h4>
+                              <p className="text-sm text-gray-600">{feature.description}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleFeature(feature.name)}
+                              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
+                                feature.is_enabled ? 'bg-indigo-600' : 'bg-gray-200'
+                              }`}
+                              aria-pressed={feature.is_enabled}
+                              aria-labelledby={`${feature.name}-label`}
+                            >
+                              <span className="sr-only">
+                                {feature.is_enabled ? `Disable ${feature.display_name}` : `Enable ${feature.display_name}`}
+                              </span>
+                              <span
+                                className={`${
+                                  feature.is_enabled ? 'translate-x-6' : 'translate-x-1'
+                                } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
+                              />
+                            </button>
+                            <span id={`${feature.name}-label`} className="ml-2 text-sm text-gray-600">
+                              {feature.is_enabled ? 'Enabled' : 'Disabled'}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {features.length === 0 && (
+                      <div className="text-center py-8 text-gray-500">
+                        No features available to configure
+                      </div>
+                    )}
+                    
+                    <div className="mt-6 flex justify-end">
+                      <button 
+                        type="button"
+                        className={`py-2 px-4 rounded-md text-white ${isUpdatingFeatures ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'} flex items-center`}
+                        onClick={handleSaveFeatures}
+                        disabled={isUpdatingFeatures}
+                      >
+                        <Settings className="h-4 w-4 mr-2" />
+                        {isUpdatingFeatures ? 'Saving...' : 'Save Features'}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+              
+              {/* CSV Upload for Groups and Time Slots */}
+              <div className="border rounded-md p-4 mb-6">
+                <h3 className="font-medium mb-4 flex items-center">
+                  <Database className="h-5 w-5 mr-2 text-indigo-500" />
+                  Import Groups & Time Slots
+                </h3>
+                <div className="mb-4">
+                  <p className="text-sm text-gray-600 mb-2">
+                    Upload a CSV file containing groups and time slots for {selectedClub.name}. 
+                    The CSV should include group name, description, day of week, start time, and end time.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleDownloadTemplate} 
+                    className="text-indigo-600 hover:text-indigo-800 text-sm flex items-center"
+                  >
+                    <FileText className="h-4 w-4 mr-1" />
+                    Download Template
+                  </button>
+                </div>
+                
+                <form onSubmit={handleGroupsUpload} className="space-y-4">
+                  <div className="relative border-2 border-dashed border-gray-300 rounded-md p-6 flex flex-col items-center justify-center">
+                    <UploadCloud className="h-8 w-8 text-gray-400 mb-2" />
+                    <p className="text-sm text-gray-600 mb-2">Click to browse or drag and drop</p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".csv"
+                      onChange={handleFileChange}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    />
+                    {uploadStatus.fileName && (
+                      <div className="mt-2 text-sm text-gray-800 flex items-center">
+                        <FileText className="h-4 w-4 mr-1" />
+                        {uploadStatus.fileName}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {uploadStatus.isUploading && (
+                    <div className="mt-2">
+                      <div className="bg-gray-200 rounded-full h-2.5 mb-2">
+                        <div 
+                          className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" 
+                          style={{ width: `${uploadStatus.progress}%` }}
+                        ></div>
+                      </div>
+                      <p className="text-xs text-gray-600 text-right">
+                        {uploadStatus.progress}% uploaded
+                      </p>
+                    </div>
+                  )}
+                  
+                  {uploadStatus.result && (
+                    <div className="mt-2 p-3 bg-gray-50 rounded-md text-sm">
+                      <div className="flex justify-between text-gray-700 mb-1">
+                        <span>Groups created:</span>
+                        <span>{uploadStatus.result.groupsCreated}</span>
+                      </div>
+                      <div className="flex justify-between text-gray-700 mb-1">
+                        <span>Time slots created:</span>
+                        <span>{uploadStatus.result.timeSlotsCreated}</span>
+                      </div>
+                      
+                      {uploadStatus.result.warnings.length > 0 && (
+                        <div className="mt-2">
+                          <h4 className="text-yellow-600 font-medium text-xs mb-1">Warnings:</h4>
+                          <ul className="text-xs text-yellow-700 pl-4 list-disc">
+                            {uploadStatus.result.warnings.slice(0, 3).map((warning, i) => (
+                              <li key={i}>{warning}</li>
+                            ))}
+                            {uploadStatus.result.warnings.length > 3 && (
+                              <li>...and {uploadStatus.result.warnings.length - 3} more warnings</li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                      
+                      {uploadStatus.result.errors.length > 0 && (
+                        <div className="mt-2">
+                          <h4 className="text-red-600 font-medium text-xs mb-1">Errors:</h4>
+                          <ul className="text-xs text-red-700 pl-4 list-disc">
+                            {uploadStatus.result.errors.slice(0, 3).map((error, i) => (
+                              <li key={i}>{error}</li>
+                            ))}
+                            {uploadStatus.result.errors.length > 3 && (
+                              <li>...and {uploadStatus.result.errors.length - 3} more errors</li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  <div className="flex justify-end">
+                    <button 
+                      type="submit"
+                      className={`py-2 px-4 rounded-md text-white flex items-center ${isActionLoading ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+                      disabled={isActionLoading || !uploadStatus.fileName}
+                    >
+                      <UploadCloud className="h-4 w-4 mr-2" />
+                      {isActionLoading ? 'Uploading...' : 'Upload File'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+              
+              {/* User Role Management Section */}
               <div className="border rounded-md p-4 mb-6">
                 <h3 className="font-medium mb-4 flex items-center text-lg">
                   <Shield className="h-5 w-5 mr-2 text-indigo-500" />
@@ -562,6 +995,7 @@ const SuperAdminDashboard: React.FC = () => {
                                         <div className="flex justify-center space-x-2">
                                           {isCoach ? (
                                             <button 
+                                              type="button"
                                               onClick={() => handleDirectRoleChange(user.id, 'ADMIN')}
                                               disabled={updateInProgress === user.id}
                                               className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
@@ -575,6 +1009,7 @@ const SuperAdminDashboard: React.FC = () => {
                                             </button>
                                           ) : isAdmin && (
                                             <button 
+                                              type="button"
                                               onClick={() => handleDirectRoleChange(user.id, 'COACH')}
                                               disabled={updateInProgress === user.id}
                                               className="inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-yellow-600 hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
@@ -600,31 +1035,6 @@ const SuperAdminDashboard: React.FC = () => {
                     )}
                   </>
                 )}
-              </div>
-              
-              {/* Data Loading Section */}
-              <div className="border rounded-md p-4 mb-6">
-                <h3 className="font-medium mb-4">Load Club Data</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <button 
-                      className={`w-full py-2 px-4 rounded-md text-white ${isActionLoading ? 'bg-green-400' : 'bg-green-600 hover:bg-green-700'}`}
-                      onClick={() => handleLoadData('default_groups')}
-                      disabled={isActionLoading}
-                    >
-                      Load Default Groups
-                    </button>
-                  </div>
-                  <div>
-                    <button 
-                      className={`w-full py-2 px-4 rounded-md text-white ${isActionLoading ? 'bg-green-400' : 'bg-green-600 hover:bg-green-700'}`}
-                      onClick={() => handleLoadData('initial_period')}
-                      disabled={isActionLoading}
-                    >
-                      Create Initial Teaching Period
-                    </button>
-                  </div>
-                </div>
               </div>
               
               {/* Management Links */}

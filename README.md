@@ -33,9 +33,11 @@ flask run --host=localhost --port=3000
 flask db migrate -m "Updating report columns"
 
 docker ps
-docker exec -it [CONTAINER_ID] bash -c "python -m flask db migrate -m 'Updating report columns' && p
-ython -m flask db upgrade"
+docker exec -it [CONTAINER_ID] bash -c "python -m flask db migrate -m 'removing register status' && python -m flask db upgrade"
 
+### To upgrade the enum values, create an empty migration file and amend manually
+docker exec -it [CONTAINER_ID] bash -c "python -m flask db revision -m 'update_attendance_status_enum 2'"
+docker exec -it [CONTAINER_ID] bash -c "python -m flask db upgrade"
 
 ## Docker App Commands
 docker-compose down -v 

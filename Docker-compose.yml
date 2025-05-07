@@ -34,31 +34,33 @@ services:
           - cfwebapp.local
 
   frontend:
-    build:
-      context: ./client
-      dockerfile: Dockerfile.dev
-    environment:
-      - NODE_ENV=development
-      - VITE_API_URL=https://cfwebapp.local
-    volumes:
-      - ./client:/app
-      - dist-volume:/app/app/static/dist
-      - /app/node_modules
-    ports:
-      - "5173:5173"
-    command: >
-      sh -c "
-        mkdir -p /app/app/static/dist &&
-        chmod -R 777 /app/app/static/dist &&
-        npm run build &&
-        cp -r /app/dist/* /app/app/static/dist/ &&
-        cp -r /app/dist/.vite /app/app/static/dist/ &&
-        npm run dev -- --host
-      "
-    networks:
-      app_net:
-    extra_hosts:
-      - "cfwebapp.local:host-gateway"
+      build:
+        context: ./client
+        dockerfile: Dockerfile.dev
+      environment:
+        - NODE_ENV=development
+        - VITE_API_URL=https://cfwebapp.local
+      volumes:
+        - ./client:/app
+        - dist-volume:/app/app/static/dist
+        - /app/node_modules  # This creates an anonymous volume for node_modules
+      ports:
+        - "5173:5173"
+      command: >
+        sh -c "
+          mkdir -p /app/app/static/dist &&
+          chmod -R 777 /app/app/static/dist &&
+          npm install moment react-big-calendar &&
+          npm install --save-dev @types/react-big-calendar &&
+          npm run build &&
+          cp -r /app/dist/* /app/app/static/dist/ &&
+          [ -d /app/dist/.vite ] && cp -r /app/dist/.vite /app/app/static/dist/ || true &&
+          npm run dev -- --host
+        "
+      networks:
+        app_net:
+      extra_hosts:
+        - "cfwebapp.local:host-gateway"
 
 volumes:
   dist-volume:
