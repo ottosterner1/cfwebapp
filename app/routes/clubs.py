@@ -1708,8 +1708,7 @@ def get_coaches():
     """API endpoint for getting all coaches in the club"""
     
     coaches = User.query.filter(
-        User.tennis_club_id == current_user.tennis_club_id,
-        User.role.in_([UserRole.COACH, UserRole.ADMIN])  # Include both coaches and admins
+        User.tennis_club_id == current_user.tennis_club_id
     ).order_by(User.name).all()
     
     response_data = [{
