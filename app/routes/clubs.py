@@ -20,6 +20,8 @@ import pytz
 import json
 import uuid
 import time
+import csv
+from io import StringIO
 from app.services.email_service import EmailService
 import secrets 
 from app.utils.s3 import upload_file_to_s3
@@ -2290,3 +2292,89 @@ def download_template():
     response.headers["Content-Disposition"] = f"attachment; filename=player_template_{club.name.lower().replace(' ', '_')}.csv"
     
     return response
+
+@club_management.route('/api/players/export/<int:teaching_period_id>')
+@login_required
+@admin_required
+def export_players(teaching_period_id):
+    """Export all players for a specific teaching period as CSV"""
+    
+    try:
+        # Validate teaching period belongs to user's club
+        teaching_period = TeachingPeriod.query.filter_by(
+            id=teaching_period_id,
+            tennis_club_id=current_user.tennis_club_id
+        ).first_or_404()
+        
+        # Query all programme players for this teaching period
+        players = ProgrammePlayers.query.filter_by(
+            teaching_period_id=teaching_period_id,
+            tennis_club_id=current_user.tennis_club_id
+        ).all()
+        
+        if not players:
+            return jsonify({'error': 'No players found for this teaching period'}), 404
+        
+        # Create CSV data
+        output = StringIO()
+        writer = csv.writer(output)
+        
+        # Add CSV header - using same format as the template download
+        writer.writerow([
+            "student_name", "date_of_birth", "contact_email", "contact_number", 
+            "emergency_contact_number", "medical_information", "coach_email", "group_name", 
+            "day_of_week", "start_time", "end_time", "walk_home"
+        ])
+        
+        # Add player data
+        for player in players:
+            student = player.student
+            coach = player.coach
+            group = player.tennis_group
+            group_time = player.group_time
+            
+            row = [
+                student.name,
+                student.date_of_birth.strftime('%Y-%m-%d') if student.date_of_birth else '',
+                student.contact_email or '',
+                student.contact_number or '',
+                student.emergency_contact_number or '',
+                student.medical_information or '',
+                coach.email,
+                group.name,
+            ]
+            
+            # Add time slot info if available
+            if group_time:
+                row.extend([
+                    group_time.day_of_week.value,
+                    group_time.start_time.strftime('%H:%M'),
+                    group_time.end_time.strftime('%H:%M'),
+                ])
+            else:
+                row.extend(['', '', ''])
+                
+            # Add walk home status
+            walk_home_value = ''
+            if player.walk_home is not None:
+                walk_home_value = 'true' if player.walk_home else 'false'
+            row.append(walk_home_value)
+            
+            writer.writerow(row)
+        
+        # Create response
+        club = TennisClub.query.get_or_404(current_user.tennis_club_id)
+        safe_club_name = club.name.lower().replace(' ', '_')
+        safe_period_name = teaching_period.name.lower().replace(' ', '_')
+        filename = f"{safe_club_name}_{safe_period_name}_players.csv"
+        
+        response = make_response(output.getvalue())
+        response.headers["Content-Type"] = "text/csv"
+        response.headers["Content-Disposition"] = f"attachment; filename={filename}"
+        
+        return response
+        
+    except Exception as e:
+        current_app.logger.error(f"Error exporting players: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
