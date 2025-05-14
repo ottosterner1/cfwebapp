@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Alert, AlertDescription } from '../../components/ui/alert';
-import { Download, PlusCircle, Pencil, Trash2, Search } from 'lucide-react';
+import { Download, PlusCircle, Pencil, Trash2, Search, FileDown } from 'lucide-react';
 import BulkUploadSection from './BulkUploadSection';
 import ProgrammeAnalytics from './ProgrammeAnalytics';
 
@@ -507,6 +507,14 @@ const ProgrammeManagement = () => {
     window.location.href = `/clubs/api/template/download`;
   };
 
+  const handleExportData = () => {
+    if (selectedPeriod) {
+      window.location.href = `/clubs/api/players/export/${selectedPeriod}`;
+    } else {
+      alert('Please select a teaching period first');
+    }
+  };
+
   const handleAddPlayer = () => {
     if (clubId) {
       window.location.href = `/clubs/manage/${clubId}/players/add`;
@@ -638,6 +646,14 @@ const ProgrammeManagement = () => {
               >
                 <Download className="h-5 w-5 mr-2" />
                 Download Template
+              </button>
+              {/* New Export Button */}
+              <button
+                onClick={handleExportData}
+                className="inline-flex items-center justify-center px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors"
+              >
+                <FileDown className="h-5 w-5 mr-2" />
+                Export Players
               </button>
             </div>
           </div>
