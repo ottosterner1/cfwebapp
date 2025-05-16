@@ -997,6 +997,7 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
                     <li>emergency_contact_number</li>
                     <li>medical_information</li>
                     <li>walk_home (true/false)</li>
+                    <li>notes</li>
                   </ul>
                   <div className="mt-2">
                     <a

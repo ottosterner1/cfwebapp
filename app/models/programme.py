@@ -70,6 +70,7 @@ class ProgrammePlayers(db.Model):
     tennis_club_id = db.Column(db.Integer, db.ForeignKey('tennis_club.id'), nullable=False)
     report_submitted = db.Column(db.Boolean, default=False)
     walk_home = db.Column(db.Boolean, nullable=True)
+    notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
 
     # Relationships remain the same
