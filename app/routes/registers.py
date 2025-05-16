@@ -369,6 +369,30 @@ def update_register(register_id):
         if current_user.is_admin and 'coach_id' in data:
             register.coach_id = data['coach_id']
             
+        # Add date update functionality
+        if 'date' in data:
+            try:
+                # Parse the date string to a date object
+                new_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+                
+                # Check if a register already exists for this group_time and date
+                existing_register = Register.query.filter_by(
+                    group_time_id=register.group_time_id,
+                    date=new_date,
+                    teaching_period_id=register.teaching_period_id
+                ).first()
+                
+                if existing_register and existing_register.id != register.id:
+                    return jsonify({
+                        'error': 'A register already exists for this group and date',
+                        'register_id': existing_register.id
+                    }), 409  # Conflict
+                
+                # Update the date
+                register.date = new_date
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+            
         db.session.commit()
         
         return jsonify({
