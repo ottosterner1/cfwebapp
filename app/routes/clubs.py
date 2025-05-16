@@ -306,6 +306,10 @@ def process_batch(batch_df, club_id, teaching_period, coaches, groups):
                     row_data['walk_home'] = False
                 else:
                     batch_warnings.append(f"Row {row_number}: Invalid walk_home value '{row['walk_home']}'. Using default (None).")
+
+            # Extract notes (optional)
+            if 'notes' in row and not pd.isna(row['notes']):
+                row_data['notes'] = str(row['notes'])
             
             # Add to valid rows
             valid_rows.append(row_data)
@@ -375,7 +379,8 @@ def process_batch(batch_df, club_id, teaching_period, coaches, groups):
                         group_time_id=row_data['group_time'].id,
                         teaching_period_id=teaching_period.id,
                         tennis_club_id=club_id,
-                        walk_home=row_data.get('walk_home')  # Include walk_home field
+                        walk_home=row_data.get('walk_home'),
+                        notes=row_data.get('notes') 
                     )
                     db.session.add(player)
                     batch_players_created += 1
@@ -1950,7 +1955,8 @@ def create_player():
             group_time_id=data['group_time_id'],
             teaching_period_id=data['teaching_period_id'],
             tennis_club_id=club_id,
-            walk_home=data.get('walk_home')  # Include walk_home field
+            walk_home=data.get('walk_home'),
+            notes=data.get('notes') 
         )
 
         db.session.add(assignment)
@@ -1991,7 +1997,8 @@ def player_api(player_id):
             'group_id': player.group_id,
             'group_time_id': player.group_time_id,
             'teaching_period_id': player.teaching_period_id,
-            'walk_home': player.walk_home
+            'walk_home': player.walk_home,
+            'notes': player.notes
         }
         return jsonify(response_data)
 
@@ -2044,6 +2051,9 @@ def player_api(player_id):
             # Update walk_home field
             if 'walk_home' in data:
                 player.walk_home = data.get('walk_home')
+
+            if 'notes' in data:
+                player.notes = data.get('notes')
             
             db.session.commit()
             return jsonify({'message': 'Player updated successfully'})
@@ -2281,10 +2291,10 @@ def download_template():
     club = TennisClub.query.get_or_404(current_user.tennis_club_id)
     
     csv_content = [
-        "student_name,date_of_birth,contact_email,contact_number,emergency_contact_number,medical_information,coach_email,group_name,day_of_week,start_time,end_time,walk_home",
-        "John Smith,05-Nov-2013,parent@example.com,07123456789,07987654321,Asthma,coach@example.com,Red 1,Monday,16:00,17:00,true",
-        "Emma Jones,22-Mar-2014,emma.parent@example.com,07111222333,07444555666,,coach@example.com,Red 2,Tuesday,15:30,16:30,false",
-        "Alex Brown,15-Jun-2012,alex.parent@example.com,07999888777,,,coach@example.com,Blue 1,Wednesday,17:00,18:00,",
+        "student_name,date_of_birth,contact_email,contact_number,emergency_contact_number,medical_information,coach_email,group_name,day_of_week,start_time,end_time,walk_home,notes",
+        "John Smith,05-Nov-2013,parent@example.com,07123456789,07987654321,Asthma,coach@example.com,Red 1,Monday,16:00,17:00,true,Prefers to be called Johnny",
+        "Emma Jones,22-Mar-2014,emma.parent@example.com,07111222333,07444555666,,coach@example.com,Red 2,Tuesday,15:30,16:30,false,Left-handed player",
+        "Alex Brown,15-Jun-2012,alex.parent@example.com,07999888777,,,coach@example.com,Blue 1,Wednesday,17:00,18:00,,Has older sibling in Yellow group",
     ]
     
     response = make_response("\n".join(csv_content))
@@ -2323,7 +2333,7 @@ def export_players(teaching_period_id):
         writer.writerow([
             "student_name", "date_of_birth", "contact_email", "contact_number", 
             "emergency_contact_number", "medical_information", "coach_email", "group_name", 
-            "day_of_week", "start_time", "end_time", "walk_home"
+            "day_of_week", "start_time", "end_time", "walk_home", "notes"
         ])
         
         # Add player data
@@ -2359,6 +2369,9 @@ def export_players(teaching_period_id):
             if player.walk_home is not None:
                 walk_home_value = 'true' if player.walk_home else 'false'
             row.append(walk_home_value)
+            
+            # Add notes
+            row.append(player.notes or '')
             
             writer.writerow(row)
         

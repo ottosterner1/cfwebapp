@@ -23,6 +23,7 @@ interface FormData {
   group_time_id: string;
   teaching_period_id: string;
   walk_home: string; // "yes", "no", or "na"
+  notes: string;
 }
 
 const EditProgrammePlayer: React.FC = () => {
@@ -44,7 +45,8 @@ const EditProgrammePlayer: React.FC = () => {
     group_id: '',
     group_time_id: '',
     teaching_period_id: '',
-    walk_home: 'na'
+    walk_home: 'na',
+    notes: ''
   });
 
   const [coaches, setCoaches] = useState<Coach[]>([]);
@@ -96,7 +98,8 @@ const EditProgrammePlayer: React.FC = () => {
           group_id: playerData.group_id.toString(),
           group_time_id: playerData.group_time_id ? playerData.group_time_id.toString() : '',
           teaching_period_id: playerData.teaching_period_id.toString(),
-          walk_home: walkHomeValue
+          walk_home: walkHomeValue,
+          notes: playerData.notes || ''
         });
 
         // Set other form data
@@ -174,7 +177,8 @@ const EditProgrammePlayer: React.FC = () => {
         group_id: parseInt(formData.group_id),
         group_time_id: formData.group_time_id ? parseInt(formData.group_time_id) : null,
         teaching_period_id: parseInt(formData.teaching_period_id),
-        walk_home: walkHomeValue
+        walk_home: walkHomeValue,
+        notes: formData.notes || null 
       };
 
       const response = await fetch(`/clubs/api/players/${playerId}`, {
@@ -369,6 +373,21 @@ const EditProgrammePlayer: React.FC = () => {
                 <option value="yes">Yes - Allowed to walk home unaccompanied</option>
                 <option value="no">No - Must be collected by guardian</option>
               </select>
+            </div>
+
+            <div className="space-y-2 col-span-2">
+              <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
+                Notes
+              </label>
+              <textarea
+                id="notes"
+                name="notes"
+                rows={3}
+                value={formData.notes}
+                onChange={handleInputChange}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                placeholder="Add any notes about this player (optional)"
+              />
             </div>
 
             {/* Programme Assignment */}

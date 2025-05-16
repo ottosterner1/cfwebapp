@@ -302,6 +302,7 @@ def programme_players():
             ProgrammePlayers.teaching_period_id,
             ProgrammePlayers.group_time_id,
             ProgrammePlayers.walk_home,
+            ProgrammePlayers.notes,
             TennisGroupTimes.day_of_week,
             TennisGroupTimes.start_time,
             TennisGroupTimes.end_time,
@@ -346,6 +347,7 @@ def programme_players():
             'teaching_period_id': player.teaching_period_id,
             'group_time_id': player.group_time_id,
             'walk_home': player.walk_home,
+            'notes': player.notes,
             'time_slot': {
                 'day_of_week': player.day_of_week.value if player.day_of_week else None,
                 'start_time': player.start_time.strftime('%H:%M') if player.start_time else None,
