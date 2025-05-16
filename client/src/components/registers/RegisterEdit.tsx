@@ -1,5 +1,3 @@
-// client/src/components/registers/RegisterEdit.tsx
-
 import React, { useState, useEffect } from 'react';
 import { RegisterDetail, RegisterEntry, AttendanceStatus } from '../../types/register';
 
@@ -20,6 +18,7 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [notes, setNotes] = useState('');
+  const [date, setDate] = useState(''); // New state for date
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -60,6 +59,13 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
         
         setRegister(data);
         setNotes(data.notes || '');
+        
+        // Format date for input field (YYYY-MM-DD)
+        if (data.date) {
+          const formattedDate = new Date(data.date).toISOString().split('T')[0];
+          setDate(formattedDate);
+        }
+        
         setError(null);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
@@ -74,16 +80,6 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
       fetchRegister();
     }
   }, [registerId]);
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-GB', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
-    });
-  };
 
   const updateAttendanceStatus = (entryId: number, status: AttendanceStatus) => {
     if (!register) return;
@@ -137,12 +133,13 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
         throw new Error(errorData.error || 'Failed to update attendance entries');
       }
       
-      // Then update the register notes
+      // Then update the register notes and date
       const registerResponse = await fetch(`/api/registers/${registerId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          notes: notes
+          notes: notes,
+          date: date // Add date to the update payload
         })
       });
       
@@ -322,7 +319,13 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
             </div>
             <div>
               <h3 className="text-sm font-medium text-gray-500">Date</h3>
-              <p className="mt-1 text-base text-gray-900">{formatDate(register.date)}</p>
+              {/* Editable date input */}
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              />
             </div>
             <div className="sm:col-span-2">
               <h3 className="text-sm font-medium text-gray-500">Session Notes</h3>
