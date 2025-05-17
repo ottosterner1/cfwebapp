@@ -1,5 +1,3 @@
-// client/src/components/registers/RegisterDetail.tsx
-
 import React, { useState, useEffect } from 'react';
 import { AttendanceStatus } from '../../types/register';
 
@@ -16,6 +14,11 @@ interface RegisterEntry {
   attendance_status: AttendanceStatus;
   notes: string | null;
   predicted_attendance: boolean;
+}
+
+interface Coach {
+  id: number;
+  name: string;
 }
 
 interface RegisterData {
@@ -35,6 +38,7 @@ interface RegisterData {
     id: number;
     name: string;
   };
+  assistant_coaches?: Coach[]; // Added assistant coaches
   notes: string | null;
   entries: RegisterEntry[];
   teaching_period: {
@@ -280,8 +284,20 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
           </div>
           
           <div>
-            <h3 className="text-sm font-medium text-gray-500">Coach</h3>
+            <h3 className="text-sm font-medium text-gray-500">Coaches</h3>
             <p className="mt-1 text-lg font-semibold">{register.coach?.name || 'Unknown coach'}</p>
+            {register.assistant_coaches && register.assistant_coaches.length > 0 && (
+              <div className="mt-1">
+                <p className="text-sm text-gray-500 mb-1">Assistant Coaches:</p>
+                <div className="flex flex-wrap gap-1">
+                  {register.assistant_coaches.map(coach => (
+                    <span key={coach.id} className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700">
+                      {coach.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
         

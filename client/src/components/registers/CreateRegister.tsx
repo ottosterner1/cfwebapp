@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 interface TeachingPeriod {
   id: number;
@@ -15,6 +15,11 @@ interface TimeSlot {
   day: string;
   start_time: string;
   end_time: string;
+}
+
+interface Coach {
+  id: number;
+  name: string;
 }
 
 interface Player {
@@ -62,6 +67,13 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
   const [selectedTimeSlotId, setSelectedTimeSlotId] = useState<number | ''>('');
   const [selectedDate, setSelectedDate] = useState<string>('');
   
+  // New state for assistant coaches
+  const [availableCoaches, setAvailableCoaches] = useState<Coach[]>([]);
+  const [selectedAssistantCoachIds, setSelectedAssistantCoachIds] = useState<number[]>([]);
+  const [loadingCoaches, setLoadingCoaches] = useState<boolean>(false);
+  const [isCoachDropdownOpen, setIsCoachDropdownOpen] = useState<boolean>(false);
+  const coachDropdownRef = useRef<HTMLDivElement>(null);
+  
   // New state for make up class
   const [isMakeupClass, setIsMakeupClass] = useState<boolean>(false);
   // New state for available dates based on day of week
@@ -81,17 +93,32 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     groups: false,
     timeSlots: false,
     players: false,
+    coaches: false,
     creating: false
   });
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [expandedPlayerInfo, setExpandedPlayerInfo] = useState<{[key: number]: boolean}>({});
   
-  // NEW: Add state for the "show all player info" toggle - default to true
+  // Add state for the "show all player info" toggle - default to true
   const [showAllPlayerInfo, setShowAllPlayerInfo] = useState<boolean>(true);
 
   // Define days of week in Monday-Sunday order for consistency across the component
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  
+  // Handle clicking outside of coach dropdown to close it
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (coachDropdownRef.current && !coachDropdownRef.current.contains(event.target as Node)) {
+        setIsCoachDropdownOpen(false);
+      }
+    }
+    
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
   
   // Fetch teaching periods on component mount
   useEffect(() => {
@@ -131,6 +158,38 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     };
     
     fetchTeachingPeriods();
+  }, []);
+
+  // Fetch available coaches on component mount
+  useEffect(() => {
+    const fetchCoaches = async () => {
+      try {
+        setLoading(prev => ({ ...prev, coaches: true }));
+        setLoadingCoaches(true);
+        
+        const response = await fetch('/api/coaches');
+        
+        if (!response.ok) {
+          throw new Error(`Error fetching coaches: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (Array.isArray(data)) {
+          setAvailableCoaches(data);
+        } else {
+          throw new Error('Invalid coach data received');
+        }
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'An error occurred';
+        console.error('Error fetching coaches:', errorMessage);
+      } finally {
+        setLoading(prev => ({ ...prev, coaches: false }));
+        setLoadingCoaches(false);
+      }
+    };
+    
+    fetchCoaches();
   }, []);
 
   // Fetch available days when teaching period changes
@@ -482,14 +541,14 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     setSelectedTimeSlotId('');
   };
 
-  // NEW: Handle makeup class toggle
+  // Handle makeup class toggle
   const handleMakeupClassToggle = () => {
     setIsMakeupClass(prev => !prev);
     // Clear the date when toggling to allow selection of any date when makeup is true
     setSelectedDate('');
   };
 
-  // NEW: Handle toggle all player info
+  // Handle toggle all player info
   const handleToggleAllPlayerInfo = () => {
     const newShowAllValue = !showAllPlayerInfo;
     setShowAllPlayerInfo(newShowAllValue);
@@ -500,6 +559,46 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       updatedExpandedState[player.id] = newShowAllValue;
     });
     setExpandedPlayerInfo(updatedExpandedState);
+  };
+
+  // Toggle coach dropdown
+  const toggleCoachDropdown = () => {
+    setIsCoachDropdownOpen(!isCoachDropdownOpen);
+  };
+
+  // Handle toggle assistant coach selection
+  const toggleAssistantCoach = (coachId: number, e?: React.MouseEvent) => {
+    // If the event came from the checkbox directly, stop propagation to prevent double toggling
+    if (e) {
+      e.stopPropagation();
+    }
+    
+    setSelectedAssistantCoachIds(prev => {
+      if (prev.includes(coachId)) {
+        return prev.filter(id => id !== coachId);
+      } else {
+        return [...prev, coachId];
+      }
+    });
+  };
+
+  // Get selected coaches for display
+  const getSelectedCoachDisplay = (): string => {
+    if (selectedAssistantCoachIds.length === 0) {
+      return "No assistant coaches";
+    }
+    
+    const selectedCoaches = availableCoaches.filter(
+      coach => selectedAssistantCoachIds.includes(coach.id)
+    );
+    
+    if (selectedCoaches.length === 1) {
+      return selectedCoaches[0].name;
+    } else if (selectedCoaches.length === 2) {
+      return `${selectedCoaches[0].name} and ${selectedCoaches[1].name}`;
+    } else {
+      return `${selectedCoaches[0].name} and ${selectedCoaches.length - 1} others`;
+    }
   };
 
   // Handle updating player attendance status
@@ -568,7 +667,8 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
           teaching_period_id: selectedPeriodId,
           group_time_id: selectedTimeSlotId,
           date: selectedDate,
-          notes: notes
+          notes: notes,
+          assistant_coach_ids: selectedAssistantCoachIds // Add assistant coach IDs
         }),
       });
       
@@ -804,7 +904,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
           </div>
           
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 mb-6">
-            {/* Date Selector - UPDATED with new date filtering */}
+            {/* Date Selector */}
             <div>
               <div className="flex justify-between items-center mb-1">
                 <label htmlFor="date" className="block text-sm font-medium text-gray-700">
@@ -902,13 +1002,111 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
             </div>
           </div>
           
+          {/* Assistant Coaches Dropdown */}
+          <div className="mt-4 mb-6">
+            <label htmlFor="assistant-coaches" className="block text-sm font-medium text-gray-700 mb-1">
+              Assistant Coaches
+            </label>
+            
+            {loadingCoaches ? (
+              <div className="flex h-10 items-center">
+                <div className="animate-spin h-5 w-5 border-b-2 border-blue-700 rounded-full"></div>
+                <span className="ml-2 text-sm text-gray-500">Loading coaches...</span>
+              </div>
+            ) : (
+              <div className="relative" ref={coachDropdownRef}>
+                <button
+                  type="button"
+                  className="w-full cursor-pointer bg-white border border-gray-300 rounded-md py-2 px-3 shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  onClick={toggleCoachDropdown}
+                  aria-haspopup="listbox"
+                  aria-expanded={isCoachDropdownOpen}
+                >
+                  <div className="flex justify-between items-center">
+                    <span className="block truncate">
+                      {getSelectedCoachDisplay()}
+                    </span>
+                    <svg className="h-5 w-5 text-gray-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                      <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                </button>
+                
+                {isCoachDropdownOpen && (
+                  <div 
+                    className="absolute z-10 mt-1 w-full bg-white shadow-lg rounded-md py-1 text-base ring-1 ring-black ring-opacity-5 overflow-auto max-h-60 focus:outline-none sm:text-sm"
+                    role="listbox"
+                  >
+                    {availableCoaches.length === 0 ? (
+                      <div className="text-sm text-gray-500 py-2 px-4">No coaches available</div>
+                    ) : (
+                      availableCoaches.map(coach => (
+                        <div
+                          key={coach.id}
+                          className={`cursor-pointer select-none relative py-2 pl-3 pr-9 hover:bg-gray-100 ${
+                            selectedAssistantCoachIds.includes(coach.id) ? 'bg-blue-50' : ''
+                          }`}
+                          onClick={() => toggleAssistantCoach(coach.id)}
+                          role="option"
+                          aria-selected={selectedAssistantCoachIds.includes(coach.id)}
+                          tabIndex={0}
+                        >
+                          <div className="flex items-center">
+                            <input
+                              type="checkbox"
+                              className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                              checked={selectedAssistantCoachIds.includes(coach.id)}
+                              onChange={(e) => {
+                                // Prevent the click event from bubbling to the parent div
+                                e.stopPropagation();
+                                toggleAssistantCoach(coach.id);
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                            <span className="ml-3 block truncate font-medium">
+                              {coach.name}
+                            </span>
+                          </div>
+                          
+                          {selectedAssistantCoachIds.includes(coach.id) && (
+                            <span className="absolute inset-y-0 right-0 flex items-center pr-4 text-blue-600">
+                              <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                            </span>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {selectedAssistantCoachIds.length > 0 && (
+              <div className="mt-2 text-xs text-gray-600">
+                <span className="font-medium">Selected:</span>{" "}
+                {availableCoaches
+                  .filter(coach => selectedAssistantCoachIds.includes(coach.id))
+                  .map(coach => coach.name)
+                  .join(', ')}
+              </div>
+            )}
+            
+            {!selectedAssistantCoachIds.length && !loadingCoaches && (
+              <div className="mt-1 text-xs text-gray-500">
+                Select any assistant coaches who helped with this session.
+              </div>
+            )}
+          </div>
+          
           {/* Player Attendance Section */}
           {players.length > 0 && (
             <div className="mt-8">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-medium">Attendance</h3>
                 <div className="flex gap-2">
-                  {/* NEW: Toggle All Player Info Button */}
+                  {/* Toggle All Player Info Button */}
                   <button
                     type="button"
                     onClick={handleToggleAllPlayerInfo}

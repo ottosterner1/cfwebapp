@@ -33,16 +33,28 @@ export interface Register {
   };
 }
 
-export interface RegisterDetail extends Register {
+export interface RegisterDetail {
+  id: number;
+  date: string;
   group: {
-    id: number;
+    id: number | null;
     name: string;
+  };
+  time_slot: {
+    id: number | null;
+    day: string | null;
+    start_time: string | null;
+    end_time: string | null;
   };
   coach: {
     id: number;
     name: string;
   };
-  notes: string | null;
+  assistant_coaches: {
+    id: number;
+    name: string;
+  }[];
+  notes: string;
   entries: RegisterEntry[];
   teaching_period: {
     id: number;

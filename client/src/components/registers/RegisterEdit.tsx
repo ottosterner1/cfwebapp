@@ -1,6 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { RegisterDetail, RegisterEntry, AttendanceStatus } from '../../types/register';
 
+interface Coach {
+  id: number;
+  name: string;
+}
+
 interface RegisterEditProps {
   registerId: string;
   onNavigate: (path: string) => void;
@@ -21,6 +26,11 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
   const [date, setDate] = useState(''); // New state for date
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  
+  // Assistant coaches state
+  const [availableCoaches, setAvailableCoaches] = useState<Coach[]>([]);
+  const [selectedAssistantCoachIds, setSelectedAssistantCoachIds] = useState<number[]>([]);
+  const [loadingCoaches, setLoadingCoaches] = useState<boolean>(false);
 
   // Function to normalize attendance status values
   const normalizeAttendanceStatus = (status: string): AttendanceStatus => {
@@ -36,6 +46,29 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
     // Default fallback
     return 'absent';
   };
+
+  // Fetch coaches
+  useEffect(() => {
+    const fetchCoaches = async () => {
+      try {
+        setLoadingCoaches(true);
+        const response = await fetch('/api/coaches');
+        
+        if (!response.ok) {
+          throw new Error(`Error fetching coaches: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        setAvailableCoaches(data);
+      } catch (err) {
+        console.error('Error fetching coaches:', err);
+      } finally {
+        setLoadingCoaches(false);
+      }
+    };
+    
+    fetchCoaches();
+  }, []);
 
   useEffect(() => {
     const fetchRegister = async () => {
@@ -66,6 +99,11 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
           setDate(formattedDate);
         }
         
+        // Set assistant coach IDs if they exist in the data
+        if (data.assistant_coaches && Array.isArray(data.assistant_coaches)) {
+          setSelectedAssistantCoachIds(data.assistant_coaches.map((coach: any) => coach.id));
+        }
+        
         setError(null);
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
@@ -80,6 +118,17 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
       fetchRegister();
     }
   }, [registerId]);
+
+  // Toggle assistant coach selection
+  const toggleAssistantCoach = (coachId: number) => {
+    setSelectedAssistantCoachIds(prev => {
+      if (prev.includes(coachId)) {
+        return prev.filter(id => id !== coachId);
+      } else {
+        return [...prev, coachId];
+      }
+    });
+  };
 
   const updateAttendanceStatus = (entryId: number, status: AttendanceStatus) => {
     if (!register) return;
@@ -133,6 +182,20 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
         throw new Error(errorData.error || 'Failed to update attendance entries');
       }
       
+      // Update assistant coaches
+      const assistantCoachesResponse = await fetch(`/api/registers/${registerId}/assistant-coaches`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          coach_ids: selectedAssistantCoachIds
+        })
+      });
+      
+      if (!assistantCoachesResponse.ok) {
+        const errorData = await assistantCoachesResponse.json();
+        throw new Error(errorData.error || 'Failed to update assistant coaches');
+      }
+      
       // Then update the register notes and date
       const registerResponse = await fetch(`/api/registers/${registerId}`, {
         method: 'PUT',
@@ -164,6 +227,11 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
         }
         
         setRegister(updatedData);
+        
+        // Update assistant coach IDs
+        if (updatedData.assistant_coaches) {
+          setSelectedAssistantCoachIds(updatedData.assistant_coaches.map((coach: any) => coach.id));
+        }
       }
       
       if (onSaveSuccess) {
@@ -338,6 +406,56 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
               />
             </div>
           </div>
+        </div>
+        
+        {/* Assistant Coaches Section */}
+        <div className="p-6 border-t border-b">
+          <h3 className="text-lg font-medium mb-3">Assistant Coaches</h3>
+          <p className="text-sm text-gray-600 mb-3">
+            Select any assistant coaches who helped with this session.
+          </p>
+          
+          {loadingCoaches ? (
+            <div className="flex justify-center items-center h-12">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-700"></div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {availableCoaches.map(coach => (
+                <div
+                  key={coach.id}
+                  onClick={() => toggleAssistantCoach(coach.id)}
+                  className={`p-3 border rounded-md cursor-pointer transition-colors duration-150 ${
+                    selectedAssistantCoachIds.includes(coach.id)
+                      ? 'bg-blue-50 border-blue-300 hover:bg-blue-100'
+                      : 'bg-white border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="flex items-center">
+                    <div className="flex h-5 items-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedAssistantCoachIds.includes(coach.id)}
+                        onChange={() => toggleAssistantCoach(coach.id)}
+                        className="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        aria-labelledby={`coach-${coach.id}-label`}
+                      />
+                    </div>
+                    <label 
+                      id={`coach-${coach.id}-label`}
+                      className="ml-3 block text-sm font-medium text-gray-900 cursor-pointer"
+                    >
+                      {coach.name}
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {availableCoaches.length === 0 && !loadingCoaches && (
+            <p className="text-sm text-gray-500">No other coaches available.</p>
+          )}
         </div>
 
         <div className="p-6">
