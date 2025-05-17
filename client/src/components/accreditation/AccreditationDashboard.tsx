@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/card';
 import { Alert, AlertDescription } from '../../components/ui/alert';
+import { PencilIcon, Calendar, AlertTriangle, CheckCircle, XCircle } from 'lucide-react';
 
 type AccreditationType = 'dbs' | 'first_aid' | 'safeguarding' | 'pediatric_first_aid' | 'accreditation';
 
@@ -21,6 +22,7 @@ const AccreditationDashboard = () => {
   const [coaches, setCoaches] = useState<Coach[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // const [sendingReminders, setSendingReminders] = useState(false);
 
   useEffect(() => {
     fetchCoachesData();
@@ -37,6 +39,26 @@ const AccreditationDashboard = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // const sendReminders = async () => {
+  //   setSendingReminders(true);
+  //   try {
+  //     const response = await fetch('/api/coaches/send-accreditation-reminders', {
+  //       method: 'POST',
+  //     });
+      
+  //     if (!response.ok) throw new Error('Failed to send reminders');
+  //     alert('Reminders sent successfully!');
+  //   } catch (err) {
+  //     setError(err instanceof Error ? err.message : 'Failed to send reminders');
+  //   } finally {
+  //     setSendingReminders(false);
+  //   }
+  // };
+
+  const navigateToEditCoach = (coachId: number) => {
+    window.location.href = `/clubs/manage/1/coaches/${coachId}/edit`;
   };
 
   const getStatusColor = (status: string, days: number | null) => {
@@ -62,6 +84,21 @@ const AccreditationDashboard = () => {
     return `${days} days remaining`;
   };
 
+  const getStatusIcon = (status: string, days: number | null) => {
+    if (days === null) return <Calendar className="h-4 w-4" />;
+    
+    switch (status) {
+      case 'valid':
+        return <CheckCircle className="h-4 w-4 text-green-600" />;
+      case 'warning':
+        return <AlertTriangle className="h-4 w-4 text-yellow-600" />;
+      case 'expired':
+        return <XCircle className="h-4 w-4 text-red-600" />;
+      default:
+        return <Calendar className="h-4 w-4" />;
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-48">
@@ -80,12 +117,12 @@ const AccreditationDashboard = () => {
 
   return (
     <Card className="w-full">
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-col sm:flex-row items-center justify-between">
         <CardTitle>Coach Accreditation Status</CardTitle>
         {/* <button
           onClick={sendReminders}
           disabled={sendingReminders}
-          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 mt-4 sm:mt-0"
         >
           <Bell className="h-4 w-4 mr-2" />
           {sendingReminders ? 'Sending...' : 'Send Reminders'}
@@ -99,43 +136,38 @@ const AccreditationDashboard = () => {
           </Alert>
         )}
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead>
-              <tr>
-                <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Coach
-                </th>
-                {accreditationTypes.map(({ key, label }) => (
-                  <th key={key} className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {coaches.map((coach) => (
-                <tr key={coach.id}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">{coach.name}</div>
-                      <div className="text-sm text-gray-500">{coach.email}</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {coaches.map((coach) => (
+            <div key={coach.id} className="border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow duration-200">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="font-semibold text-lg">{coach.name}</h3>
+                  <p className="text-sm text-gray-500">{coach.email}</p>
+                </div>
+                <button
+                  onClick={() => navigateToEditCoach(coach.id)}
+                  className="text-blue-600 hover:text-blue-900 focus:outline-none flex items-center p-2 rounded-full hover:bg-blue-50"
+                  aria-label={`Edit ${coach.name}`}
+                >
+                  <PencilIcon className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="space-y-2">
+                {accreditationTypes.map(({ key, label }) => {
+                  const accreditation = coach.accreditations[key];
+                  return (
+                    <div key={key} className="flex justify-between items-center p-2 hover:bg-gray-50 rounded-md">
+                      <span className="text-sm font-medium">{label}</span>
+                      <span className={`px-2 py-1 inline-flex items-center text-xs leading-5 font-semibold rounded-full ${getStatusColor(accreditation.status, accreditation.days_remaining)}`}>
+                        {getStatusIcon(accreditation.status, accreditation.days_remaining)}
+                        <span className="ml-1">{formatDaysRemaining(accreditation.days_remaining, accreditation.status)}</span>
+                      </span>
                     </div>
-                  </td>
-                  {accreditationTypes.map(({ key }) => {
-                    const accreditation = coach.accreditations[key];
-                    return (
-                      <td key={key} className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(accreditation.status, accreditation.days_remaining)}`}>
-                          {formatDaysRemaining(accreditation.days_remaining, accreditation.status)}
-                        </span>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       </CardContent>
     </Card>
