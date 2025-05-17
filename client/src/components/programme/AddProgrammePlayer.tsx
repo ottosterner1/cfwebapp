@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { Coach, Group, TeachingPeriod } from '../../types/programme';
+import { ChevronDown, ChevronUp, Save, X, Loader2 } from 'lucide-react';
 
 interface GroupTime {
   id: number;
@@ -10,7 +11,6 @@ interface GroupTime {
   end_time: string;
 }
 
-// Define the local form data interface
 interface FormData {
   player_name: string;
   date_of_birth: string;
@@ -25,6 +25,40 @@ interface FormData {
   walk_home: string;
   notes: string;
 }
+
+interface FormSectionProps {
+  title: string;
+  isOpen: boolean;
+  toggleOpen: () => void;
+  children: React.ReactNode;
+}
+
+const FormSection: React.FC<FormSectionProps> = ({ title, isOpen, toggleOpen, children }) => (
+  <div className="mb-6 border rounded-lg overflow-hidden bg-white shadow-sm">
+    <button 
+      type="button"
+      onClick={toggleOpen}
+      className="w-full flex justify-between items-center p-4 text-left font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+    >
+      <span className="text-lg">{title}</span>
+      {isOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+    </button>
+    {isOpen && (
+      <div className="p-4 border-t">
+        {children}
+      </div>
+    )}
+  </div>
+);
+
+const FormField = ({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) => (
+  <div className="mb-4">
+    <label className="block text-sm font-medium text-gray-700 mb-1">
+      {label}{required && <span className="text-red-500 ml-1">*</span>}
+    </label>
+    {children}
+  </div>
+);
 
 const AddProgrammePlayer: React.FC = () => {
   const urlParts = window.location.pathname.split('/');
@@ -43,9 +77,23 @@ const AddProgrammePlayer: React.FC = () => {
     group_id: '',
     group_time_id: '',
     teaching_period_id: '',
-    walk_home: 'na', // Default to Not Applicable
+    walk_home: 'na',
     notes: ''
   });
+
+  // Sections open state
+  const [sections, setSections] = useState({
+    personalInfo: true,
+    contactInfo: true,
+    programmeInfo: true
+  });
+
+  const toggleSection = (section: keyof typeof sections) => {
+    setSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
+  };
 
   const [coaches, setCoaches] = useState<Coach[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -83,7 +131,6 @@ const AddProgrammePlayer: React.FC = () => {
     fetchData();
   }, [clubId]);
 
-  // Fetch group times when group is selected
   useEffect(() => {
     const fetchGroupTimes = async () => {
       if (!formData.group_id) {
@@ -125,7 +172,7 @@ const AddProgrammePlayer: React.FC = () => {
       }
 
       const submissionData = {
-        student_name: formData.player_name, // Backend still uses student_name
+        student_name: formData.player_name,
         date_of_birth: formData.date_of_birth,
         contact_email: formData.contact_email,
         contact_number: formData.contact_number || null,
@@ -174,253 +221,265 @@ const AddProgrammePlayer: React.FC = () => {
 
   if (error) {
     return (
-      <Alert variant="destructive">
+      <Alert variant="destructive" className="mb-4">
         <AlertDescription>{error}</AlertDescription>
       </Alert>
     );
   }
 
+  const inputClasses = "w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500";
+  const selectClasses = "w-full p-3 pr-10 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500";
+
   return (
-    <Card>
-      <CardContent>
-        <h1 className="text-2xl font-bold mb-10">Add New Programme Player</h1>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            {/* Player Information */}
-            <div className="space-y-2 col-span-2">
-              <h2 className="text-lg font-semibold border-b pb-2 text-gray-700">Player Information</h2>
-            </div>
-            
-            <div className="space-y-2">
-              <label htmlFor="player_name" className="block text-sm font-medium text-gray-700">
-                Player Name*
-              </label>
-              <input
-                id="player_name"
-                name="player_name"
-                type="text"
-                value={formData.player_name}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="date_of_birth" className="block text-sm font-medium text-gray-700">
-                Date of Birth*
-              </label>
-              <input
-                id="date_of_birth"
-                name="date_of_birth"
-                type="date"
-                value={formData.date_of_birth}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="contact_email" className="block text-sm font-medium text-gray-700">
-                Contact Email*
-              </label>
-              <input
-                id="contact_email"
-                name="contact_email"
-                type="email"
-                value={formData.contact_email}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="contact_number" className="block text-sm font-medium text-gray-700">
-                Contact Number
-              </label>
-              <input
-                id="contact_number"
-                name="contact_number"
-                type="tel"
-                value={formData.contact_number}
-                onChange={handleInputChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="emergency_contact_number" className="block text-sm font-medium text-gray-700">
-                Emergency Contact Number
-              </label>
-              <input
-                id="emergency_contact_number"
-                name="emergency_contact_number"
-                type="tel"
-                value={formData.emergency_contact_number}
-                onChange={handleInputChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div className="space-y-2 col-span-2">
-              <label htmlFor="medical_information" className="block text-sm font-medium text-gray-700">
-                Medical Information
-              </label>
-              <textarea
-                id="medical_information"
-                name="medical_information"
-                rows={3}
-                value={formData.medical_information}
-                onChange={handleInputChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                placeholder="Enter any relevant medical information, allergies, or special needs"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="walk_home" className="block text-sm font-medium text-gray-700">
-                Walk Home Permission
-              </label>
-              <select
-                id="walk_home"
-                name="walk_home"
-                value={formData.walk_home}
-                onChange={handleInputChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              >
-                <option value="na">Not Applicable</option>
-                <option value="yes">Yes - Allowed to walk home unaccompanied</option>
-                <option value="no">No - Must be collected by guardian</option>
-              </select>
-            </div>
-
-            <div className="space-y-2 col-span-2">
-              <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
-                Notes
-              </label>
-              <textarea
-                id="notes"
-                name="notes"
-                rows={3}
-                value={formData.notes}
-                onChange={handleInputChange}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                placeholder="Add any notes about this player (optional)"
-              />
-            </div>
-
-            {/* Programme Assignment */}
-            <div className="space-y-2 col-span-2 mt-4">
-              <h2 className="text-lg font-semibold border-b pb-2 text-gray-700">Programme Assignment</h2>
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="coach_id" className="block text-sm font-medium text-gray-700">
-                Coach*
-              </label>
-              <select
-                id="coach_id"
-                name="coach_id"
-                value={formData.coach_id}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              >
-                <option value="">Select a coach</option>
-                {coaches.map(coach => (
-                  <option key={coach.id} value={coach.id}>
-                    {coach.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="group_id" className="block text-sm font-medium text-gray-700">
-                Group*
-              </label>
-              <select
-                id="group_id"
-                name="group_id"
-                value={formData.group_id}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              >
-                <option value="">Select a group</option>
-                {groups.map(group => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="group_time_id" className="block text-sm font-medium text-gray-700">
-                Group Time*
-              </label>
-              <select
-                id="group_time_id"
-                name="group_time_id"
-                value={formData.group_time_id}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              >
-                <option value="">Select a time slot</option>
-                {groupTimes.map(time => (
-                  <option key={time.id} value={time.id}>
-                    {time.day_of_week} {formatTime(time.start_time)} - {formatTime(time.end_time)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="teaching_period_id" className="block text-sm font-medium text-gray-700">
-                Teaching Period*
-              </label>
-              <select
-                id="teaching_period_id"
-                name="teaching_period_id"
-                value={formData.teaching_period_id}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-              >
-                <option value="">Select a teaching period</option>
-                {periods.map(period => (
-                  <option key={period.id} value={period.id}>
-                    {period.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+    <div className="px-4 py-6 md:px-6 mx-auto max-w-3xl">
+      <Card className="shadow-lg">
+        <CardContent>
+          <div className="sticky top-0 z-10 bg-white p-4 border-b rounded-t-lg shadow-sm">
+            <h1 className="text-xl md:text-2xl font-bold text-gray-800">Add New Player</h1>
           </div>
 
-          <div className="mt-6 flex justify-end space-x-3">
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+          <form onSubmit={handleSubmit} className="p-4">
+            {/* Personal Information Section */}
+            <FormSection 
+              title="Player Information" 
+              isOpen={sections.personalInfo}
+              toggleOpen={() => toggleSection('personalInfo')}
             >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors disabled:opacity-50"
+              <FormField label="Player Name" required>
+                <input
+                  id="player_name"
+                  name="player_name"
+                  type="text"
+                  value={formData.player_name}
+                  onChange={handleInputChange}
+                  required
+                  className={inputClasses}
+                  placeholder="Enter player's full name"
+                />
+              </FormField>
+
+              <FormField label="Date of Birth" required>
+                <input
+                  id="date_of_birth"
+                  name="date_of_birth"
+                  type="date"
+                  value={formData.date_of_birth}
+                  onChange={handleInputChange}
+                  required
+                  className={inputClasses}
+                />
+              </FormField>
+
+              <FormField label="Medical Information">
+                <textarea
+                  id="medical_information"
+                  name="medical_information"
+                  rows={3}
+                  value={formData.medical_information}
+                  onChange={handleInputChange}
+                  className={inputClasses}
+                  placeholder="Enter any relevant medical information, allergies, or special needs"
+                />
+              </FormField>
+
+              <FormField label="Notes">
+                <textarea
+                  id="notes"
+                  name="notes"
+                  rows={3}
+                  value={formData.notes}
+                  onChange={handleInputChange}
+                  className={inputClasses}
+                  placeholder="Add any additional notes about this player"
+                />
+              </FormField>
+
+              <FormField label="Walk Home Permission">
+                <select
+                  id="walk_home"
+                  name="walk_home"
+                  value={formData.walk_home}
+                  onChange={handleInputChange}
+                  className={selectClasses}
+                >
+                  <option value="na">Not Applicable</option>
+                  <option value="yes">Yes - Allowed to walk home unaccompanied</option>
+                  <option value="no">No - Must be collected by guardian</option>
+                </select>
+              </FormField>
+            </FormSection>
+
+            {/* Contact Information Section */}
+            <FormSection 
+              title="Contact Information" 
+              isOpen={sections.contactInfo}
+              toggleOpen={() => toggleSection('contactInfo')}
             >
-              {loading ? 'Adding...' : 'Add Player'}
-            </button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+              <FormField label="Contact Email" required>
+                <input
+                  id="contact_email"
+                  name="contact_email"
+                  type="email"
+                  value={formData.contact_email}
+                  onChange={handleInputChange}
+                  required
+                  className={inputClasses}
+                  placeholder="Enter parent/guardian email"
+                />
+              </FormField>
+
+              <FormField label="Contact Number">
+                <input
+                  id="contact_number"
+                  name="contact_number"
+                  type="tel"
+                  value={formData.contact_number}
+                  onChange={handleInputChange}
+                  className={inputClasses}
+                  placeholder="Enter contact phone number"
+                />
+              </FormField>
+
+              <FormField label="Emergency Contact Number">
+                <input
+                  id="emergency_contact_number"
+                  name="emergency_contact_number"
+                  type="tel"
+                  value={formData.emergency_contact_number}
+                  onChange={handleInputChange}
+                  className={inputClasses}
+                  placeholder="Enter emergency contact number"
+                />
+              </FormField>
+            </FormSection>
+
+            {/* Programme Assignment Section */}
+            <FormSection 
+              title="Programme Assignment" 
+              isOpen={sections.programmeInfo}
+              toggleOpen={() => toggleSection('programmeInfo')}
+            >
+              <FormField label="Teaching Period" required>
+                <select
+                  id="teaching_period_id"
+                  name="teaching_period_id"
+                  value={formData.teaching_period_id}
+                  onChange={handleInputChange}
+                  required
+                  className={selectClasses}
+                >
+                  <option value="">Select a teaching period</option>
+                  {periods.map(period => (
+                    <option key={period.id} value={period.id}>
+                      {period.name}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+
+              <FormField label="Coach" required>
+                <select
+                  id="coach_id"
+                  name="coach_id"
+                  value={formData.coach_id}
+                  onChange={handleInputChange}
+                  required
+                  className={selectClasses}
+                >
+                  <option value="">Select a coach</option>
+                  {coaches.map(coach => (
+                    <option key={coach.id} value={coach.id}>
+                      {coach.name}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+
+              <FormField label="Group" required>
+                <select
+                  id="group_id"
+                  name="group_id"
+                  value={formData.group_id}
+                  onChange={handleInputChange}
+                  required
+                  className={selectClasses}
+                >
+                  <option value="">Select a group</option>
+                  {groups.map(group => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+
+              <FormField label="Group Time" required>
+                <select
+                  id="group_time_id"
+                  name="group_time_id"
+                  value={formData.group_time_id}
+                  onChange={handleInputChange}
+                  required
+                  className={selectClasses}
+                  disabled={!formData.group_id || groupTimes.length === 0}
+                >
+                  <option value="">
+                    {!formData.group_id 
+                      ? "Select a group first" 
+                      : groupTimes.length === 0 
+                        ? "No time slots available" 
+                        : "Select a time slot"}
+                  </option>
+                  {groupTimes.map(time => (
+                    <option key={time.id} value={time.id}>
+                      {time.day_of_week} {formatTime(time.start_time)} - {formatTime(time.end_time)}
+                    </option>
+                  ))}
+                </select>
+                {formData.group_id && groupTimes.length === 0 && (
+                  <p className="mt-1 text-sm text-amber-600">
+                    No time slots found for this group. Please select a different group or add time slots.
+                  </p>
+                )}
+              </FormField>
+            </FormSection>
+
+            {/* Fixed action buttons */}
+            <div className="sticky bottom-0 left-0 right-0 mt-6 flex gap-3 pt-4 border-t bg-white">
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="flex-1 py-3 px-4 border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors"
+              >
+                <span className="flex items-center justify-center">
+                  <X size={18} className="mr-2" />
+                  Cancel
+                </span>
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex-1 py-3 px-4 bg-indigo-600 border border-transparent rounded-lg text-white font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors disabled:opacity-50"
+              >
+                <span className="flex items-center justify-center">
+                  {loading ? (
+                    <>
+                      <Loader2 size={18} className="mr-2 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    <>
+                      <Save size={18} className="mr-2" />
+                      Add Player
+                    </>
+                  )}
+                </span>
+              </button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
   );
 };
 
