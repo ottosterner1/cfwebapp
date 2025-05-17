@@ -68,7 +68,7 @@
                                     </svg>
                                     Edit
                                 </button>
-                                {% if period.reports.count() == 0 %}
+                                {% if period.reports.count() == 0 and period.programme_players.count() == 0 %}
                                     <button 
                                         data-id="{{ period.id }}"
                                         onclick="confirmDelete(this)"
