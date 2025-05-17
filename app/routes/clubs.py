@@ -623,6 +623,8 @@ def manage_teaching_periods(club_id):
                 
                 if period.reports.count() > 0:
                     flash('Cannot delete teaching period with existing reports', 'error')
+                elif period.programme_players.count() > 0:
+                    flash('Cannot delete teaching period with assigned players', 'error')
                 else:
                     db.session.delete(period)
                     db.session.commit()
