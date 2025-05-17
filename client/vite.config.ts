@@ -49,7 +49,8 @@ export default defineConfig({
         registers: path.resolve(__dirname, 'src/entry/registers.tsx'),
         create_register: path.resolve(__dirname, 'src/entry/create_register.tsx'),
         edit_register: path.resolve(__dirname, 'src/entry/edit_register.tsx'),
-        view_register: path.resolve(__dirname, 'src/entry/view_register.tsx')
+        view_register: path.resolve(__dirname, 'src/entry/view_register.tsx'),
+        invoices: path.resolve(__dirname, 'src/entry/invoices.tsx'),
       }
     }
   }
