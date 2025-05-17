@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, current_app, render_template
 from flask_login import login_required, current_user
 from app.models import (
     Register, RegisterEntry, TeachingPeriod, TennisGroupTimes, 
-    ProgrammePlayers, AttendanceStatus, TennisGroup, Student, User
+    ProgrammePlayers, AttendanceStatus, TennisGroup, Student, User, RegisterAssistantCoach
 )
 from app import db
 from app.models.base import UserRole
@@ -240,6 +240,14 @@ def get_register(register_id):
                     'predicted_attendance': entry.predicted_attendance
                 })
                 
+        # Get assistant coaches
+        assistant_coaches = []
+        for assistant in register.assistant_coaches:
+            assistant_coaches.append({
+                'id': assistant.coach_id,
+                'name': assistant.coach.name
+            })
+                
         # Build response
         response = {
             'id': register.id,
@@ -258,6 +266,7 @@ def get_register(register_id):
                 'id': register.coach_id,
                 'name': register.coach.name
             },
+            'assistant_coaches': assistant_coaches,  # Add assistant coaches to response
             'notes': register.notes, 
             'entries': entries,
             'teaching_period': {
@@ -318,7 +327,19 @@ def create_register():
         
         db.session.add(register)
         db.session.flush()  # Get register.id without committing yet
-        
+
+        # Add assistant coaches if provided
+        assistant_coach_ids = data.get('assistant_coach_ids', [])
+        for coach_id in assistant_coach_ids:
+            # Verify coach exists and belongs to same tennis club
+            coach = User.query.filter_by(id=coach_id, tennis_club_id=current_user.tennis_club_id).first()
+            if coach:
+                assistant = RegisterAssistantCoach(
+                    register_id=register.id,
+                    coach_id=coach_id
+                )
+                db.session.add(assistant)
+
         # Pre-populate entries for all students in this group time
         players = ProgrammePlayers.query.filter_by(
             group_time_id=data['group_time_id'],
@@ -1301,5 +1322,53 @@ def get_all_register_notes():
         
     except Exception as e:
         current_app.logger.error(f"Error fetching register notes: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+    
+
+@register_routes.route('/registers/<int:register_id>/assistant-coaches', methods=['PUT'])
+@login_required
+@verify_club_access()
+def update_assistant_coaches(register_id):
+    try:
+        register = Register.query.get_or_404(register_id)
+        
+        # Check permissions
+        if not current_user.is_admin and register.coach_id != current_user.id:
+            return jsonify({'error': 'Permission denied'}), 403
+            
+        data = request.get_json()
+        coach_ids = data.get('coach_ids', [])
+        
+        # Validate coach_ids
+        if not isinstance(coach_ids, list):
+            return jsonify({'error': 'coach_ids must be an array'}), 400
+            
+        # Clear existing assistant coaches
+        RegisterAssistantCoach.query.filter_by(register_id=register_id).delete()
+        
+        # Add new assistant coaches
+        for coach_id in coach_ids:
+            # Verify coach exists and belongs to same tennis club
+            coach = User.query.filter_by(id=coach_id, tennis_club_id=current_user.tennis_club_id).first()
+            if not coach:
+                continue
+                
+            assistant = RegisterAssistantCoach(
+                register_id=register_id,
+                coach_id=coach_id
+            )
+            db.session.add(assistant)
+            
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Assistant coaches updated successfully',
+            'register_id': register_id
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating assistant coaches: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500

@@ -21,7 +21,7 @@ from app.models.programme import (
 
 # Register models
 from app.models.register import (
-    Register, RegisterEntry
+    Register, RegisterEntry, RegisterAssistantCoach
 )
 
 # This approach maintains backward compatibility
