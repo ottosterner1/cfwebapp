@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { Register } from '../../types/register';
+import { Filter, RefreshCw, Eye, Edit, PieChart, Plus } from 'lucide-react';
 
 interface TeachingPeriod {
   id: number;
@@ -69,7 +70,7 @@ const RegisterList: React.FC<RegisterListProps> = ({
   const [selectedSession, setSelectedSession] = useState<string>('');
   
   // State for filter visibility on mobile
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
 
   // Extract unique days from registers
   const availableDays = useMemo(() => {
@@ -126,7 +127,7 @@ const RegisterList: React.FC<RegisterListProps> = ({
       try {
         setLoading(prev => ({ ...prev, coaches: true }));
         
-        const response = await fetch('/api/coaches'); // Fixed URL
+        const response = await fetch('/api/coaches');
         
         if (!response.ok) {
           throw new Error(`Failed to fetch coaches: ${response.status} ${response.statusText}`);
@@ -378,10 +379,11 @@ const RegisterList: React.FC<RegisterListProps> = ({
           <h1 className="text-2xl font-bold">Registers</h1>
           <button
             onClick={onCreateNew}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow"
+            className="w-full sm:w-auto px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow flex items-center justify-center gap-2"
           >
+            <Plus size={18} />
             <span className="hidden sm:inline">Create New Register</span>
-            <span className="sm:hidden">Create</span>
+            <span className="sm:hidden">Create Register</span>
           </button>
         </div>
         
@@ -414,24 +416,28 @@ const RegisterList: React.FC<RegisterListProps> = ({
       {/* Header with buttons */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-2xl font-bold">Registers</h1>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap w-full sm:w-auto gap-2">
           <button
             onClick={toggleFilters}
-            className="md:hidden px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+            className="flex-1 sm:flex-auto px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 flex items-center justify-center gap-2"
+            aria-expanded={showFilters}
           >
-            {showFilters ? 'Hide Filters' : 'Show Filters'}
+            <Filter size={18} />
+            <span>{showFilters ? 'Hide Filters' : 'Filters'}</span>
           </button>
           <button
             onClick={onViewStats}
-            className="px-4 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200"
+            className="flex-1 sm:flex-auto px-4 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 flex items-center justify-center gap-2"
           >
+            <PieChart size={18} />
             <span className="hidden sm:inline">View Statistics</span>
             <span className="sm:hidden">Stats</span>
           </button>
           <button
             onClick={onCreateNew}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow"
+            className="flex-1 sm:flex-auto px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow flex items-center justify-center gap-2"
           >
+            <Plus size={18} />
             <span className="hidden sm:inline">Create New Register</span>
             <span className="sm:hidden">Create</span>
           </button>
@@ -439,120 +445,120 @@ const RegisterList: React.FC<RegisterListProps> = ({
       </div>
       
       {/* Filters */}
-      <div className={`bg-white p-4 rounded-lg shadow ${!showFilters ? 'hidden md:block' : ''}`}>
-        <div className="flex justify-between items-center mb-3">
-          <h2 className="text-lg font-semibold">Filters</h2>
-          <button
-            onClick={handleResetFilters}
-            className="text-sm text-blue-600 hover:text-blue-800"
-          >
-            Reset Filters
-          </button>
-        </div>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          {/* Term Filter */}
-          <div>
-            <label htmlFor="period" className="block text-sm font-medium text-gray-700 mb-1">
-              Term
-            </label>
-            <select
-              id="period"
-              value={selectedPeriod || ''}
-              onChange={handlePeriodChange}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              disabled={loadingPeriods}
+      <div className={`bg-white rounded-lg shadow overflow-hidden transition-all duration-300 ease-in-out ${showFilters ? 'max-h-[1000px]' : 'max-h-0 sm:max-h-[1000px] hidden sm:block'}`}>
+        <div className="p-4">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="text-lg font-semibold">Filters</h2>
+            <button
+              onClick={handleResetFilters}
+              className="flex items-center text-sm text-blue-600 hover:text-blue-800 gap-1"
             >
-              <option value="">All Terms</option>
-              {periods.map(period => (
-                <option key={period.id} value={period.id}>{period.name}</option>
-              ))}
-            </select>
+              <RefreshCw size={14} />
+              Reset Filters
+            </button>
           </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+            {/* Term Filter */}
+            <div>
+              <label htmlFor="period" className="block text-sm font-medium text-gray-700 mb-1">
+                Term
+              </label>
+              <select
+                id="period"
+                value={selectedPeriod || ''}
+                onChange={handlePeriodChange}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2"
+                disabled={loadingPeriods}
+              >
+                <option value="">All Terms</option>
+                {periods.map(period => (
+                  <option key={period.id} value={period.id}>{period.name}</option>
+                ))}
+              </select>
+            </div>
 
-          {/* Day Filter */}
-          <div>
-            <label htmlFor="day" className="block text-sm font-medium text-gray-700 mb-1">
-              Day
-            </label>
-            <select
-              id="day"
-              value={selectedDay}
-              onChange={handleDayChange}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-            >
-              <option value="">All Days</option>
-              {availableDays.map(day => (
-                <option key={day} value={day}>{day}</option>
-              ))}
-            </select>
+            {/* Day Filter */}
+            <div>
+              <label htmlFor="day" className="block text-sm font-medium text-gray-700 mb-1">
+                Day
+              </label>
+              <select
+                id="day"
+                value={selectedDay}
+                onChange={handleDayChange}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2"
+              >
+                <option value="">All Days</option>
+                {availableDays.map(day => (
+                  <option key={day} value={day}>{day}</option>
+                ))}
+              </select>
+            </div>
+            
+            {/* Coach Filter */}
+            <div>
+              <label htmlFor="coach" className="block text-sm font-medium text-gray-700 mb-1">
+                Coach
+              </label>
+              <select
+                id="coach"
+                value={selectedCoach || ''}
+                onChange={handleCoachChange}
+                disabled={!userInfo?.is_admin || loadingUserInfo}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 disabled:bg-gray-100"
+              >
+                <option value="">All Coaches</option>
+                {coaches.map(coach => (
+                  <option key={coach.id} value={coach.id}>{coach.name}</option>
+                ))}
+              </select>
+            </div>
+            
+            {/* Group Filter */}
+            <div>
+              <label htmlFor="group" className="block text-sm font-medium text-gray-700 mb-1">
+                Group
+              </label>
+              <select
+                id="group"
+                value={selectedGroup || ''}
+                onChange={handleGroupChange}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2"
+              >
+                <option value="">All Groups</option>
+                {groups.map(group => (
+                  <option key={group.id} value={group.id}>{group.name}</option>
+                ))}
+              </select>
+            </div>
+            
+            {/* Session Filter */}
+            <div>
+              <label htmlFor="session" className="block text-sm font-medium text-gray-700 mb-1">
+                Session
+              </label>
+              <select
+                id="session"
+                value={selectedSession}
+                onChange={handleSessionChange}
+                className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2"
+              >
+                <option value="">All Sessions</option>
+                {availableSessions.map(session => (
+                  <option key={session} value={session}>{session}</option>
+                ))}
+              </select>
+            </div>
           </div>
           
-          {/* Coach Filter */}
-          <div>
-            <label htmlFor="coach" className="block text-sm font-medium text-gray-700 mb-1">
-              Coach
-            </label>
-            <select
-              id="coach"
-              value={selectedCoach || ''}
-              onChange={handleCoachChange}
-              disabled={!userInfo?.is_admin || loadingUserInfo}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-100"
-            >
-              <option value="">All Coaches</option>
-              {coaches.map(coach => (
-                <option key={coach.id} value={coach.id}>{coach.name}</option>
-              ))}
-            </select>
-            {loadingUserInfo ? (
-              <div className="text-xs text-gray-500 mt-1">Loading user info...</div>
-            ) : loading.coaches ? (
-              <div className="text-xs text-gray-500 mt-1">Loading coaches...</div>
-            ) : coaches.length === 0 ? (
-              <div className="text-xs text-yellow-600 mt-1">
-                No coaches found for your tennis club
-              </div>
-            ) : null}
-          </div>
-          
-          {/* Group Filter */}
-          <div>
-            <label htmlFor="group" className="block text-sm font-medium text-gray-700 mb-1">
-              Group
-            </label>
-            <select
-              id="group"
-              value={selectedGroup || ''}
-              onChange={handleGroupChange}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-            >
-              <option value="">All Groups</option>
-              {groups.map(group => (
-                <option key={group.id} value={group.id}>{group.name}</option>
-              ))}
-            </select>
-            {loading.groups && (
-              <div className="text-xs text-gray-500 mt-1">Loading groups...</div>
+          {/* Loading indicators */}
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+            {loading.coaches && <span>Loading coaches...</span>}
+            {loading.groups && <span>Loading groups...</span>}
+            {coaches.length === 0 && !loading.coaches && (
+              <span className="text-yellow-600">No coaches found for your tennis club</span>
             )}
-          </div>
-          
-          {/* Session Filter */}
-          <div>
-            <label htmlFor="session" className="block text-sm font-medium text-gray-700 mb-1">
-              Session
-            </label>
-            <select
-              id="session"
-              value={selectedSession}
-              onChange={handleSessionChange}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-            >
-              <option value="">All Sessions</option>
-              {availableSessions.map(session => (
-                <option key={session} value={session}>{session}</option>
-              ))}
-            </select>
           </div>
         </div>
       </div>
@@ -585,151 +591,79 @@ const RegisterList: React.FC<RegisterListProps> = ({
             )}
           </div>
         ) : (
-          <div>
-            {/* For desktop */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Date
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Group
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Time
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Coach
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Present
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Absent
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Attendance Rate
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {registers.map((register) => (
-                    <tr key={register.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {formatDate(register.date)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {register.group_name}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {register.time_slot.day} {register.time_slot.start_time}-{register.time_slot.end_time}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {register.coach_name}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {register.stats.present} / {register.stats.total}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-red-600">
-                        {getTotalAbsences(register)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <div className="w-16 bg-gray-200 rounded-full h-2.5 mr-2">
-                            <div 
-                              className={`h-2.5 rounded-full ${
-                                register.stats.attendance_rate >= 80 ? 'bg-green-600' :
-                                register.stats.attendance_rate >= 60 ? 'bg-yellow-500' :
-                                'bg-red-600'
-                              }`}
-                              style={{ width: `${register.stats.attendance_rate}%` }}
-                            ></div>
-                          </div>
-                          <span className="text-sm text-gray-700">
-                            {register.stats.attendance_rate}%
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex space-x-3">
-                          <button 
-                            onClick={() => onNavigate(register.id.toString())}
-                            className="text-blue-600 hover:text-blue-900 font-medium"
-                          >
-                            View
-                          </button>
-                          <button 
-                            onClick={() => onEdit(register.id.toString())}
-                            className="text-green-600 hover:text-green-900 font-medium"
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            
-            {/* For mobile */}
-            <div className="md:hidden">
-              <div className="p-3 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 uppercase">
+          <>
+            {/* Register Cards - For all screen sizes */}
+            <div className="divide-y divide-gray-200">
+              <div className="p-3 bg-gray-50 text-xs font-medium text-gray-500 uppercase">
                 {registers.length} Registers Found
               </div>
               {registers.map((register) => (
-                <div key={register.id} className="p-4 border-b border-gray-200 hover:bg-gray-50">
-                  <div className="flex justify-between">
-                    <div className="font-medium text-gray-900">{formatDate(register.date)}</div>
-                    <div className="flex space-x-2">
+                <div key={register.id} className="p-4 hover:bg-gray-50">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                    {/* Main Info */}
+                    <div className="flex-grow">
+                      <div className="flex flex-col sm:flex-row gap-1 sm:gap-3 sm:items-center">
+                        <h3 className="font-medium text-gray-900">{formatDate(register.date)}</h3>
+                        <div className="text-sm text-gray-700">{register.group_name}</div>
+                      </div>
+                      <div className="mt-1 text-sm text-gray-500">
+                        {register.time_slot.day} {register.time_slot.start_time}-{register.time_slot.end_time}
+                      </div>
+                      <div className="mt-1 text-sm text-gray-500">Coach: {register.coach_name}</div>
+                      
+                      {/* Attendance Stats */}
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        <div className="col-span-3 sm:col-span-1">
+                          <div className="flex items-center">
+                            <span className="text-xs text-gray-500 mr-2">Attendance:</span>
+                            <div className="flex-grow bg-gray-200 rounded-full h-2.5">
+                              <div 
+                                className={`h-2.5 rounded-full ${
+                                  register.stats.attendance_rate >= 80 ? 'bg-green-600' :
+                                  register.stats.attendance_rate >= 60 ? 'bg-yellow-500' :
+                                  'bg-red-600'
+                                }`}
+                                style={{ width: `${register.stats.attendance_rate}%` }}
+                              ></div>
+                            </div>
+                            <span className="ml-2 text-xs font-medium text-gray-700">
+                              {register.stats.attendance_rate}%
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-xs text-green-600">
+                          Present: {register.stats.present}/{register.stats.total}
+                        </div>
+                        <div className="text-xs text-red-600">
+                          Absent: {getTotalAbsences(register)}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Action Buttons - Always visible, no horizontal scroll */}
+                    <div className="flex mt-3 sm:mt-0 gap-2 sm:gap-3 self-end sm:self-center">
                       <button 
                         onClick={() => onNavigate(register.id.toString())}
-                        className="text-blue-600 hover:text-blue-900 font-medium text-sm px-2 py-1 bg-blue-50 rounded"
+                        className="flex items-center justify-center gap-1 text-blue-600 hover:text-blue-900 font-medium text-sm px-3 py-1.5 bg-blue-50 rounded border border-blue-100 hover:bg-blue-100 flex-1 sm:flex-auto"
+                        aria-label="View register"
                       >
-                        View
+                        <Eye size={16} />
+                        <span>View</span>
                       </button>
                       <button 
                         onClick={() => onEdit(register.id.toString())}
-                        className="text-green-600 hover:text-green-900 font-medium text-sm px-2 py-1 bg-green-50 rounded"
+                        className="flex items-center justify-center gap-1 text-green-600 hover:text-green-900 font-medium text-sm px-3 py-1.5 bg-green-50 rounded border border-green-100 hover:bg-green-100 flex-1 sm:flex-auto"
+                        aria-label="Edit register"
                       >
-                        Edit
+                        <Edit size={16} />
+                        <span>Edit</span>
                       </button>
                     </div>
-                  </div>
-                  <div className="mt-2 text-sm text-gray-700">{register.group_name}</div>
-                  <div className="mt-1 text-sm text-gray-500">
-                    {register.time_slot.day} {register.time_slot.start_time}-{register.time_slot.end_time}
-                  </div>
-                  <div className="mt-1 text-sm text-gray-500">Coach: {register.coach_name}</div>
-                  <div className="mt-1 text-sm">
-                    <span className="text-green-600">Present: {register.stats.present}</span> / 
-                    <span className="text-red-600"> Absent: {getTotalAbsences(register)}</span>
-                  </div>
-                  <div className="mt-2 flex items-center">
-                    <span className="text-xs text-gray-500 mr-2">Attendance:</span>
-                    <div className="flex-grow bg-gray-200 rounded-full h-2">
-                      <div 
-                        className={`h-2 rounded-full ${
-                          register.stats.attendance_rate >= 80 ? 'bg-green-600' :
-                          register.stats.attendance_rate >= 60 ? 'bg-yellow-500' :
-                          'bg-red-600'
-                        }`}
-                        style={{ width: `${register.stats.attendance_rate}%` }}
-                      ></div>
-                    </div>
-                    <span className="ml-2 text-xs font-medium text-gray-700">
-                      {register.stats.attendance_rate}%
-                    </span>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
+          </>
         )}
       </div>
       
