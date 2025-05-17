@@ -40,8 +40,8 @@ def migrate_database(source_db_url, target_db_url, target_name):
 
     # Define a specific order for tables based on dependencies
     table_order = [
-        "tennis_club",  # Start with this as it's referenced by many tables
-        "user",         # Users come next as they're referenced by other tables
+        "tennis_club",  
+        "user",      
         "teaching_period", 
         "tennis_group",
         "tennis_group_times",
@@ -51,9 +51,12 @@ def migrate_database(source_db_url, target_db_url, target_name):
         "template_field",
         "programme_players",
         "report", 
+        "register",  
+        "register_entry", 
         "group_template",
         "coach_details",
-        "coach_invitation"
+        "coach_invitation",
+        "club_feature" 
     ]
 
     # Validate all tables from DB are in our list
