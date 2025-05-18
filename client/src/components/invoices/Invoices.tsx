@@ -6,7 +6,6 @@ import InvoiceDetail from './InvoiceDetail';
 import InvoiceGenerator from './InvoiceGenerator';
 import InvoiceEditor from './InvoiceEditor';
 
-
 export enum InvoiceView {
   LIST = 'list',
   DETAIL = 'detail',
@@ -64,6 +63,11 @@ const Invoices: React.FC = () => {
     setCurrentView(InvoiceView.GENERATE);
   };
   
+  // Handler after saving invoice edits
+  const handleSaveSuccess = (savedInvoiceId: number) => {
+    navigateToDetail(savedInvoiceId);
+  };
+  
   // Render the appropriate view
   const renderView = () => {
     switch (currentView) {
@@ -92,7 +96,7 @@ const Invoices: React.FC = () => {
           <InvoiceEditor 
             invoiceId={selectedInvoiceId}
             onBack={navigateToList}
-            onSaveSuccess={() => navigateToDetail(selectedInvoiceId)}
+            onSaveSuccess={() => handleSaveSuccess(selectedInvoiceId)}
           />
         ) : <>{navigateToList()}</>;
       

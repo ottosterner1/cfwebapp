@@ -1,4 +1,4 @@
-// client/src/components/invoices/InvoiceEditor.tsx
+// src/components/invoices/InvoiceEditor.tsx
 
 import React, { useState, useEffect } from 'react';
 import { InvoiceDetail, InvoiceLineItem, CoachRate } from '../../types/invoice';
@@ -21,7 +21,7 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [coachRates, setCoachRates] = useState<CoachRate[]>([]);
-  const [selectedRate, setSelectedRate] = useState<number>(0);
+  const [selectedRate, setSelectedRate] = useState<number>(25);
   
   // Fetch invoice details
   useEffect(() => {
@@ -278,26 +278,25 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
         <div className="flex justify-between items-center mb-3">
           <h2 className="text-lg font-semibold">Line Items</h2>
           <div className="flex space-x-2">
-            <div className="flex items-center">
-              <label htmlFor="rate" className="text-sm font-medium text-gray-700 mr-2">
-                Rate:
-              </label>
-              <select
-                id="rate"
-                value={selectedRate}
-                onChange={(e) => setSelectedRate(parseFloat(e.target.value))}
-                className="px-3 py-1 border border-gray-300 rounded"
-              >
-                {coachRates.map(rate => (
-                  <option key={rate.id} value={rate.hourly_rate}>
-                    {rate.rate_name}: £{rate.hourly_rate.toFixed(2)}/hr
-                  </option>
-                ))}
-                {coachRates.length === 0 && (
-                  <option value={25}>Default: £25.00/hr</option>
-                )}
-              </select>
-            </div>
+            {coachRates.length > 0 && (
+              <div className="flex items-center">
+                <label htmlFor="rate" className="text-sm font-medium text-gray-700 mr-2">
+                  Rate:
+                </label>
+                <select
+                  id="rate"
+                  value={selectedRate}
+                  onChange={(e) => setSelectedRate(parseFloat(e.target.value))}
+                  className="px-3 py-1 border border-gray-300 rounded"
+                >
+                  {coachRates.map(rate => (
+                    <option key={rate.id} value={rate.hourly_rate}>
+                      {rate.rate_name}: £{rate.hourly_rate.toFixed(2)}/hr
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <button
               onClick={handleAddLineItem}
               className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
@@ -306,7 +305,7 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
             </button>
             <button
               onClick={handleAddDeduction}
-              className="px-3 py-1 bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors"
+              className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
             >
               Add Deduction
             </button>
@@ -357,10 +356,9 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                       }}
                       className="px-2 py-1 border border-gray-300 rounded w-full"
                     >
-                      <option value="session">Session</option>
-                      <option value="cardio">Cardio</option>
+                      <option value="session">Group</option>
+                      <option value="cardio">Individual</option>
                       <option value="team">Team</option>
-                      <option value="private">Private</option>
                       <option value="other">Other</option>
                       <option value="deduction">Deduction</option>
                     </select>
@@ -421,7 +419,7 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
               {lineItems.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-4 text-center text-gray-500">
-                    No line items yet. Add an item using the button above.
+                    No line items yet. Add an item using the buttons above.
                   </td>
                 </tr>
               )}
@@ -447,8 +445,126 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
         </div>
       </div>
       
+      {/* Mobile-friendly view */}
+      <div className="md:hidden mt-8 space-y-4">
+        <h3 className="font-medium text-gray-700">Mobile View</h3>
+        
+        <div className="flex space-x-2 mb-3">
+          <button
+            onClick={handleAddLineItem}
+            className="flex-1 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+          >
+            Add Income Item
+          </button>
+          <button
+            onClick={handleAddDeduction}
+            className="flex-1 py-2 bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors"
+          >
+            Add Deduction
+          </button>
+        </div>
+        
+        {lineItems.map((item, index) => (
+          <div key={index} className={`border rounded p-3 ${item.is_deduction ? 'bg-amber-50 border-amber-200' : 'bg-white'}`}>
+            <div className="flex justify-between mb-2">
+              <div className="font-medium">{item.description}</div>
+              <button
+                onClick={() => handleRemoveLineItem(index)}
+                className="text-red-600 hover:text-red-800"
+              >
+                Remove
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <div>
+                <label className="block text-xs text-gray-500">Type</label>
+                <select
+                  value={item.is_deduction ? 'deduction' : item.item_type}
+                  onChange={(e) => {
+                    const isDeduction = e.target.value === 'deduction';
+                    handleUpdateLineItem(index, 'is_deduction', isDeduction);
+                    handleUpdateLineItem(
+                      index, 
+                      'item_type', 
+                      isDeduction ? 'deduction' : e.target.value
+                    );
+                  }}
+                  className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
+                >
+                  <option value="session">Group</option>
+                  <option value="cardio">Individual</option>
+                  <option value="team">Team</option>
+                  <option value="other">Other</option>
+                  <option value="deduction">Deduction</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-xs text-gray-500">Date</label>
+                <input
+                  type="date"
+                  value={item.date}
+                  onChange={(e) => handleUpdateLineItem(index, 'date', e.target.value)}
+                  className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-xs text-gray-500">Hours</label>
+                <input
+                  type="number"
+                  min="0.25"
+                  step="0.25"
+                  value={item.hours}
+                  onChange={(e) => handleUpdateLineItem(index, 'hours', parseFloat(e.target.value))}
+                  className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-xs text-gray-500">Rate (£)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={item.rate}
+                  onChange={(e) => handleUpdateLineItem(index, 'rate', parseFloat(e.target.value))}
+                  className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-xs text-gray-500">Amount (£)</label>
+                <div className={`font-medium text-sm py-1 ${item.is_deduction ? 'text-red-600' : ''}`}>
+                  {item.is_deduction ? '-' : ''}{item.amount.toFixed(2)}
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+        
+        {/* Mobile totals */}
+        <div className="mt-4 p-3 bg-gray-100 rounded-lg">
+          <div className="flex justify-between">
+            <span>Subtotal:</span>
+            <span className="font-medium">£{subtotal.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between mt-1">
+            <span>Deductions:</span>
+            <span className="font-medium text-red-600">-£{deductions.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between mt-2 pt-2 border-t border-gray-300 font-bold">
+            <span>Total:</span>
+            <span>£{total.toFixed(2)}</span>
+          </div>
+        </div>
+      </div>
+      
       {/* Notes */}
-      <div className="mb-6">
+      <div className="mb-6 mt-6">
         <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
           Notes
         </label>

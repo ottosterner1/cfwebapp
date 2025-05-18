@@ -92,6 +92,11 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
     }
   };
   
+  // Check if an invoice is editable
+  const isInvoiceEditable = (status: string) => {
+    return status === 'draft' || status === 'rejected';
+  };
+  
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -237,12 +242,12 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
                           >
                             View
                           </button>
-                          {invoice.status === 'draft' && (
+                          {isInvoiceEditable(invoice.status) && (
                             <button
                               onClick={() => onEditInvoice(invoice.id)}
-                              className="text-gray-600 hover:text-gray-900"
+                              className={`${invoice.status === 'rejected' ? 'text-red-600 hover:text-red-900' : 'text-gray-600 hover:text-gray-900'}`}
                             >
-                              Edit
+                              {invoice.status === 'rejected' ? 'Edit & Resubmit' : 'Edit'}
                             </button>
                           )}
                         </div>

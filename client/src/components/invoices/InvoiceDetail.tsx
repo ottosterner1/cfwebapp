@@ -1,7 +1,47 @@
-// client/src/components/invoices/InvoiceDetail.tsx
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { InvoiceDetail, InvoiceStatus } from '../../types/invoice';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
+
+// Define interfaces for the export data structure
+interface ExportLineItem {
+  description: string;
+  date: string;
+  hours: number;
+  rate: number;
+  amount: number;
+  is_deduction: boolean;
+  notes?: string | null;
+  register_id?: number | null;
+}
+
+interface ExportData {
+  invoice_number: string;
+  month: number;
+  month_name: string;
+  year: number;
+  status: string;
+  coach: {
+    name: string;
+    email: string;
+  };
+  tennis_club: {
+    name: string;
+    logo_url: string | null;
+  };
+  dates: {
+    created_at: string;
+    submitted_at: string | null;
+    approved_at: string | null;
+  };
+  financial: {
+    subtotal: number;
+    deductions: number;
+    total: number;
+  };
+  line_items: ExportLineItem[];
+  notes: string | null;
+}
 
 interface InvoiceDetailProps {
   invoiceId: number;
@@ -24,6 +64,9 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
   const [rejecting, setRejecting] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectionForm, setShowRejectionForm] = useState(false);
+  
+  // Create a ref for the content to export
+  const printRef = useRef<HTMLDivElement>(null);
   
   // Fetch invoice details
   useEffect(() => {
@@ -52,7 +95,7 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
   
   // Handle invoice submission
   const handleSubmit = async () => {
-    if (!invoice || invoice.status !== 'draft') return;
+    if (!invoice || (invoice.status !== 'draft' && invoice.status !== 'rejected')) return;
     
     try {
       setSubmitting(true);
@@ -150,17 +193,181 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
     }
   };
   
-  // Handle export
-  const handleExport = async (format: 'pdf' | 'excel') => {
+  // New PDF export method
+  const handleExport = async () => {
     if (!invoice) return;
     
     try {
-      window.open(`/api/invoices/export/${invoiceId}?format=${format}`, '_blank');
+      setLoading(true);
+      
+      // First fetch the full export data
+      const response = await fetch(`/api/invoices/export/${invoiceId}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch invoice data for export');
+      }
+      
+      const exportData: ExportData = await response.json();
+      
+      // Create a temporary div styled for PDF export
+      const pdfContent = document.createElement('div');
+      pdfContent.className = 'pdf-export-content';
+      pdfContent.style.width = '210mm';
+      pdfContent.style.padding = '20mm';
+      pdfContent.style.backgroundColor = 'white';
+      pdfContent.style.position = 'absolute';
+      pdfContent.style.left = '-9999px';
+      pdfContent.style.fontSize = '12pt';
+      pdfContent.style.fontFamily = 'Arial, sans-serif';
+      
+      // Populate the PDF content with properly formatted data
+      pdfContent.innerHTML = `
+        <div style="text-align: center; margin-bottom: 30px;">
+          <h1 style="font-size: 24pt; margin-bottom: 5px;">INVOICE #${exportData.invoice_number}</h1>
+          <p style="font-size: 16pt; margin-top: 5px;">${exportData.month_name} ${exportData.year}</p>
+        </div>
+        
+        <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
+          <div style="width: 48%;">
+            <h3 style="border-bottom: 1px solid #ccc; padding-bottom: 5px; text-transform: uppercase; color: #666;">Invoice Details</h3>
+            <table style="width: 100%;">
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold;">Coach</td>
+                <td style="padding: 8px 0;">${exportData.coach.name}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold;">Period</td>
+                <td style="padding: 8px 0;">${exportData.month_name} ${exportData.year}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold;">Created</td>
+                <td style="padding: 8px 0;">${exportData.dates.created_at}</td>
+              </tr>
+              ${exportData.dates.submitted_at ? `
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold;">Submitted</td>
+                <td style="padding: 8px 0;">${exportData.dates.submitted_at}</td>
+              </tr>` : ''}
+            </table>
+          </div>
+          
+          <div style="width: 48%;">
+            <h3 style="border-bottom: 1px solid #ccc; padding-bottom: 5px; text-transform: uppercase; color: #666;">Financial Summary</h3>
+            <table style="width: 100%;">
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold;">Subtotal</td>
+                <td style="padding: 8px 0;">£${exportData.financial.subtotal.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold;">Deductions</td>
+                <td style="padding: 8px 0;">£${exportData.financial.deductions.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold;">Total</td>
+                <td style="padding: 8px 0; font-weight: bold;">£${exportData.financial.total.toFixed(2)}</td>
+              </tr>
+            </table>
+          </div>
+        </div>
+        
+        <div>
+          <h3 style="margin-bottom: 15px; font-size: 16pt;">Line Items</h3>
+          <table style="width: 100%; border-collapse: collapse;">
+            <thead>
+              <tr style="background-color: #f3f4f6;">
+                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Description</th>
+                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Date</th>
+                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Hours</th>
+                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Rate</th>
+                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${exportData.line_items.map((item: ExportLineItem, index: number) => `
+                <tr style="${item.is_deduction ? 'background-color: #fee2e2;' : index % 2 === 1 ? 'background-color: #f9fafb;' : ''}">
+                  <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">
+                    ${item.is_deduction ? '<span style="color: #dc2626; font-weight: 500;">[Deduction] </span>' : ''}
+                    ${item.description}
+                    ${item.register_id ? '<span style="color: #047857; font-size: 0.9em;"> (Register)</span>' : ''}
+                  </td>
+                  <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">${item.date}</td>
+                  <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">${item.hours.toFixed(2)}</td>
+                  <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">£${item.rate.toFixed(2)}</td>
+                  <td style="padding: 12px 10px; border-bottom: 1px solid #ddd; ${item.is_deduction ? 'color: #dc2626;' : ''}">
+                    ${item.is_deduction ? '-' : ''}£${item.amount.toFixed(2)}
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+            <tfoot>
+              <tr style="background-color: #f3f4f6;">
+                <td colspan="4" style="padding: 12px 10px; text-align: right; font-weight: bold; border-top: 2px solid #ddd;">Total:</td>
+                <td style="padding: 12px 10px; font-weight: bold; border-top: 2px solid #ddd;">£${exportData.financial.total.toFixed(2)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        
+        ${exportData.notes ? `
+        <div style="margin-top: 30px;">
+          <h3 style="margin-bottom: 10px;">Notes</h3>
+          <div style="padding: 15px; background-color: #f9fafb; border: 1px solid #ddd; border-radius: 4px;">
+            ${exportData.notes}
+          </div>
+        </div>
+        ` : ''}
+      `;
+      
+      // Add to the body temporarily for rendering
+      document.body.appendChild(pdfContent);
+      
+      // Render with html2canvas
+      const canvas = await html2canvas(pdfContent, {
+        scale: 2,
+        useCORS: true,
+        logging: false
+      });
+      
+      // Remove the temporary content
+      document.body.removeChild(pdfContent);
+      
+      // Create PDF
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+      
+      // Calculate dimensions
+      const imgWidth = 210;
+      const pageHeight = 297;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      
+      // Add image to PDF
+      pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+      
+      // Handle multiple pages if needed
+      let heightLeft = imgHeight;
+      let position = 0;
+      
+      while (heightLeft > pageHeight) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+      
+      // Save the PDF
+      pdf.save(`Invoice-${exportData.invoice_number}.pdf`);
+      
     } catch (err) {
-      setError(`Failed to export invoice as ${format.toUpperCase()}`);
-      console.error('Export error:', err);
+      console.error('Error generating PDF:', err);
+      setError('Failed to generate PDF. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
+  
   
   // Get status badge color
   const getStatusBadgeColor = (status: InvoiceStatus) => {
@@ -173,6 +380,7 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
     }
   };
   
+  // Render loading state
   if (loading) {
     return (
       <div className="flex justify-center py-12">
@@ -181,6 +389,7 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
     );
   }
   
+  // Render error state
   if (error) {
     return (
       <div className="bg-white p-6 rounded-lg shadow-sm">
@@ -200,6 +409,7 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
     );
   }
   
+  // Render empty state
   if (!invoice) {
     return (
       <div className="bg-white p-6 rounded-lg shadow-sm">
@@ -221,7 +431,7 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
   
   return (
     <div className="bg-white p-6 rounded-lg shadow-sm">
-      {/* Header */}
+      {/* Header - NOT included in print area */}
       <div className="flex flex-wrap justify-between items-center mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Invoice #{invoice.invoice_number}</h1>
@@ -238,7 +448,7 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
             Back
           </button>
           
-          {invoice.status === 'draft' && (
+          {(invoice.status === 'draft' || invoice.status === 'rejected') && (
             <button 
               onClick={onEdit}
               className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
@@ -248,63 +458,166 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
           )}
           
           <div className="relative inline-block text-left">
-            <button
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-              onClick={() => handleExport('pdf')}
-            >
-              Export as PDF
-            </button>
+          <button
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+            onClick={handleExport}
+          >
+            Export as PDF
+          </button>
           </div>
         </div>
       </div>
       
-      {/* Status and actions */}
-      <div className="flex flex-wrap justify-between items-center p-4 bg-gray-50 rounded-lg mb-6">
-        <div className="flex items-center">
-          <span className="mr-2 text-sm font-medium text-gray-700">Status:</span>
-          <span className={`px-2 py-1 text-xs rounded-full ${getStatusBadgeColor(invoice.status)}`}>
-            {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
-          </span>
+      {/* Content for PDF - wrapped in printRef */}
+      <div ref={printRef} className="pdf-content">
+        {/* Invoice details */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <div>
+            <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Invoice Details</h3>
+            <table className="min-w-full">
+              <tbody className="divide-y divide-gray-200">
+                <tr>
+                  <td className="py-2 text-sm font-medium text-gray-700">Coach</td>
+                  <td className="py-2 text-sm text-gray-900">{invoice.coach_name}</td>
+                </tr>
+                <tr>
+                  <td className="py-2 text-sm font-medium text-gray-700">Period</td>
+                  <td className="py-2 text-sm text-gray-900">{invoice.month_name} {invoice.year}</td>
+                </tr>
+                <tr>
+                  <td className="py-2 text-sm font-medium text-gray-700">Created</td>
+                  <td className="py-2 text-sm text-gray-900">{new Date(invoice.created_at).toLocaleDateString()}</td>
+                </tr>
+                {invoice.submitted_at && (
+                  <tr>
+                    <td className="py-2 text-sm font-medium text-gray-700">Submitted</td>
+                    <td className="py-2 text-sm text-gray-900">{new Date(invoice.submitted_at).toLocaleDateString()}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          
+          <div>
+            <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Financial Summary</h3>
+            <table className="min-w-full">
+              <tbody className="divide-y divide-gray-200">
+                <tr>
+                  <td className="py-2 text-sm font-medium text-gray-700">Subtotal</td>
+                  <td className="py-2 text-sm text-gray-900">£{invoice.subtotal.toFixed(2)}</td>
+                </tr>
+                <tr>
+                  <td className="py-2 text-sm font-medium text-gray-700">Deductions</td>
+                  <td className="py-2 text-sm text-gray-900">£{invoice.deductions.toFixed(2)}</td>
+                </tr>
+                <tr>
+                  <td className="py-2 text-sm font-medium text-gray-700">Total</td>
+                  <td className="py-2 text-sm font-medium text-gray-900">£{invoice.total.toFixed(2)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
         
-        <div className="flex space-x-2 mt-2 sm:mt-0">
-          {invoice.status === 'draft' && (
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className={`px-4 py-2 rounded text-white ${
-                submitting ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
-              } transition-colors`}
-            >
-              {submitting ? 'Submitting...' : 'Submit for Approval'}
-            </button>
-          )}
-          
-          {invoice.status === 'submitted' && isAdmin && (
-            <>
-              <button
-                onClick={handleApprove}
-                disabled={approving}
-                className={`px-4 py-2 rounded text-white ${
-                  approving ? 'bg-green-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
-                } transition-colors`}
-              >
-                {approving ? 'Approving...' : 'Approve'}
-              </button>
-              
-              <button
-                onClick={() => setShowRejectionForm(true)}
-                disabled={rejecting}
-                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-              >
-                Reject
-              </button>
-            </>
-          )}
+        {/* Line items */}
+        <div className="mb-6">
+          <h3 className="text-lg font-medium text-gray-800 mb-3">Line Items</h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Description
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Date
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Hours
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Rate
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Amount
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Source
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {invoice.line_items
+                  .sort((a, b) => {
+                    const dateComparison = new Date(a.date).getTime() - new Date(b.date).getTime();
+                    if (dateComparison !== 0) return dateComparison;
+                    if (a.is_deduction !== b.is_deduction) {
+                      return a.is_deduction ? 1 : -1;
+                    }
+                    return a.description.localeCompare(b.description);
+                  })
+                  .map((item, index) => (
+                    <tr key={index} className={item.is_deduction ? 'bg-red-50' : ''}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {item.is_deduction && <span className="text-red-600 font-medium">[Deduction] </span>}
+                        {item.description}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {new Date(item.date).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {item.hours.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        £{item.rate.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {item.is_deduction ? (
+                          <span className="text-red-600">-£{item.amount.toFixed(2)}</span>
+                        ) : (
+                          `£${item.amount.toFixed(2)}`
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {item.register_id ? (
+                          <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                            Register
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                            Manual
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+              <tfoot className="bg-gray-50">
+                <tr>
+                  <td colSpan={5} className="px-6 py-4 text-sm font-medium text-gray-900 text-right">
+                    Total:
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                    £{invoice.total.toFixed(2)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
         </div>
+        
+        {/* Notes */}
+        {invoice.notes && (
+          <div className="mb-6">
+            <h3 className="text-lg font-medium text-gray-800 mb-2">Notes</h3>
+            <div className="p-4 bg-gray-50 rounded border">
+              {invoice.notes}
+            </div>
+          </div>
+        )}
       </div>
       
-      {/* Rejection form */}
+      {/* Rejection form - outside of print area */}
       {showRejectionForm && (
         <div className="mb-6 p-4 border border-red-300 bg-red-50 rounded">
           <h3 className="text-lg font-medium text-red-800 mb-2">Reject Invoice</h3>
@@ -343,142 +656,51 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
         </div>
       )}
       
-      {/* Invoice details */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <div>
-          <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Invoice Details</h3>
-          <table className="min-w-full">
-            <tbody className="divide-y divide-gray-200">
-              <tr>
-                <td className="py-2 text-sm font-medium text-gray-700">Coach</td>
-                <td className="py-2 text-sm text-gray-900">{invoice.coach_name}</td>
-              </tr>
-              <tr>
-                <td className="py-2 text-sm font-medium text-gray-700">Period</td>
-                <td className="py-2 text-sm text-gray-900">{invoice.month_name} {invoice.year}</td>
-              </tr>
-              <tr>
-                <td className="py-2 text-sm font-medium text-gray-700">Created</td>
-                <td className="py-2 text-sm text-gray-900">{new Date(invoice.created_at).toLocaleDateString()}</td>
-              </tr>
-              {invoice.submitted_at && (
-                <tr>
-                  <td className="py-2 text-sm font-medium text-gray-700">Submitted</td>
-                  <td className="py-2 text-sm text-gray-900">{new Date(invoice.submitted_at).toLocaleDateString()}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      {/* Status and actions - outside of print area */}
+      <div className="flex flex-wrap justify-between items-center p-4 bg-gray-50 rounded-lg mt-8">
+        <div className="flex items-center">
+          <span className="mr-2 text-sm font-medium text-gray-700">Status:</span>
+          <span className={`px-2 py-1 text-xs rounded-full ${getStatusBadgeColor(invoice.status)}`}>
+            {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+          </span>
         </div>
         
-        <div>
-          <h3 className="text-sm font-medium text-gray-500 uppercase tracking-wider mb-2">Financial Summary</h3>
-          <table className="min-w-full">
-            <tbody className="divide-y divide-gray-200">
-              <tr>
-                <td className="py-2 text-sm font-medium text-gray-700">Subtotal</td>
-                <td className="py-2 text-sm text-gray-900">£{invoice.subtotal.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td className="py-2 text-sm font-medium text-gray-700">Deductions</td>
-                <td className="py-2 text-sm text-gray-900">£{invoice.deductions.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td className="py-2 text-sm font-medium text-gray-700">Total</td>
-                <td className="py-2 text-sm font-medium text-gray-900">£{invoice.total.toFixed(2)}</td>
-              </tr>
-            </tbody>
-          </table>
+        <div className="flex space-x-2 mt-2 sm:mt-0">
+          {(invoice.status === 'draft' || invoice.status === 'rejected') && (
+            <button
+              onClick={handleSubmit}
+              disabled={submitting}
+              className={`px-4 py-2 rounded text-white ${
+                submitting ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+              } transition-colors`}
+            >
+              {submitting ? 'Submitting...' : invoice.status === 'rejected' ? 'Resubmit for Approval' : 'Submit for Approval'}
+            </button>
+          )}
+          
+          {invoice.status === 'submitted' && isAdmin && (
+            <>
+              <button
+                onClick={handleApprove}
+                disabled={approving}
+                className={`px-4 py-2 rounded text-white ${
+                  approving ? 'bg-green-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+                } transition-colors`}
+              >
+                {approving ? 'Approving...' : 'Approve'}
+              </button>
+              
+              <button
+                onClick={() => setShowRejectionForm(true)}
+                disabled={rejecting}
+                className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+              >
+                Reject
+              </button>
+            </>
+          )}
         </div>
       </div>
-      
-      {/* Line items */}
-      <div className="mb-6">
-        <h3 className="text-lg font-medium text-gray-800 mb-3">Line Items</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Description
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Hours
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Rate
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {invoice.line_items
-                .sort((a, b) => {
-                  // First by date
-                  const dateComparison = new Date(a.date).getTime() - new Date(b.date).getTime();
-                  if (dateComparison !== 0) return dateComparison;
-                  
-                  // Then by deduction status (non-deductions first)
-                  if (a.is_deduction !== b.is_deduction) {
-                    return a.is_deduction ? 1 : -1;
-                  }
-                  
-                  // Then by description
-                  return a.description.localeCompare(b.description);
-                })
-                .map((item, index) => (
-                  <tr key={index} className={item.is_deduction ? 'bg-red-50' : ''}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {item.is_deduction && <span className="text-red-600 font-medium">[Deduction] </span>}
-                      {item.description}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {new Date(item.date).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {item.hours.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      £{item.rate.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {item.is_deduction ? (
-                        <span className="text-red-600">-£{item.amount.toFixed(2)}</span>
-                      ) : (
-                        `£${item.amount.toFixed(2)}`
-                      )}
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-            <tfoot className="bg-gray-50">
-              <tr>
-                <td colSpan={4} className="px-6 py-4 text-sm font-medium text-gray-900 text-right">
-                  Total:
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                  £{invoice.total.toFixed(2)}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
-      
-      {/* Notes */}
-      {invoice.notes && (
-        <div className="mb-6">
-          <h3 className="text-lg font-medium text-gray-800 mb-2">Notes</h3>
-          <div className="p-4 bg-gray-50 rounded border">
-            {invoice.notes}
-          </div>
-        </div>
-      )}
     </div>
   );
 };

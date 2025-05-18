@@ -81,7 +81,7 @@ class InvoiceLineItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
     register_id = db.Column(db.Integer, db.ForeignKey('register.id'), nullable=True)  # Nullable for manual entries
-    item_type = db.Column(db.String(50), nullable=False)  # 'session', 'cardio', 'team', 'deduction', etc.
+    item_type = db.Column(db.String(50), nullable=False) 
     is_deduction = db.Column(db.Boolean, default=False)  # Flag for deduction items
     description = db.Column(db.String(255), nullable=False)
     date = db.Column(db.Date, nullable=False)

@@ -293,31 +293,31 @@ def submit_invoice(invoice_id):
     invoice.submitted_at = datetime.now(timezone.utc)
     db.session.commit()
     
-    # Notify admin
-    admin_users = User.query.filter_by(
-        tennis_club_id=current_user.tennis_club_id,
-        role=UserRole.ADMIN
-    ).all()
+    # # Notify admin
+    # admin_users = User.query.filter_by(
+    #     tennis_club_id=current_user.tennis_club_id,
+    #     role=UserRole.ADMIN
+    # ).all()
     
-    email_service = EmailService()
-    for admin in admin_users:
-        # Send email notification
-        email_subject = f"New Invoice Submitted - {current_user.name} - {invoice.month}/{invoice.year}"
-        email_body = f"""
-        <p>Hello {admin.name},</p>
-        <p>{current_user.name} has submitted an invoice for {calendar.month_name[invoice.month]} {invoice.year}.</p>
-        <p>Invoice #: {invoice.invoice_number}</p>
-        <p>Total amount: £{invoice.total:.2f}</p>
-        <p>Please log in to the system to review and approve this invoice.</p>
-        """
+    # email_service = EmailService()
+    # for admin in admin_users:
+    #     # Send email notification
+    #     email_subject = f"New Invoice Submitted - {current_user.name} - {invoice.month}/{invoice.year}"
+    #     email_body = f"""
+    #     <p>Hello {admin.name},</p>
+    #     <p>{current_user.name} has submitted an invoice for {calendar.month_name[invoice.month]} {invoice.year}.</p>
+    #     <p>Invoice #: {invoice.invoice_number}</p>
+    #     <p>Total amount: £{invoice.total:.2f}</p>
+    #     <p>Please log in to the system to review and approve this invoice.</p>
+    #     """
         
-        # Use your existing email service
-        email_service.send_generic_email(
-            recipient_email=admin.email,
-            subject=email_subject,
-            html_content=email_body,
-            sender_name="CourtFlow Invoicing"
-        )
+    #     # Use your existing email service
+    #     email_service.send_generic_email(
+    #         recipient_email=admin.email,
+    #         subject=email_subject,
+    #         html_content=email_body,
+    #         sender_name="CourtFlow Invoicing"
+    #     )
     
     return jsonify({
         'status': invoice.status.value,
@@ -578,3 +578,28 @@ def get_month_summaries():
         months[month_idx]['invoice_status'] = invoice.status.value
     
     return jsonify(months)
+
+
+@invoice_routes.route('/years-with-invoices', methods=['GET'])
+@login_required
+def get_years_with_invoices():
+    """Get a list of years where the user has invoices plus the current year"""
+    # Query unique years where invoices exist
+    years_query = db.session.query(db.func.distinct(Invoice.year))\
+        .filter(Invoice.coach_id == current_user.id,
+                Invoice.tennis_club_id == current_user.tennis_club_id)\
+        .order_by(Invoice.year.desc())\
+        .all()
+    
+    # Extract years from query result
+    years = [year[0] for year in years_query]
+    
+    # Always include the current year
+    current_year = datetime.now().year
+    if not years or current_year not in years:
+        if years:
+            years.insert(0, current_year)
+        else:
+            years = [current_year]
+    
+    return jsonify(years)

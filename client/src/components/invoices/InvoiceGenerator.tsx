@@ -1,5 +1,3 @@
-// client/src/components/invoices/InvoiceGenerator.tsx
-
 import React, { useState, useEffect } from 'react';
 import { InvoiceMonthSummary, InvoiceGenerateResponse } from '../../types/invoice';
 
@@ -10,18 +8,40 @@ interface InvoiceGeneratorProps {
 
 const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }) => {
   const [availableMonths, setAvailableMonths] = useState<InvoiceMonthSummary[]>([]);
+  const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [yearsLoading, setYearsLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Get available years for filter
-  const currentYear = new Date().getFullYear();
-  const availableYears = Array.from(
-    { length: 3 }, 
-    (_, i) => currentYear - i
-  );
+  // Fetch years with invoices
+  useEffect(() => {
+    const fetchYearsWithInvoices = async () => {
+      try {
+        setYearsLoading(true);
+        const response = await fetch('/api/invoices/years-with-invoices');
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch years with invoices');
+        }
+        
+        const years = await response.json();
+        setAvailableYears(years);
+      } catch (err) {
+        console.error('Error fetching years with invoices:', err);
+        // Fallback to current year if fetch fails
+        const currentYear = new Date().getFullYear();
+        setAvailableYears([currentYear]);
+        setSelectedYear(currentYear);
+      } finally {
+        setYearsLoading(false);
+      }
+    };
+    
+    fetchYearsWithInvoices();
+  }, []);
   
   // Fetch available months
   useEffect(() => {
@@ -38,7 +58,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
         setAvailableMonths(data);
         
         // Auto-select current month if in current year
-        if (selectedYear === currentYear && !selectedMonth) {
+        if (selectedYear === new Date().getFullYear() && !selectedMonth) {
           const currentMonth = new Date().getMonth() + 1; // JS months are 0-indexed
           if (data.some((m: InvoiceMonthSummary) => m.month === currentMonth && !m.has_invoice)) {
             setSelectedMonth(currentMonth);
@@ -53,7 +73,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
     };
     
     fetchMonthSummaries();
-  }, [selectedYear, currentYear, selectedMonth]);
+  }, [selectedYear, selectedMonth]);
   
   // Handle month selection
   const handleSelectMonth = (month: number) => {
@@ -136,20 +156,27 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
           <label htmlFor="year" className="block text-sm font-medium text-gray-700 mb-1">
             Year
           </label>
-          <select
-            id="year"
-            value={selectedYear}
-            onChange={(e) => {
-              setSelectedYear(Number(e.target.value));
-              setSelectedMonth(null);
-            }}
-            className="px-3 py-2 border border-gray-300 rounded w-full"
-            disabled={loading || generating}
-          >
-            {availableYears.map(year => (
-              <option key={year} value={year}>{year}</option>
-            ))}
-          </select>
+          {yearsLoading ? (
+            <div className="flex items-center">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+              <span>Loading years...</span>
+            </div>
+          ) : (
+            <select
+              id="year"
+              value={selectedYear}
+              onChange={(e) => {
+                setSelectedYear(Number(e.target.value));
+                setSelectedMonth(null);
+              }}
+              className="px-3 py-2 border border-gray-300 rounded w-full"
+              disabled={loading || generating}
+            >
+              {availableYears.map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          )}
         </div>
         
         {/* Month selection */}
@@ -175,7 +202,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
                 } else if (isSelected) {
                   buttonStyle = 'bg-blue-100 border-blue-500 text-blue-700';
                 } else if (!hasRegisters) {
-                  buttonStyle = 'bg-gray-50 text-gray-400';
+                  buttonStyle = 'bg-gray-50 text-gray-500 hover:bg-gray-100'; // Changed to make it selectable
                 } else {
                   buttonStyle = 'bg-white hover:bg-gray-50 text-gray-700';
                 }
@@ -217,9 +244,9 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
             
             <button
               onClick={handleGenerateInvoice}
-              disabled={generating || !selectedMonthSummary.total_registers}
+              disabled={generating}
               className={`w-full px-4 py-2 rounded text-white ${
-                generating || !selectedMonthSummary.total_registers
+                generating
                   ? 'bg-blue-300 cursor-not-allowed'
                   : 'bg-blue-600 hover:bg-blue-700'
               } transition-colors`}
@@ -235,8 +262,8 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
             </button>
             
             {!selectedMonthSummary.total_registers && (
-              <p className="text-sm text-red-600 mt-2">
-                No registers found for this month. Cannot generate invoice.
+              <p className="text-sm text-gray-600 mt-2">
+                No registers found for this month. An empty invoice will be created.
               </p>
             )}
           </div>
