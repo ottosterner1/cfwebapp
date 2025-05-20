@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { InvoiceDetail, InvoiceStatus } from '../../types/invoice';
+import { InvoiceDetail as InvoiceDetailType, InvoiceStatus } from '../../types/invoice';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
@@ -33,6 +33,7 @@ interface ExportData {
     created_at: string;
     submitted_at: string | null;
     approved_at: string | null;
+    paid_at: string | null;
   };
   financial: {
     subtotal: number;
@@ -47,23 +48,28 @@ interface InvoiceDetailProps {
   invoiceId: number;
   onBack: () => void;
   onEdit: () => void;
-  isAdmin: boolean;
+  userRole: 'coach' | 'admin' | 'super_admin';
 }
 
-const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({ 
+const InvoiceDetail: React.FC<InvoiceDetailProps> = ({ 
   invoiceId, 
   onBack, 
   onEdit,
-  isAdmin
+  userRole
 }) => {
-  const [invoice, setInvoice] = useState<InvoiceDetail | null>(null);
+  
+  const [invoice, setInvoice] = useState<InvoiceDetailType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  const [markingAsPaid, setMarkingAsPaid] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectionForm, setShowRejectionForm] = useState(false);
+  
+  // Role-based helper functions
+  const isAdmin = userRole === 'admin' || userRole === 'super_admin';
   
   // Create a ref for the content to export
   const printRef = useRef<HTMLDivElement>(null);
@@ -81,6 +87,7 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
         
         const data = await response.json();
         setInvoice(data);
+
         setError(null);
       } catch (err) {
         setError('Error loading invoice details. Please try again.');
@@ -91,7 +98,7 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
     };
     
     fetchInvoiceDetails();
-  }, [invoiceId]);
+  }, [invoiceId, isAdmin]);
   
   // Handle invoice submission
   const handleSubmit = async () => {
@@ -155,6 +162,37 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
     }
   };
   
+  // Handle marking invoice as paid
+  const handleMarkAsPaid = async () => {
+    if (!invoice || invoice.status !== 'approved' || !isAdmin) return;
+    
+    try {
+      setMarkingAsPaid(true);
+      const response = await fetch(`/api/invoices/${invoiceId}/mark_paid`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to mark invoice as paid');
+      }
+      
+      const data = await response.json();
+      setInvoice({
+        ...invoice,
+        status: data.status as InvoiceStatus
+      });
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to mark invoice as paid');
+    } finally {
+      setMarkingAsPaid(false);
+    }
+  };
+  
   // Handle invoice rejection
   const handleReject = async () => {
     if (!invoice || invoice.status !== 'submitted' || !isAdmin) return;
@@ -193,7 +231,7 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
     }
   };
   
-  // New PDF export method
+  // PDF export method
   const handleExport = async () => {
     if (!invoice) return;
     
@@ -224,6 +262,7 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
         <div style="text-align: center; margin-bottom: 30px;">
           <h1 style="font-size: 24pt; margin-bottom: 5px;">INVOICE #${exportData.invoice_number}</h1>
           <p style="font-size: 16pt; margin-top: 5px;">${exportData.month_name} ${exportData.year}</p>
+          ${exportData.status === 'paid' ? `<p style="font-size: 14pt; color: #047857; font-weight: bold; margin-top: 10px;">PAID</p>` : ''}
         </div>
         
         <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
@@ -246,6 +285,16 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
               <tr>
                 <td style="padding: 8px 0; font-weight: bold;">Submitted</td>
                 <td style="padding: 8px 0;">${exportData.dates.submitted_at}</td>
+              </tr>` : ''}
+              ${exportData.dates.approved_at ? `
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold;">Approved</td>
+                <td style="padding: 8px 0;">${exportData.dates.approved_at}</td>
+              </tr>` : ''}
+              ${exportData.dates.paid_at ? `
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold;">Paid</td>
+                <td style="padding: 8px 0;">${exportData.dates.paid_at}</td>
               </tr>` : ''}
             </table>
           </div>
@@ -380,6 +429,17 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
     }
   };
   
+  // Check if invoice can be edited
+  const canEditInvoice = () => {
+    if (!invoice) return false;
+    
+    // Admin can edit any invoice except paid ones
+    if (isAdmin && invoice.status !== 'paid') return true;
+    
+    // Regular users can only edit draft or rejected invoices
+    return invoice.status === 'draft' || invoice.status === 'rejected';
+  };
+  
   // Render loading state
   if (loading) {
     return (
@@ -431,6 +491,7 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
   
   return (
     <div className="bg-white p-6 rounded-lg shadow-sm">
+      
       {/* Header - NOT included in print area */}
       <div className="flex flex-wrap justify-between items-center mb-6">
         <div>
@@ -448,12 +509,14 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
             Back
           </button>
           
-          {(invoice.status === 'draft' || invoice.status === 'rejected') && (
+          {canEditInvoice() && (
             <button 
               onClick={onEdit}
-              className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
+              className={`px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors ${
+                invoice.status === 'approved' ? 'bg-amber-600 hover:bg-amber-700' : ''
+              }`}
             >
-              Edit
+              {invoice.status === 'approved' ? 'Edit' : 'Edit'}
             </button>
           )}
           
@@ -492,6 +555,18 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
                   <tr>
                     <td className="py-2 text-sm font-medium text-gray-700">Submitted</td>
                     <td className="py-2 text-sm text-gray-900">{new Date(invoice.submitted_at).toLocaleDateString()}</td>
+                  </tr>
+                )}
+                {invoice.approved_at && (
+                  <tr>
+                    <td className="py-2 text-sm font-medium text-gray-700">Approved</td>
+                    <td className="py-2 text-sm text-gray-900">{new Date(invoice.approved_at).toLocaleDateString()}</td>
+                  </tr>
+                )}
+                {invoice.paid_at && (
+                  <tr>
+                    <td className="py-2 text-sm font-medium text-gray-700">Paid</td>
+                    <td className="py-2 text-sm text-gray-900">{new Date(invoice.paid_at).toLocaleDateString()}</td>
                   </tr>
                 )}
               </tbody>
@@ -666,6 +741,7 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
         </div>
         
         <div className="flex space-x-2 mt-2 sm:mt-0">
+          {/* Submit/Resubmit button */}
           {(invoice.status === 'draft' || invoice.status === 'rejected') && (
             <button
               onClick={handleSubmit}
@@ -678,6 +754,7 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
             </button>
           )}
           
+          {/* Admin approval buttons */}
           {invoice.status === 'submitted' && isAdmin && (
             <>
               <button
@@ -699,10 +776,23 @@ const InvoiceDetailView: React.FC<InvoiceDetailProps> = ({
               </button>
             </>
           )}
+          
+          {/* Mark as Paid button (admin only) */}
+          {invoice.status.toLowerCase() === 'approved' && isAdmin && (
+            <button
+              onClick={handleMarkAsPaid}
+              disabled={markingAsPaid}
+              className={`px-4 py-2 rounded text-white ${
+                markingAsPaid ? 'bg-purple-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700'
+              } transition-colors`}
+            >
+              {markingAsPaid ? 'Processing...' : 'Mark as Paid'}
+            </button>
+          )}
         </div>
       </div>
     </div>
   );
 };
 
-export default InvoiceDetailView;
+export default InvoiceDetail;

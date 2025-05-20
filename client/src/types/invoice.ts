@@ -37,6 +37,7 @@ export interface Invoice {
   created_at: string;
   submitted_at?: string;
   approved_at?: string;
+  paid_at?: string;  // Add this line
 }
 
 export interface InvoiceDetail extends Invoice {

@@ -13,34 +13,58 @@ export enum InvoiceView {
   EDIT = 'edit'
 }
 
+export type UserRole = 'coach' | 'admin' | 'super_admin';
+
 interface UserInfo {
+  id: number;
   is_admin: boolean;
+  is_super_admin: boolean;
   coach_id?: number;
+  name: string;
+  tennis_club_id: number;
 }
 
 const Invoices: React.FC = () => {
   const [currentView, setCurrentView] = useState<InvoiceView>(InvoiceView.LIST);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+  const [userInfoLoading, setUserInfoLoading] = useState(true);
   
   // Fetch user info on component mount
   useEffect(() => {
     const fetchUserInfo = async () => {
       try {
+        setUserInfoLoading(true);
         const response = await fetch('/api/user/info');
         if (!response.ok) {
           throw new Error(`Failed to fetch user info: ${response.statusText}`);
         }
         
         const data = await response.json();
+
         setUserInfo(data);
       } catch (err) {
         console.error('Error fetching user info:', err);
+      } finally {
+        setUserInfoLoading(false);
       }
     };
     
     fetchUserInfo();
   }, []);
+  
+  // Helper function to determine user role from boolean flags
+  const getUserRole = (): UserRole => {
+    if (!userInfo) return 'coach'; // Default to coach if no user info
+    
+    if (userInfo.is_super_admin === true) {
+      return 'super_admin';
+    } else if (userInfo.is_admin === true) {
+      return 'admin';
+    } else {
+      return 'coach';
+    }
+  };
   
   // Navigation handlers
   const navigateToList = () => {
@@ -68,6 +92,9 @@ const Invoices: React.FC = () => {
     navigateToDetail(savedInvoiceId);
   };
   
+  // Directly get the role here - don't rely on it being computed in the renderView
+  const userRole = getUserRole();
+  
   // Render the appropriate view
   const renderView = () => {
     switch (currentView) {
@@ -77,7 +104,7 @@ const Invoices: React.FC = () => {
             onViewInvoice={navigateToDetail}
             onEditInvoice={navigateToEdit}
             onGenerateInvoice={navigateToGenerate}
-            isAdmin={userInfo?.is_admin || false}
+            userRole={userRole} // Now using userRole for InvoiceList
           />
         );
       
@@ -87,7 +114,7 @@ const Invoices: React.FC = () => {
             invoiceId={selectedInvoiceId}
             onBack={navigateToList}
             onEdit={() => navigateToEdit(selectedInvoiceId)}
-            isAdmin={userInfo?.is_admin || false}
+            userRole={userRole} // Using userRole for InvoiceDetail
           />
         ) : <>{navigateToList()}</>;
       
@@ -112,6 +139,17 @@ const Invoices: React.FC = () => {
         return <>{navigateToList()}</>;
     }
   };
+  
+  // Show loading state while fetching user info
+  if (userInfoLoading) {
+    return (
+      <div className="container mx-auto px-4 py-6">
+        <div className="flex justify-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    );
+  }
   
   return (
     <div className="container mx-auto px-4 py-6">

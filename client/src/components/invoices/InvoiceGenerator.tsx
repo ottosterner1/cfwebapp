@@ -239,7 +239,6 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
             </h3>
             <ul className="text-sm space-y-1 mb-4">
               <li>Total registers: {selectedMonthSummary.total_registers}</li>
-              <li>Total hours: {selectedMonthSummary.total_hours.toFixed(2)}</li>
             </ul>
             
             <button

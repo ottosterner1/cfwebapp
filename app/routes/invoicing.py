@@ -1,4 +1,3 @@
-# routes/invoices.py
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
 from app.models import Invoice, InvoiceLineItem, CoachingRate, Register, User, UserRole
@@ -10,6 +9,7 @@ from sqlalchemy import extract, func
 from app.services.email_service import EmailService
 import calendar
 import uuid
+import math
 
 invoice_routes = Blueprint('invoices', __name__, url_prefix='/api/invoices')
 
@@ -113,19 +113,6 @@ def generate_invoice(year, month):
         Register.date <= end_date
     ).all()
     
-    # Get default coaching rate
-    default_rate = CoachingRate.query.filter_by(
-        coach_id=current_user.id,
-        tennis_club_id=current_user.tennis_club_id,
-        rate_name='Group Coaching'  # Default rate name
-    ).first()
-    
-    # If no default rate exists, create one
-    if not default_rate:
-        default_rate_value = 25.0  # Fallback rate
-    else:
-        default_rate_value = default_rate.hourly_rate
-    
     # Create line items from registers
     for register in registers:
         # Calculate duration in hours
@@ -139,7 +126,48 @@ def generate_invoice(year, month):
         # Calculate hours
         start_datetime = datetime.combine(register.date, start_time)
         end_datetime = datetime.combine(register.date, end_time)
-        duration = (end_datetime - start_datetime).total_seconds() / 3600  # hours
+        duration_in_minutes = (end_datetime - start_datetime).total_seconds() / 60  # minutes
+        
+        # Round up to a full hour if greater than 45 minutes
+        if duration_in_minutes > 45:
+            # Round up to nearest hour
+            duration_in_hours = math.ceil(duration_in_minutes / 60)
+        else:
+            # Keep the exact duration in hours
+            duration_in_hours = duration_in_minutes / 60
+        
+        # Try to find a specific coaching rate for this group
+        group_name = group_time.tennis_group.name if group_time.tennis_group else "Unknown Group"
+        coaching_rate = CoachingRate.query.filter_by(
+            coach_id=current_user.id,
+            tennis_club_id=current_user.tennis_club_id,
+            rate_name=group_name  # Look for rate matching the group name
+        ).first()
+        
+        # If no rate for this specific group, try the generic 'Group Coaching' rate
+        if not coaching_rate:
+            coaching_rate = CoachingRate.query.filter_by(
+                coach_id=current_user.id,
+                tennis_club_id=current_user.tennis_club_id,
+                rate_name='Group Coaching'
+            ).first()
+        
+        # Set rate and amount values
+        if coaching_rate:
+            rate_value = coaching_rate.hourly_rate
+            amount_value = duration_in_hours * rate_value
+            notes = "Auto-generated from register"
+        else:
+            # Include entry with zero rate for manual input later
+            rate_value = 0.0
+            amount_value = 0.0
+            notes = "Rate needs to be set manually"
+            
+            # Log a warning for admin awareness
+            current_app.logger.warning(
+                f"No coaching rate found for coach {current_user.id} and group {group_name}. "
+                f"Creating line item with zero rate for register {register.id}."
+            )
         
         # Create line item
         line_item = InvoiceLineItem(
@@ -147,12 +175,12 @@ def generate_invoice(year, month):
             register_id=register.id,
             item_type='session',
             is_deduction=False,
-            description=f"{group_time.tennis_group.name} - {group_time.day_of_week.value}",
+            description=f"{group_name} - {group_time.day_of_week.value}",
             date=register.date,
-            hours=duration,
-            rate=default_rate_value,
-            amount=duration * default_rate_value,
-            notes=f"Auto-generated from register"
+            hours=duration_in_hours,
+            rate=rate_value,
+            amount=amount_value,
+            notes=notes
         )
         db.session.add(line_item)
     
@@ -210,6 +238,9 @@ def manage_invoice(invoice_id):
             'total': invoice.total,
             'notes': invoice.notes,
             'created_at': invoice.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'submitted_at': invoice.submitted_at.strftime('%Y-%m-%d %H:%M:%S') if invoice.submitted_at else None,
+            'approved_at': invoice.approved_at.strftime('%Y-%m-%d %H:%M:%S') if invoice.approved_at else None,
+            'paid_at': invoice.paid_at.strftime('%Y-%m-%d %H:%M:%S') if invoice.paid_at else None,
             'line_items': line_items
         })
     
@@ -217,9 +248,13 @@ def manage_invoice(invoice_id):
         # Update invoice data
         data = request.json
         
-        # Don't allow updating if invoice is already approved
-        if invoice.status == InvoiceStatus.APPROVED:
-            return jsonify({'error': 'Cannot modify an approved invoice'}), 400
+        # Don't allow non-admins to update approved invoices
+        if invoice.status == InvoiceStatus.APPROVED and not current_user.is_admin:
+            return jsonify({'error': 'Cannot modify an approved invoice. Admin privileges required.'}), 400
+        
+        # Don't allow anyone to update paid invoices
+        if invoice.status == InvoiceStatus.PAID:
+            return jsonify({'error': 'Cannot modify a paid invoice.'}), 400
         
         # Update fields if provided
         if 'notes' in data:
@@ -284,9 +319,12 @@ def submit_invoice(invoice_id):
     if invoice.coach_id != current_user.id:
         return jsonify({'error': 'Unauthorized access'}), 403
     
-    # Don't allow submitting if already submitted/approved
-    if invoice.status != InvoiceStatus.DRAFT:
-        return jsonify({'error': f'Invoice is already {invoice.status.value}'}), 400
+    # Allow submitting only if in draft or rejected status
+    if invoice.status not in [InvoiceStatus.DRAFT, InvoiceStatus.REJECTED]:
+        return jsonify({'error': f'Invoice cannot be submitted. Current status: {invoice.status.value}'}), 400
+    
+    # Track if this is a resubmission
+    is_resubmission = invoice.status == InvoiceStatus.REJECTED
     
     # Update status
     invoice.status = InvoiceStatus.SUBMITTED
@@ -302,10 +340,10 @@ def submit_invoice(invoice_id):
     # email_service = EmailService()
     # for admin in admin_users:
     #     # Send email notification
-    #     email_subject = f"New Invoice Submitted - {current_user.name} - {invoice.month}/{invoice.year}"
+    #     email_subject = f"{'Resubmitted' if is_resubmission else 'New'} Invoice - {current_user.name} - {invoice.month}/{invoice.year}"
     #     email_body = f"""
     #     <p>Hello {admin.name},</p>
-    #     <p>{current_user.name} has submitted an invoice for {calendar.month_name[invoice.month]} {invoice.year}.</p>
+    #     <p>{current_user.name} has {'resubmitted' if is_resubmission else 'submitted'} an invoice for {calendar.month_name[invoice.month]} {invoice.year}.</p>
     #     <p>Invoice #: {invoice.invoice_number}</p>
     #     <p>Total amount: £{invoice.total:.2f}</p>
     #     <p>Please log in to the system to review and approve this invoice.</p>
@@ -321,7 +359,7 @@ def submit_invoice(invoice_id):
     
     return jsonify({
         'status': invoice.status.value,
-        'message': 'Invoice submitted successfully'
+        'message': 'Invoice resubmitted successfully' if is_resubmission else 'Invoice submitted successfully'
     })
 
 @invoice_routes.route('/<int:invoice_id>/approve', methods=['POST'])
@@ -356,7 +394,7 @@ def approve_invoice(invoice_id):
     <p>Invoice #: {invoice.invoice_number}</p>
     <p>Total amount: £{invoice.total:.2f}</p>
     <p>Payment will be processed according to the club's payment schedule.</p>
-    <p>Thank you for your work.</p>
+    <p>Thank you.</p>
     """
     
     email_service.send_generic_email(
@@ -417,6 +455,56 @@ def reject_invoice(invoice_id):
         'message': 'Invoice rejected successfully'
     })
 
+@invoice_routes.route('/<int:invoice_id>/mark_paid', methods=['POST'])
+@login_required
+@admin_required
+def mark_invoice_paid(invoice_id):
+    """Mark an approved invoice as paid"""
+    invoice = Invoice.query.get_or_404(invoice_id)
+    
+    # Verify club
+    if invoice.tennis_club_id != current_user.tennis_club_id:
+        return jsonify({'error': 'Unauthorized access'}), 403
+    
+    # Check that invoice is approved
+    if invoice.status != InvoiceStatus.APPROVED:
+        return jsonify({'error': f'Invoice must be approved before marking as paid (current status: {invoice.status.value})'}), 400
+    
+    # Update status
+    invoice.status = InvoiceStatus.PAID
+    invoice.paid_at = datetime.now(timezone.utc)
+    invoice.paid_by_id = current_user.id
+    db.session.commit()
+    
+    # Notify coach
+    coach = User.query.get(invoice.coach_id)
+    email_service = EmailService()
+    
+    # Format dates and time for email
+    payment_date = invoice.paid_at.strftime('%d %B %Y')
+    
+    email_subject = f"Payment Processed - Invoice #{invoice.invoice_number}"
+    email_body = f"""
+    <p>Hello {coach.name},</p>
+    <p>Your invoice for {calendar.month_name[invoice.month]} {invoice.year} has been paid.</p>
+    <p>Invoice #: {invoice.invoice_number}</p>
+    <p>Amount: £{invoice.total:.2f}</p>
+    <p>Payment date: {payment_date}</p>
+    <p>Thank you.</p>
+    """
+    
+    email_service.send_generic_email(
+        recipient_email=coach.email,
+        subject=email_subject,
+        html_content=email_body,
+        sender_name="CourtFlow Invoicing"
+    )
+    
+    return jsonify({
+        'status': invoice.status.value,
+        'message': 'Invoice marked as paid successfully'
+    })
+
 @invoice_routes.route('/list', methods=['GET'])
 @login_required
 def list_invoices():
@@ -451,7 +539,8 @@ def list_invoices():
         'status': invoice.status.value,
         'total': invoice.total,
         'created_at': invoice.created_at.strftime('%Y-%m-%d'),
-        'submitted_at': invoice.submitted_at.strftime('%Y-%m-%d') if invoice.submitted_at else None
+        'submitted_at': invoice.submitted_at.strftime('%Y-%m-%d') if invoice.submitted_at else None,
+        'paid_at': invoice.paid_at.strftime('%Y-%m-%d') if invoice.paid_at else None
     } for invoice in invoices]
     
     return jsonify(result)
@@ -477,7 +566,8 @@ def export_invoice(invoice_id):
         'rate': item.rate,
         'amount': item.amount,
         'is_deduction': item.is_deduction,
-        'notes': item.notes
+        'notes': item.notes,
+        'register_id': item.register_id
     } for item in invoice.line_items]
     
     # Prepare export data
@@ -498,7 +588,8 @@ def export_invoice(invoice_id):
         'dates': {
             'created_at': invoice.created_at.strftime('%Y-%m-%d'),
             'submitted_at': invoice.submitted_at.strftime('%Y-%m-%d') if invoice.submitted_at else None,
-            'approved_at': invoice.approved_at.strftime('%Y-%m-%d') if invoice.approved_at else None
+            'approved_at': invoice.approved_at.strftime('%Y-%m-%d') if invoice.approved_at else None,
+            'paid_at': invoice.paid_at.strftime('%Y-%m-%d') if invoice.paid_at else None
         },
         'financial': {
             'subtotal': invoice.subtotal,
@@ -603,3 +694,42 @@ def get_years_with_invoices():
             years = [current_year]
     
     return jsonify(years)
+
+@invoice_routes.route('/<int:invoice_id>/delete', methods=['DELETE'])
+@login_required
+def delete_invoice(invoice_id):
+    """Delete an invoice based on user permissions and invoice status"""
+    invoice = Invoice.query.get_or_404(invoice_id)
+    
+    # Check if the user has permission to delete this invoice
+    if invoice.coach_id != current_user.id and not current_user.is_admin:
+        return jsonify({'error': 'Unauthorized access'}), 403
+    
+    # Check status-based permissions
+    if invoice.status == InvoiceStatus.DRAFT:
+        # Draft invoices can be deleted by the owner or any admin (already checked above)
+        pass
+    elif invoice.status in [InvoiceStatus.SUBMITTED, InvoiceStatus.APPROVED, InvoiceStatus.REJECTED]:
+        # These statuses require admin privileges
+        if not current_user.is_admin:
+            return jsonify({'error': 'Only administrators can delete submitted, approved, or rejected invoices'}), 403
+    elif invoice.status == InvoiceStatus.PAID:
+        # Paid invoices require super admin privileges
+        if not current_user.is_super_admin:
+            return jsonify({'error': 'Only super administrators can delete paid invoices'}), 403
+    
+    # If we get here, the user has permission to delete the invoice
+    try:
+        # Delete all line items first (should be handled by cascade, but being explicit)
+        for line_item in invoice.line_items:
+            db.session.delete(line_item)
+        
+        # Delete the invoice
+        db.session.delete(invoice)
+        db.session.commit()
+        
+        return jsonify({'message': 'Invoice deleted successfully'})
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting invoice: {str(e)}")
+        return jsonify({'error': f'Failed to delete invoice: {str(e)}'}), 500

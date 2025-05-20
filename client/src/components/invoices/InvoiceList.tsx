@@ -7,14 +7,14 @@ interface InvoiceListProps {
   onViewInvoice: (invoiceId: number) => void;
   onEditInvoice: (invoiceId: number) => void;
   onGenerateInvoice: () => void;
-  isAdmin: boolean;
+  userRole: 'coach' | 'admin' | 'super_admin';
 }
 
 const InvoiceList: React.FC<InvoiceListProps> = ({ 
   onViewInvoice, 
   onEditInvoice, 
   onGenerateInvoice,
-  isAdmin 
+  userRole
 }) => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [monthSummaries, setMonthSummaries] = useState<InvoiceMonthSummary[]>([]);
@@ -22,6 +22,14 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  
+  // Compute authorization flags
+  const isAdmin = userRole === 'admin' || userRole === 'super_admin';
+  const isSuperAdmin = userRole === 'super_admin';
   
   // Fetch invoices
   useEffect(() => {
@@ -68,6 +76,17 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
     fetchMonthSummaries();
   }, [selectedYear]);
   
+  // Auto-hide success message after 5 seconds
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => {
+        setSuccessMessage(null);
+      }, 5000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
+  
   // Filter invoices based on status
   const filteredInvoices = filterStatus === 'all' 
     ? invoices 
@@ -94,7 +113,73 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
   
   // Check if an invoice is editable
   const isInvoiceEditable = (status: string) => {
+    // Admin can edit any invoice except paid ones
+    if (isAdmin && status !== 'paid') return true;
+    
+    // Regular users can only edit draft or rejected invoices
     return status === 'draft' || status === 'rejected';
+  };
+  
+  // Check if an invoice is deletable based on user role and invoice status
+  const canDeleteInvoice = (invoice: Invoice) => {
+    if (invoice.status === 'draft') {
+      // Anyone can delete draft invoices
+      return true;
+    } else if (['submitted', 'approved', 'rejected'].includes(invoice.status)) {
+      // Only admins can delete submitted, approved, or rejected invoices
+      return isAdmin;
+    } else if (invoice.status === 'paid') {
+      // Only super admins can delete paid invoices
+      return isSuperAdmin;
+    }
+    return false;
+  };
+  
+  // Handle opening delete confirmation dialog
+  const handleOpenDeleteConfirm = (invoice: Invoice) => {
+    setInvoiceToDelete(invoice);
+    setDeleteConfirmOpen(true);
+  };
+  
+  // Handle closing delete confirmation dialog
+  const handleCloseDeleteConfirm = () => {
+    setDeleteConfirmOpen(false);
+    setInvoiceToDelete(null);
+  };
+  
+  // Handle delete invoice
+  const handleDeleteInvoice = async () => {
+    if (!invoiceToDelete) return;
+    
+    try {
+      setDeleting(true);
+      const response = await fetch(`/api/invoices/${invoiceToDelete.id}/delete`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete invoice');
+      }
+      
+      // Remove deleted invoice from state
+      setInvoices(prevInvoices => 
+        prevInvoices.filter(invoice => invoice.id !== invoiceToDelete.id)
+      );
+      
+      // Show success message
+      setSuccessMessage(`Invoice #${invoiceToDelete.invoice_number} has been deleted.`);
+      
+      // Close the confirmation dialog
+      handleCloseDeleteConfirm();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete invoice');
+    } finally {
+      setDeleting(false);
+    }
   };
   
   return (
@@ -135,10 +220,29 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
         </select>
       </div>
       
+      {/* Success message */}
+      {successMessage && (
+        <div className="mb-4 p-3 bg-green-100 text-green-700 rounded flex justify-between items-center">
+          <span>{successMessage}</span>
+          <button 
+            onClick={() => setSuccessMessage(null)}
+            className="text-green-700 hover:text-green-900"
+          >
+            &times;
+          </button>
+        </div>
+      )}
+      
       {/* Error message */}
       {error && (
-        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">
-          {error}
+        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded flex justify-between items-center">
+          <span>{error}</span>
+          <button 
+            onClick={() => setError(null)}
+            className="text-red-700 hover:text-red-900"
+          >
+            &times;
+          </button>
         </div>
       )}
       
@@ -160,7 +264,7 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
                     <div key={`${summary.year}-${summary.month}`} className="border p-4 rounded shadow-sm hover:shadow-md transition-shadow">
                       <h3 className="font-medium">{summary.month_name} {summary.year}</h3>
                       <p className="text-sm text-gray-600">
-                        {summary.total_registers} registers ({summary.total_hours.toFixed(2)} hours)
+                        {summary.total_registers} registers
                       </p>
                       <button 
                         onClick={onGenerateInvoice}
@@ -242,12 +346,34 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
                           >
                             View
                           </button>
+                          
                           {isInvoiceEditable(invoice.status) && (
                             <button
                               onClick={() => onEditInvoice(invoice.id)}
-                              className={`${invoice.status === 'rejected' ? 'text-red-600 hover:text-red-900' : 'text-gray-600 hover:text-gray-900'}`}
+                              className={`${
+                                isAdmin && invoice.status === 'approved' 
+                                  ? 'text-amber-600 hover:text-amber-900' 
+                                  : invoice.status === 'rejected' 
+                                    ? 'text-red-600 hover:text-red-900' 
+                                    : 'text-gray-600 hover:text-gray-900'
+                              }`}
                             >
-                              {invoice.status === 'rejected' ? 'Edit & Resubmit' : 'Edit'}
+                              {isAdmin && invoice.status === 'approved' 
+                                ? 'Edit' 
+                                : invoice.status === 'rejected' 
+                                  ? 'Edit & Resubmit' 
+                                  : 'Edit'
+                              }
+                            </button>
+                          )}
+                          
+                          {/* Delete button */}
+                          {canDeleteInvoice(invoice) && (
+                            <button
+                              onClick={() => handleOpenDeleteConfirm(invoice)}
+                              className="text-red-600 hover:text-red-900"
+                            >
+                              Delete
                             </button>
                           )}
                         </div>
@@ -259,6 +385,43 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
             </div>
           )}
         </>
+      )}
+      
+      {/* Delete confirmation dialog */}
+      {deleteConfirmOpen && invoiceToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Confirm Delete</h3>
+            <p className="mb-4">
+              Are you sure you want to delete invoice #{invoiceToDelete.invoice_number} for {invoiceToDelete.month_name} {invoiceToDelete.year}?
+            </p>
+            
+            {invoiceToDelete.status === 'paid' && (
+              <div className="p-3 bg-yellow-100 text-yellow-800 rounded mb-4">
+                <strong>Warning:</strong> This is a paid invoice. Deleting it will permanently remove the payment record.
+              </div>
+            )}
+            
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={handleCloseDeleteConfirm}
+                className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteInvoice}
+                className={`px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors ${
+                  deleting ? 'opacity-70 cursor-not-allowed' : ''
+                }`}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

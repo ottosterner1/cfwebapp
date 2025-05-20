@@ -53,10 +53,15 @@ class Invoice(db.Model):
     approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     invoice_number = db.Column(db.String(50))  # For reference in accounting software
     
+    # Add these new columns
+    paid_at = db.Column(db.DateTime(timezone=True))
+    paid_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    
     # Relationships
     coach = db.relationship('User', foreign_keys=[coach_id], backref='invoices')
     tennis_club = db.relationship('TennisClub', backref='invoices')
     approved_by = db.relationship('User', foreign_keys=[approved_by_id])
+    paid_by = db.relationship('User', foreign_keys=[paid_by_id])  # Add this relationship
     line_items = db.relationship('InvoiceLineItem', back_populates='invoice', cascade='all, delete-orphan')
     
     __table_args__ = (
