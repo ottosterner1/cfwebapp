@@ -7,6 +7,7 @@ interface InvoiceListProps {
   onViewInvoice: (invoiceId: number) => void;
   onEditInvoice: (invoiceId: number) => void;
   onGenerateInvoice: () => void;
+  onManageRates: () => void; // Add new prop
   userRole: 'coach' | 'admin' | 'super_admin';
 }
 
@@ -14,6 +15,7 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
   onViewInvoice, 
   onEditInvoice, 
   onGenerateInvoice,
+  onManageRates, // Add the new prop
   userRole
 }) => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -186,12 +188,23 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-800">Invoices</h1>
-        <button
-          onClick={onGenerateInvoice}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-        >
-          Generate New Invoice
-        </button>
+        <div className="flex space-x-2">
+          {/* Add Manage Coaching Rates button for admins only */}
+          {isAdmin && (
+            <button
+              onClick={onManageRates}
+              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+            >
+              Manage Coaching Rates
+            </button>
+          )}
+          <button
+            onClick={onGenerateInvoice}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+          >
+            Generate New Invoice
+          </button>
+        </div>
       </div>
       
       {/* Filters */}

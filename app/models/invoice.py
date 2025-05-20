@@ -11,6 +11,12 @@ class InvoiceStatus(Enum):
     REJECTED = 'rejected'
     PAID = 'paid'
 
+class RateType(Enum):
+    LEAD = 'lead'
+    ASSISTANT = 'assistant'
+    ADMIN = 'admin'
+    OTHER = 'other'
+
 class CoachingRate(db.Model):
     """Model for storing coaching rates per club"""
     __tablename__ = 'coaching_rate'
@@ -19,11 +25,12 @@ class CoachingRate(db.Model):
     coach_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     tennis_club_id = db.Column(db.Integer, db.ForeignKey('tennis_club.id'), nullable=False)
     rate_name = db.Column(db.String(50), nullable=False)  # e.g., 'Group Coaching', 'Private Lesson'
+    rate_type = db.Column(SQLAEnum(RateType), default=RateType.OTHER)  # New column
     hourly_rate = db.Column(db.Float, nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
     updated_at = db.Column(db.DateTime(timezone=True), onupdate=text('CURRENT_TIMESTAMP'))
     
-    # Relationships
+    # Relationships remain the same
     coach = db.relationship('User', backref='coaching_rates')
     tennis_club = db.relationship('TennisClub', backref='coaching_rates')
     
@@ -31,6 +38,16 @@ class CoachingRate(db.Model):
         # Ensure unique rate names per coach per club
         db.UniqueConstraint('coach_id', 'tennis_club_id', 'rate_name', name='unique_coach_rate_name'),
     )
+    
+    @property
+    def is_assistant_rate(self):
+        """Returns True if this rate is an assistant coach rate"""
+        return self.rate_type == RateType.ASSISTANT or 'assistant' in self.rate_name.lower()
+    
+    @property
+    def is_lead_rate(self):
+        """Returns True if this rate is a lead coach rate"""
+        return self.rate_type == RateType.LEAD or any(keyword in self.rate_name.lower() for keyword in ['lead', 'group'])
 
 class Invoice(db.Model):
     """Model for storing coach invoices"""
@@ -51,7 +68,7 @@ class Invoice(db.Model):
     submitted_at = db.Column(db.DateTime(timezone=True))
     approved_at = db.Column(db.DateTime(timezone=True))
     approved_by_id = db.Column(db.Integer, db.ForeignKey('user.id'))
-    invoice_number = db.Column(db.String(50))  # For reference in accounting software
+    invoice_number = db.Column(db.String(50))  
     
     # Add these new columns
     paid_at = db.Column(db.DateTime(timezone=True))

@@ -26,7 +26,7 @@ from app.models.register import (
 
 # Register models
 from app.models.invoice import (
-    CoachingRate, Invoice, InvoiceLineItem, InvoiceStatus
+    CoachingRate, Invoice, InvoiceLineItem, InvoiceStatus, RateType
 )
 
 # This approach maintains backward compatibility

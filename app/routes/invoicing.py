@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
-from app.models import Invoice, InvoiceLineItem, CoachingRate, Register, User, UserRole
+from app.models import Invoice, InvoiceLineItem, CoachingRate, Register, User, UserRole, RegisterAssistantCoach
 from app.models.invoice import InvoiceStatus
 from app.utils.auth import admin_required
 from app import db
@@ -105,92 +105,31 @@ def generate_invoice(year, month):
     start_date = datetime(year, month, 1).date()
     end_date = datetime(year, month, last_day).date()
     
-    # Find all registers for this coach in this date range
-    registers = Register.query.filter(
+    # === 1. Find all registers where this coach was the LEAD coach ===
+    lead_registers = Register.query.filter(
         Register.coach_id == current_user.id,
         Register.tennis_club_id == current_user.tennis_club_id,
         Register.date >= start_date,
         Register.date <= end_date
     ).all()
     
-    # Create line items from registers
-    for register in registers:
-        # Calculate duration in hours
-        group_time = register.group_time
-        if not group_time:
-            continue
-            
-        start_time = group_time.start_time
-        end_time = group_time.end_time
-        
-        # Calculate hours
-        start_datetime = datetime.combine(register.date, start_time)
-        end_datetime = datetime.combine(register.date, end_time)
-        duration_in_minutes = (end_datetime - start_datetime).total_seconds() / 60  # minutes
-        
-        # Round up to a full hour if greater than 45 minutes
-        if duration_in_minutes > 45:
-            # Round up to nearest hour
-            duration_in_hours = math.ceil(duration_in_minutes / 60)
-        else:
-            # Keep the exact duration in hours
-            duration_in_hours = duration_in_minutes / 60
-        
-        # Try to find a specific coaching rate for this group
-        group_name = group_time.tennis_group.name if group_time.tennis_group else "Unknown Group"
-        coaching_rate = CoachingRate.query.filter_by(
-            coach_id=current_user.id,
-            tennis_club_id=current_user.tennis_club_id,
-            rate_name=group_name  # Look for rate matching the group name
-        ).first()
-        
-        # If no rate for this specific group, try the generic 'Group Coaching' rate
-        if not coaching_rate:
-            coaching_rate = CoachingRate.query.filter_by(
-                coach_id=current_user.id,
-                tennis_club_id=current_user.tennis_club_id,
-                rate_name='Group Coaching'
-            ).first()
-        
-        # Set rate and amount values
-        if coaching_rate:
-            rate_value = coaching_rate.hourly_rate
-            amount_value = duration_in_hours * rate_value
-            notes = "Auto-generated from register"
-        else:
-            # Include entry with zero rate for manual input later
-            rate_value = 0.0
-            amount_value = 0.0
-            notes = "Rate needs to be set manually"
-            
-            # Log a warning for admin awareness
-            current_app.logger.warning(
-                f"No coaching rate found for coach {current_user.id} and group {group_name}. "
-                f"Creating line item with zero rate for register {register.id}."
-            )
-        
-        # Create line item
-        line_item = InvoiceLineItem(
-            invoice_id=invoice.id,
-            register_id=register.id,
-            item_type='session',
-            is_deduction=False,
-            description=f"{group_name} - {group_time.day_of_week.value}",
-            date=register.date,
-            hours=duration_in_hours,
-            rate=rate_value,
-            amount=amount_value,
-            notes=notes
-        )
-        db.session.add(line_item)
+    # Process lead coach registers
+    for register in lead_registers:
+        _process_lead_coach_register(register, invoice, current_user.id)
     
-    # Get assistant coaches from registers
-    assistant_coach_registers = {}
-    for register in registers:
-        for assistant in register.assistant_coaches:
-            if assistant.coach_id not in assistant_coach_registers:
-                assistant_coach_registers[assistant.coach_id] = []
-            assistant_coach_registers[assistant.coach_id].append(register)
+    # === 2. Find all registers where this coach was an ASSISTANT coach ===
+    assistant_sessions = db.session.query(Register, RegisterAssistantCoach).join(
+        RegisterAssistantCoach, Register.id == RegisterAssistantCoach.register_id
+    ).filter(
+        RegisterAssistantCoach.coach_id == current_user.id,
+        Register.tennis_club_id == current_user.tennis_club_id,
+        Register.date >= start_date,
+        Register.date <= end_date
+    ).all()
+    
+    # Process assistant coach registers
+    for register, assistant_record in assistant_sessions:
+        _process_assistant_coach_register(register, invoice, current_user.id)
     
     # Calculate totals
     invoice.calculate_totals()
@@ -201,6 +140,196 @@ def generate_invoice(year, month):
         'status': invoice.status.value,
         'message': 'Invoice generated successfully'
     })
+
+def _process_lead_coach_register(register, invoice, coach_id):
+    """Process a register where the coach was the lead coach"""
+    # Calculate duration in hours
+    group_time = register.group_time
+    if not group_time:
+        return
+        
+    start_time = group_time.start_time
+    end_time = group_time.end_time
+    
+    # Calculate hours
+    start_datetime = datetime.combine(register.date, start_time)
+    end_datetime = datetime.combine(register.date, end_time)
+    duration_in_minutes = (end_datetime - start_datetime).total_seconds() / 60  # minutes
+    
+    # Round up to a full hour if greater than 45 minutes
+    if duration_in_minutes > 45:
+        # Round up to nearest hour
+        duration_in_hours = math.ceil(duration_in_minutes / 60)
+    else:
+        # Keep the exact duration in hours
+        duration_in_hours = duration_in_minutes / 60
+    
+    # Try different rate types in order of specificity
+    group_name = group_time.tennis_group.name if group_time.tennis_group else "Unknown Group"
+    
+    # Get the group session rate - try in this order:
+    # 1. Rate specific to this group (e.g., "Green Group")
+    # 2. Rate for "Lead Coach" 
+    # 3. Generic "Group Coaching" rate
+    # 4. Default to zero rate if nothing found
+    
+    # 1. Try group-specific rate first
+    coaching_rate = CoachingRate.query.filter_by(
+        coach_id=coach_id,
+        tennis_club_id=register.tennis_club_id,
+        rate_name=group_name
+    ).first()
+    
+    # 2. If no group-specific rate, try "Lead Coach" rate
+    if not coaching_rate:
+        coaching_rate = CoachingRate.query.filter_by(
+            coach_id=coach_id,
+            tennis_club_id=register.tennis_club_id,
+            rate_name="Lead Coach"
+        ).first()
+    
+    # 3. If no lead coach rate, try generic "Group Coaching" rate
+    if not coaching_rate:
+        coaching_rate = CoachingRate.query.filter_by(
+            coach_id=coach_id,
+            tennis_club_id=register.tennis_club_id,
+            rate_name="Group Coaching"
+        ).first()
+    
+    # Set rate and amount values
+    if coaching_rate:
+        rate_name = coaching_rate.rate_name
+        rate_value = coaching_rate.hourly_rate
+        amount_value = duration_in_hours * rate_value
+        notes = f"Auto-generated from register (Rate: {rate_name})"
+    else:
+        # Default to zero rate for manual adjustment later
+        rate_value = 0.0
+        amount_value = 0.0
+        notes = "Rate not found - please set manually"
+        
+        # Log a warning
+        current_app.logger.warning(
+            f"No coaching rate found for coach {coach_id} and group {group_name}. "
+            f"Creating line item with zero rate for register {register.id}."
+        )
+    
+    # Create line item for lead coaching
+    line_item = InvoiceLineItem(
+        invoice_id=invoice.id,
+        register_id=register.id,
+        item_type='lead_session',
+        is_deduction=False,
+        description=f"{group_name} - {group_time.day_of_week.value} (Lead Coach)",
+        date=register.date,
+        hours=duration_in_hours,
+        rate=rate_value,
+        amount=amount_value,
+        notes=notes
+    )
+    db.session.add(line_item)
+
+def _process_assistant_coach_register(register, invoice, coach_id):
+    """Process a register where the coach was an assistant coach"""
+    # Calculate duration in hours (same as lead coach)
+    group_time = register.group_time
+    if not group_time:
+        return
+        
+    start_time = group_time.start_time
+    end_time = group_time.end_time
+    
+    # Calculate hours
+    start_datetime = datetime.combine(register.date, start_time)
+    end_datetime = datetime.combine(register.date, end_time)
+    duration_in_minutes = (end_datetime - start_datetime).total_seconds() / 60
+    
+    # Round up to a full hour if greater than 45 minutes
+    if duration_in_minutes > 45:
+        duration_in_hours = math.ceil(duration_in_minutes / 60)
+    else:
+        duration_in_hours = duration_in_minutes / 60
+    
+    # Get the group name
+    group_name = group_time.tennis_group.name if group_time.tennis_group else "Unknown Group"
+    
+    # Get the assistant rate - try in this order:
+    # 1. Group-specific assistant rate (e.g. "Green Group Assistant")
+    # 2. Generic "Assistant Coach" rate
+    # 3. Fall back to the same rates as lead coach
+    # 4. Default to zero rate if nothing found
+    
+    # 1. Try group-specific assistant rate
+    coaching_rate = CoachingRate.query.filter_by(
+        coach_id=coach_id,
+        tennis_club_id=register.tennis_club_id,
+        rate_name=f"{group_name} Assistant"
+    ).first()
+    
+    # 2. Try generic "Assistant Coach" rate
+    if not coaching_rate:
+        coaching_rate = CoachingRate.query.filter_by(
+            coach_id=coach_id,
+            tennis_club_id=register.tennis_club_id,
+            rate_name="Assistant Coach"
+        ).first()
+    
+    # 3. Fall back to group-specific rate
+    if not coaching_rate:
+        coaching_rate = CoachingRate.query.filter_by(
+            coach_id=coach_id,
+            tennis_club_id=register.tennis_club_id,
+            rate_name=group_name
+        ).first()
+    
+    # 4. Try "Lead Coach" rate
+    if not coaching_rate:
+        coaching_rate = CoachingRate.query.filter_by(
+            coach_id=coach_id,
+            tennis_club_id=register.tennis_club_id,
+            rate_name="Lead Coach"
+        ).first()
+    
+    # 5. Try generic "Group Coaching" rate
+    if not coaching_rate:
+        coaching_rate = CoachingRate.query.filter_by(
+            coach_id=coach_id,
+            tennis_club_id=register.tennis_club_id,
+            rate_name="Group Coaching"
+        ).first()
+    
+    # Set rate and amount values
+    if coaching_rate:
+        rate_name = coaching_rate.rate_name
+        rate_value = coaching_rate.hourly_rate
+        amount_value = duration_in_hours * rate_value
+        notes = f"Auto-generated from register (Rate: {rate_name})"
+    else:
+        # Default to zero rate for manual adjustment later
+        rate_value = 0.0
+        amount_value = 0.0
+        notes = "Assistant rate not found - please set manually"
+        
+        # Log a warning
+        current_app.logger.warning(
+            f"No assistant coaching rate found for coach {coach_id} and group {group_name}. "
+            f"Creating line item with zero rate for register {register.id}."
+        )
+    
+    # Create line item for assistant coaching
+    line_item = InvoiceLineItem(
+        invoice_id=invoice.id,
+        register_id=register.id,
+        item_type='assistant_session',
+        is_deduction=False,
+        description=f"{group_name} - {group_time.day_of_week.value} (Assistant Coach)",
+        date=register.date,
+        hours=duration_in_hours,
+        rate=rate_value,
+        amount=amount_value,
+        notes=notes
+    )
+    db.session.add(line_item)
 
 @invoice_routes.route('/<int:invoice_id>', methods=['GET', 'PUT'])
 @login_required
@@ -733,3 +862,85 @@ def delete_invoice(invoice_id):
         db.session.rollback()
         current_app.logger.error(f"Error deleting invoice: {str(e)}")
         return jsonify({'error': f'Failed to delete invoice: {str(e)}'}), 500
+    
+@invoice_routes.route('/rates/<int:coach_id>', methods=['GET', 'POST'])
+@login_required
+@admin_required
+def manage_coach_rates(coach_id):
+    """Get or set rates for a specific coach (admin only)"""
+    # Verify the coach belongs to the same club
+    coach = User.query.filter_by(
+        id=coach_id,
+        tennis_club_id=current_user.tennis_club_id
+    ).first()
+    
+    if not coach:
+        return jsonify({'error': 'Coach not found in your club'}), 404
+    
+    if request.method == 'GET':
+        # Get rates for the specified coach
+        rates = CoachingRate.query.filter_by(
+            coach_id=coach_id,
+            tennis_club_id=current_user.tennis_club_id
+        ).all()
+        
+        return jsonify([{
+            'id': rate.id,
+            'coach_id': rate.coach_id,
+            'rate_name': rate.rate_name,
+            'hourly_rate': rate.hourly_rate
+        } for rate in rates])
+    
+    elif request.method == 'POST':
+        # Set or update rate for the specified coach
+        data = request.json
+        rate_name = data.get('rate_name')
+        hourly_rate = data.get('hourly_rate')
+        
+        if not rate_name or not hourly_rate:
+            return jsonify({'error': 'Rate name and hourly rate are required'}), 400
+        
+        # Find existing rate or create new one
+        rate = CoachingRate.query.filter_by(
+            coach_id=coach_id,
+            tennis_club_id=current_user.tennis_club_id,
+            rate_name=rate_name
+        ).first()
+        
+        if not rate:
+            rate = CoachingRate(
+                coach_id=coach_id,
+                tennis_club_id=current_user.tennis_club_id,
+                rate_name=rate_name,
+                hourly_rate=float(hourly_rate)
+            )
+            db.session.add(rate)
+        else:
+            rate.hourly_rate = float(hourly_rate)
+        
+        db.session.commit()
+        return jsonify({
+            'id': rate.id,
+            'coach_id': rate.coach_id,
+            'rate_name': rate.rate_name,
+            'hourly_rate': rate.hourly_rate
+        })
+
+@invoice_routes.route('/rates/<int:rate_id>', methods=['DELETE'])
+@login_required
+def delete_rate(rate_id):
+    """Delete a specific rate"""
+    rate = CoachingRate.query.get_or_404(rate_id)
+    
+    # Verify ownership or admin status
+    if rate.coach_id != current_user.id and not current_user.is_admin:
+        return jsonify({'error': 'Unauthorized access'}), 403
+    
+    # Verify club
+    if rate.tennis_club_id != current_user.tennis_club_id:
+        return jsonify({'error': 'Unauthorized access'}), 403
+    
+    db.session.delete(rate)
+    db.session.commit()
+    
+    return jsonify({'message': 'Rate deleted successfully'})

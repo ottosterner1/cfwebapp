@@ -13,7 +13,7 @@ def register_routes(app):
     # Import register routes - both API and view routes
     from app.routes.registers import register_routes, register_views
     from app.routes.invoices_view import invoice_views
-    from app.routes.invoicing import invoice_routes  # Add this line
+    from app.routes.invoicing import invoice_routes 
     
     # Register blueprints
     app.register_blueprint(main)

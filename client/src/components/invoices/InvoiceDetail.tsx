@@ -1,9 +1,8 @@
+// src/components/invoices/InvoiceDetail.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { InvoiceDetail as InvoiceDetailType, InvoiceStatus } from '../../types/invoice';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
 
-// Define interfaces for the export data structure
+// Define types for PDF export data
 interface ExportLineItem {
   description: string;
   date: string;
@@ -57,10 +56,10 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
   onEdit,
   userRole
 }) => {
-  
   const [invoice, setInvoice] = useState<InvoiceDetailType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exportLoading, setExportLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [approving, setApproving] = useState(false);
   const [rejecting, setRejecting] = useState(false);
@@ -87,7 +86,6 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
         
         const data = await response.json();
         setInvoice(data);
-
         setError(null);
       } catch (err) {
         setError('Error loading invoice details. Please try again.');
@@ -98,7 +96,202 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     };
     
     fetchInvoiceDetails();
-  }, [invoiceId, isAdmin]);
+  }, [invoiceId]);
+  
+  // Handle PDF export with dynamic import of BOTH libraries and export function
+  const handleExport = async () => {
+    if (!invoice) return;
+    
+    try {
+      setExportLoading(true);
+      
+      // Dynamically import both the libraries and the export logic
+      // This ensures that html2canvas and jsPDF are not included in the main bundle
+      const [html2canvas, jsPDF] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf')
+      ]);
+      
+      const exportData = await fetchExportData(invoiceId);
+      await generatePdf(exportData, html2canvas.default, new jsPDF.default());
+      
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      setError('Failed to generate PDF. Please try again.');
+    } finally {
+      setExportLoading(false);
+    }
+  };
+  
+  // Fetch the export data
+  const fetchExportData = async (id: number): Promise<ExportData> => {
+    const response = await fetch(`/api/invoices/export/${id}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch invoice data for export');
+    }
+    return await response.json();
+  };
+  
+  // Generate PDF with dynamically loaded libraries
+  const generatePdf = async (
+    exportData: ExportData, 
+    html2canvasLib: any, 
+    pdf: any
+  ) => {
+    // Create a temporary div styled for PDF export
+    const pdfContent = document.createElement('div');
+    pdfContent.className = 'pdf-export-content';
+    pdfContent.style.width = '210mm';
+    pdfContent.style.padding = '20mm';
+    pdfContent.style.backgroundColor = 'white';
+    pdfContent.style.position = 'absolute';
+    pdfContent.style.left = '-9999px';
+    pdfContent.style.fontSize = '12pt';
+    pdfContent.style.fontFamily = 'Arial, sans-serif';
+    
+    // Populate the PDF content with properly formatted data
+    pdfContent.innerHTML = `
+      <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="font-size: 24pt; margin-bottom: 5px;">INVOICE #${exportData.invoice_number}</h1>
+        <p style="font-size: 16pt; margin-top: 5px;">${exportData.month_name} ${exportData.year}</p>
+        ${exportData.status === 'paid' ? `<p style="font-size: 14pt; color: #047857; font-weight: bold; margin-top: 10px;">PAID</p>` : ''}
+      </div>
+      
+      <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
+        <div style="width: 48%;">
+          <h3 style="border-bottom: 1px solid #ccc; padding-bottom: 5px; text-transform: uppercase; color: #666;">Invoice Details</h3>
+          <table style="width: 100%;">
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold;">Coach</td>
+              <td style="padding: 8px 0;">${exportData.coach.name}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold;">Period</td>
+              <td style="padding: 8px 0;">${exportData.month_name} ${exportData.year}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold;">Created</td>
+              <td style="padding: 8px 0;">${exportData.dates.created_at}</td>
+            </tr>
+            ${exportData.dates.submitted_at ? `
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold;">Submitted</td>
+              <td style="padding: 8px 0;">${exportData.dates.submitted_at}</td>
+            </tr>` : ''}
+            ${exportData.dates.approved_at ? `
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold;">Approved</td>
+              <td style="padding: 8px 0;">${exportData.dates.approved_at}</td>
+            </tr>` : ''}
+            ${exportData.dates.paid_at ? `
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold;">Paid</td>
+              <td style="padding: 8px 0;">${exportData.dates.paid_at}</td>
+            </tr>` : ''}
+          </table>
+        </div>
+        
+        <div style="width: 48%;">
+          <h3 style="border-bottom: 1px solid #ccc; padding-bottom: 5px; text-transform: uppercase; color: #666;">Financial Summary</h3>
+          <table style="width: 100%;">
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold;">Subtotal</td>
+              <td style="padding: 8px 0;">£${exportData.financial.subtotal.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold;">Deductions</td>
+              <td style="padding: 8px 0;">£${exportData.financial.deductions.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0; font-weight: bold;">Total</td>
+              <td style="padding: 8px 0; font-weight: bold;">£${exportData.financial.total.toFixed(2)}</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+      
+      <div>
+        <h3 style="margin-bottom: 15px; font-size: 16pt;">Line Items</h3>
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="background-color: #f3f4f6;">
+              <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Description</th>
+              <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Date</th>
+              <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Hours</th>
+              <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Rate</th>
+              <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${exportData.line_items.map((item: ExportLineItem, index: number) => `
+              <tr style="${item.is_deduction ? 'background-color: #fee2e2;' : index % 2 === 1 ? 'background-color: #f9fafb;' : ''}">
+                <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">
+                  ${item.is_deduction ? '<span style="color: #dc2626; font-weight: 500;">[Deduction] </span>' : ''}
+                  ${item.description}
+                  ${item.register_id ? '<span style="color: #047857; font-size: 0.9em;"> (Register)</span>' : ''}
+                </td>
+                <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">${item.date}</td>
+                <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">${item.hours.toFixed(2)}</td>
+                <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">£${item.rate.toFixed(2)}</td>
+                <td style="padding: 12px 10px; border-bottom: 1px solid #ddd; ${item.is_deduction ? 'color: #dc2626;' : ''}">
+                  ${item.is_deduction ? '-' : ''}£${item.amount.toFixed(2)}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="background-color: #f3f4f6;">
+              <td colspan="4" style="padding: 12px 10px; text-align: right; font-weight: bold; border-top: 2px solid #ddd;">Total:</td>
+              <td style="padding: 12px 10px; font-weight: bold; border-top: 2px solid #ddd;">£${exportData.financial.total.toFixed(2)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      
+      ${exportData.notes ? `
+      <div style="margin-top: 30px;">
+        <h3 style="margin-bottom: 10px;">Notes</h3>
+        <div style="padding: 15px; background-color: #f9fafb; border: 1px solid #ddd; border-radius: 4px;">
+          ${exportData.notes}
+        </div>
+      </div>
+      ` : ''}
+    `;
+    
+    // Add to the body temporarily for rendering
+    document.body.appendChild(pdfContent);
+    
+    // Render with html2canvas
+    const canvas = await html2canvasLib(pdfContent, {
+      scale: 2,
+      useCORS: true,
+      logging: false
+    });
+    
+    // Remove the temporary content
+    document.body.removeChild(pdfContent);
+    
+    // Create PDF
+    const imgData = canvas.toDataURL('image/png');
+    
+    // Configure PDF document
+    pdf.addImage(imgData, 'PNG', 0, 0, 210, (canvas.height * 210) / canvas.width);
+    
+    // Handle multiple pages if needed
+    let heightLeft = (canvas.height * 210) / canvas.width;
+    let position = 0;
+    const pageHeight = 297;
+    
+    while (heightLeft > pageHeight) {
+      position = heightLeft - (canvas.height * 210) / canvas.width;
+      pdf.addPage();
+      pdf.addImage(imgData, 'PNG', 0, position, 210, (canvas.height * 210) / canvas.width);
+      heightLeft -= pageHeight;
+    }
+    
+    // Save the PDF
+    pdf.save(`Invoice-${exportData.invoice_number}.pdf`);
+  };
   
   // Handle invoice submission
   const handleSubmit = async () => {
@@ -231,193 +424,6 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     }
   };
   
-  // PDF export method
-  const handleExport = async () => {
-    if (!invoice) return;
-    
-    try {
-      setLoading(true);
-      
-      // First fetch the full export data
-      const response = await fetch(`/api/invoices/export/${invoiceId}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch invoice data for export');
-      }
-      
-      const exportData: ExportData = await response.json();
-      
-      // Create a temporary div styled for PDF export
-      const pdfContent = document.createElement('div');
-      pdfContent.className = 'pdf-export-content';
-      pdfContent.style.width = '210mm';
-      pdfContent.style.padding = '20mm';
-      pdfContent.style.backgroundColor = 'white';
-      pdfContent.style.position = 'absolute';
-      pdfContent.style.left = '-9999px';
-      pdfContent.style.fontSize = '12pt';
-      pdfContent.style.fontFamily = 'Arial, sans-serif';
-      
-      // Populate the PDF content with properly formatted data
-      pdfContent.innerHTML = `
-        <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="font-size: 24pt; margin-bottom: 5px;">INVOICE #${exportData.invoice_number}</h1>
-          <p style="font-size: 16pt; margin-top: 5px;">${exportData.month_name} ${exportData.year}</p>
-          ${exportData.status === 'paid' ? `<p style="font-size: 14pt; color: #047857; font-weight: bold; margin-top: 10px;">PAID</p>` : ''}
-        </div>
-        
-        <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
-          <div style="width: 48%;">
-            <h3 style="border-bottom: 1px solid #ccc; padding-bottom: 5px; text-transform: uppercase; color: #666;">Invoice Details</h3>
-            <table style="width: 100%;">
-              <tr>
-                <td style="padding: 8px 0; font-weight: bold;">Coach</td>
-                <td style="padding: 8px 0;">${exportData.coach.name}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; font-weight: bold;">Period</td>
-                <td style="padding: 8px 0;">${exportData.month_name} ${exportData.year}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; font-weight: bold;">Created</td>
-                <td style="padding: 8px 0;">${exportData.dates.created_at}</td>
-              </tr>
-              ${exportData.dates.submitted_at ? `
-              <tr>
-                <td style="padding: 8px 0; font-weight: bold;">Submitted</td>
-                <td style="padding: 8px 0;">${exportData.dates.submitted_at}</td>
-              </tr>` : ''}
-              ${exportData.dates.approved_at ? `
-              <tr>
-                <td style="padding: 8px 0; font-weight: bold;">Approved</td>
-                <td style="padding: 8px 0;">${exportData.dates.approved_at}</td>
-              </tr>` : ''}
-              ${exportData.dates.paid_at ? `
-              <tr>
-                <td style="padding: 8px 0; font-weight: bold;">Paid</td>
-                <td style="padding: 8px 0;">${exportData.dates.paid_at}</td>
-              </tr>` : ''}
-            </table>
-          </div>
-          
-          <div style="width: 48%;">
-            <h3 style="border-bottom: 1px solid #ccc; padding-bottom: 5px; text-transform: uppercase; color: #666;">Financial Summary</h3>
-            <table style="width: 100%;">
-              <tr>
-                <td style="padding: 8px 0; font-weight: bold;">Subtotal</td>
-                <td style="padding: 8px 0;">£${exportData.financial.subtotal.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; font-weight: bold;">Deductions</td>
-                <td style="padding: 8px 0;">£${exportData.financial.deductions.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; font-weight: bold;">Total</td>
-                <td style="padding: 8px 0; font-weight: bold;">£${exportData.financial.total.toFixed(2)}</td>
-              </tr>
-            </table>
-          </div>
-        </div>
-        
-        <div>
-          <h3 style="margin-bottom: 15px; font-size: 16pt;">Line Items</h3>
-          <table style="width: 100%; border-collapse: collapse;">
-            <thead>
-              <tr style="background-color: #f3f4f6;">
-                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Description</th>
-                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Date</th>
-                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Hours</th>
-                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Rate</th>
-                <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${exportData.line_items.map((item: ExportLineItem, index: number) => `
-                <tr style="${item.is_deduction ? 'background-color: #fee2e2;' : index % 2 === 1 ? 'background-color: #f9fafb;' : ''}">
-                  <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">
-                    ${item.is_deduction ? '<span style="color: #dc2626; font-weight: 500;">[Deduction] </span>' : ''}
-                    ${item.description}
-                    ${item.register_id ? '<span style="color: #047857; font-size: 0.9em;"> (Register)</span>' : ''}
-                  </td>
-                  <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">${item.date}</td>
-                  <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">${item.hours.toFixed(2)}</td>
-                  <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">£${item.rate.toFixed(2)}</td>
-                  <td style="padding: 12px 10px; border-bottom: 1px solid #ddd; ${item.is_deduction ? 'color: #dc2626;' : ''}">
-                    ${item.is_deduction ? '-' : ''}£${item.amount.toFixed(2)}
-                  </td>
-                </tr>
-              `).join('')}
-            </tbody>
-            <tfoot>
-              <tr style="background-color: #f3f4f6;">
-                <td colspan="4" style="padding: 12px 10px; text-align: right; font-weight: bold; border-top: 2px solid #ddd;">Total:</td>
-                <td style="padding: 12px 10px; font-weight: bold; border-top: 2px solid #ddd;">£${exportData.financial.total.toFixed(2)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-        
-        ${exportData.notes ? `
-        <div style="margin-top: 30px;">
-          <h3 style="margin-bottom: 10px;">Notes</h3>
-          <div style="padding: 15px; background-color: #f9fafb; border: 1px solid #ddd; border-radius: 4px;">
-            ${exportData.notes}
-          </div>
-        </div>
-        ` : ''}
-      `;
-      
-      // Add to the body temporarily for rendering
-      document.body.appendChild(pdfContent);
-      
-      // Render with html2canvas
-      const canvas = await html2canvas(pdfContent, {
-        scale: 2,
-        useCORS: true,
-        logging: false
-      });
-      
-      // Remove the temporary content
-      document.body.removeChild(pdfContent);
-      
-      // Create PDF
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
-      });
-      
-      // Calculate dimensions
-      const imgWidth = 210;
-      const pageHeight = 297;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      
-      // Add image to PDF
-      pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
-      
-      // Handle multiple pages if needed
-      let heightLeft = imgHeight;
-      let position = 0;
-      
-      while (heightLeft > pageHeight) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
-      }
-      
-      // Save the PDF
-      pdf.save(`Invoice-${exportData.invoice_number}.pdf`);
-      
-    } catch (err) {
-      console.error('Error generating PDF:', err);
-      setError('Failed to generate PDF. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  
   // Get status badge color
   const getStatusBadgeColor = (status: InvoiceStatus) => {
     switch (status) {
@@ -491,7 +497,6 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
   
   return (
     <div className="bg-white p-6 rounded-lg shadow-sm">
-      
       {/* Header - NOT included in print area */}
       <div className="flex flex-wrap justify-between items-center mb-6">
         <div>
@@ -516,18 +521,19 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
                 invoice.status === 'approved' ? 'bg-amber-600 hover:bg-amber-700' : ''
               }`}
             >
-              {invoice.status === 'approved' ? 'Edit' : 'Edit'}
+              {invoice.status === 'approved' ? 'Edit (Admin Only)' : 'Edit'}
             </button>
           )}
           
-          <div className="relative inline-block text-left">
           <button
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+            className={`px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors ${
+              exportLoading ? 'opacity-75 cursor-not-allowed' : ''
+            }`} 
             onClick={handleExport}
+            disabled={exportLoading}
           >
-            Export as PDF
+            {exportLoading ? 'Exporting...' : 'Export as PDF'}
           </button>
-          </div>
         </div>
       </div>
       
@@ -631,41 +637,64 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
                     }
                     return a.description.localeCompare(b.description);
                   })
-                  .map((item, index) => (
-                    <tr key={index} className={item.is_deduction ? 'bg-red-50' : ''}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {item.is_deduction && <span className="text-red-600 font-medium">[Deduction] </span>}
-                        {item.description}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {new Date(item.date).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {item.hours.toFixed(2)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        £{item.rate.toFixed(2)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {item.is_deduction ? (
-                          <span className="text-red-600">-£{item.amount.toFixed(2)}</span>
-                        ) : (
-                          `£${item.amount.toFixed(2)}`
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {item.register_id ? (
-                          <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
-                            Register
-                          </span>
-                        ) : (
-                          <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
-                            Manual
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  .map((item, index) => {
+                    // Determine if this is a lead session or assistant session
+                    const isLeadSession = item.item_type === 'lead_session' || 
+                                        (item.description && item.description.includes('Lead Coach'));
+                    const isAssistantSession = item.item_type === 'assistant_session' || 
+                                            (item.description && item.description.includes('Assistant Coach'));
+                                            
+                    return (
+                      <tr key={index} className={item.is_deduction ? 'bg-red-50' : ''}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {item.is_deduction && <span className="text-red-600 font-medium">[Deduction] </span>}
+                          {item.description}
+                          {isLeadSession && (
+                            <span className="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800">
+                              Lead
+                            </span>
+                          )}
+                          {isAssistantSession && (
+                            <span className="ml-1 px-1.5 py-0.5 text-xs rounded bg-blue-100 text-blue-800">
+                              Assistant
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                          {new Date(item.date).toLocaleDateString()}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                          {item.hours.toFixed(2)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                          £{item.rate.toFixed(2)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {item.is_deduction ? (
+                            <span className="text-red-600">-£{item.amount.toFixed(2)}</span>
+                          ) : (
+                            `£${item.amount.toFixed(2)}`
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                          {item.register_id ? (
+                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                              Register
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                              Manual
+                            </span>
+                          )}
+                          {item.notes && item.notes.includes('Rate:') && (
+                            <div className="mt-1 text-xs text-gray-500">
+                              {item.notes.substring(item.notes.indexOf('Rate:'))}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
               </tbody>
               <tfoot className="bg-gray-50">
                 <tr>
@@ -778,7 +807,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
           )}
           
           {/* Mark as Paid button (admin only) */}
-          {invoice.status.toLowerCase() === 'approved' && isAdmin && (
+          {invoice.status === 'approved' && isAdmin && (
             <button
               onClick={handleMarkAsPaid}
               disabled={markingAsPaid}

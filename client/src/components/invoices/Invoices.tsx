@@ -5,12 +5,14 @@ import InvoiceList from './InvoiceList';
 import InvoiceDetail from './InvoiceDetail';
 import InvoiceGenerator from './InvoiceGenerator';
 import InvoiceEditor from './InvoiceEditor';
+import CoachingRates from './CoachingRates'; // Import the new component
 
 export enum InvoiceView {
   LIST = 'list',
   DETAIL = 'detail',
   GENERATE = 'generate',
-  EDIT = 'edit'
+  EDIT = 'edit',
+  MANAGE_RATES = 'manage_rates' // Add new view type
 }
 
 export type UserRole = 'coach' | 'admin' | 'super_admin';
@@ -87,6 +89,11 @@ const Invoices: React.FC = () => {
     setCurrentView(InvoiceView.GENERATE);
   };
   
+  // New navigation handler for coaching rates
+  const navigateToRates = () => {
+    setCurrentView(InvoiceView.MANAGE_RATES);
+  };
+  
   // Handler after saving invoice edits
   const handleSaveSuccess = (savedInvoiceId: number) => {
     navigateToDetail(savedInvoiceId);
@@ -104,7 +111,8 @@ const Invoices: React.FC = () => {
             onViewInvoice={navigateToDetail}
             onEditInvoice={navigateToEdit}
             onGenerateInvoice={navigateToGenerate}
-            userRole={userRole} // Now using userRole for InvoiceList
+            onManageRates={navigateToRates} // Pass the new handler
+            userRole={userRole}
           />
         );
       
@@ -132,6 +140,15 @@ const Invoices: React.FC = () => {
           <InvoiceGenerator 
             onBack={navigateToList}
             onSuccess={(newInvoiceId) => navigateToDetail(newInvoiceId)}
+          />
+        );
+      
+      // Add the new case for managing rates
+      case InvoiceView.MANAGE_RATES:
+        return (
+          <CoachingRates
+            onBack={navigateToList}
+            userRole={userRole}
           />
         );
       

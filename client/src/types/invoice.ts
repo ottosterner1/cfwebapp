@@ -1,6 +1,7 @@
 // client/src/types/invoice.ts
 
 export type InvoiceStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'paid';
+export type RateType = 'lead' | 'assistant' | 'admin' | 'other';
 
 export interface CoachRate {
   id: number;
@@ -59,4 +60,18 @@ export interface InvoiceMonthSummary {
   has_invoice: boolean;
   invoice_id?: number;
   invoice_status?: InvoiceStatus;
+}
+
+export interface CoachingRate {
+  id: number;
+  coach_id: number;
+  rate_name: string;
+  rate_type?: RateType;
+  hourly_rate: number;
+}
+
+export interface Coach {
+  id: number;
+  name: string;
+  email: string;
 }
