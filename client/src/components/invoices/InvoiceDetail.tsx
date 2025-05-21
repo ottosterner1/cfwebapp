@@ -98,22 +98,278 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     fetchInvoiceDetails();
   }, [invoiceId]);
   
-  // Handle PDF export with dynamic import of BOTH libraries and export function
+  // Handle PDF export
   const handleExport = async () => {
     if (!invoice) return;
     
     try {
       setExportLoading(true);
       
-      // Dynamically import both the libraries and the export logic
-      // This ensures that html2canvas and jsPDF are not included in the main bundle
-      const [html2canvas, jsPDF] = await Promise.all([
-        import('html2canvas'),
-        import('jspdf')
-      ]);
-      
+      // Fetch the export data first
       const exportData = await fetchExportData(invoiceId);
-      await generatePdf(exportData, html2canvas.default, new jsPDF.default());
+      
+      // Import jsPDF
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default;
+      
+      // Create a new PDF
+      const pdf = new jsPDF();
+      
+      // PDF settings
+      const margin = 20; // margins in mm
+      let yPos = margin;
+      const lineHeight = 10;
+      const pageWidth = 210; // A4 width in mm
+      const contentWidth = pageWidth - (2 * margin);
+      
+      // Helper function for adding text with proper typing
+      const addText = (text: string, fontSize: number = 12, isBold: boolean = false, align: 'left' | 'center' | 'right' = 'left') => {
+        pdf.setFontSize(fontSize);
+        pdf.setFont('helvetica', isBold ? 'bold' : 'normal');
+        pdf.text(text, align === 'left' ? margin : align === 'right' ? pageWidth - margin : pageWidth / 2, yPos, { align });
+        yPos += lineHeight;
+      };
+      
+      // Helper function for checking page break
+      const checkPageBreak = (height: number = lineHeight) => {
+        if (yPos + height > 280) { // A4 height is 297mm, leave 17mm for footer
+          pdf.addPage();
+          yPos = margin;
+        }
+      };
+      
+      // Add invoice header
+      addText(`INVOICE #${exportData.invoice_number}`, 24, true, 'center');
+      addText(`${exportData.month_name} ${exportData.year}`, 16, false, 'center');
+      if (exportData.status === 'paid') {
+        pdf.setTextColor(4, 120, 87); // Green color
+        addText('PAID', 14, true, 'center');
+        pdf.setTextColor(0, 0, 0); // Reset to black
+      }
+      
+      yPos += 10; // Add extra space
+      
+      // Create two columns for invoice details and financial summary
+      const colWidth = (contentWidth / 2) - 5;
+      
+      // Invoice Details heading
+      const invoiceDetailsX = margin;
+      pdf.setDrawColor(200, 200, 200);
+      pdf.setFontSize(12);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('INVOICE DETAILS', invoiceDetailsX, yPos);
+      yPos += 5;
+      pdf.line(invoiceDetailsX, yPos, invoiceDetailsX + colWidth, yPos);
+      yPos += 10;
+      
+      // Financial Summary heading
+      const financialX = margin + colWidth + 10;
+      pdf.setFontSize(12);
+      pdf.text('FINANCIAL SUMMARY', financialX, yPos - 15);
+      pdf.line(financialX, yPos - 10, financialX + colWidth, yPos - 10);
+      
+      // Invoice Details content
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Coach', invoiceDetailsX, yPos);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(exportData.coach.name, invoiceDetailsX + 40, yPos);
+      yPos += lineHeight;
+      
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Period', invoiceDetailsX, yPos);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`${exportData.month_name} ${exportData.year}`, invoiceDetailsX + 40, yPos);
+      yPos += lineHeight;
+      
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Created', invoiceDetailsX, yPos);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(exportData.dates.created_at, invoiceDetailsX + 40, yPos);
+      yPos += lineHeight;
+      
+      if (exportData.dates.submitted_at) {
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('Submitted', invoiceDetailsX, yPos);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(exportData.dates.submitted_at, invoiceDetailsX + 40, yPos);
+        yPos += lineHeight;
+      }
+      
+      if (exportData.dates.approved_at) {
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('Approved', invoiceDetailsX, yPos);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(exportData.dates.approved_at, invoiceDetailsX + 40, yPos);
+        yPos += lineHeight;
+      }
+      
+      if (exportData.dates.paid_at) {
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('Paid', invoiceDetailsX, yPos);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(exportData.dates.paid_at, invoiceDetailsX + 40, yPos);
+        yPos += lineHeight;
+      }
+      
+      // Financial Summary content
+      let finYPos = yPos - (lineHeight * (exportData.dates.submitted_at ? 4 : 3) + 
+                          (exportData.dates.approved_at ? lineHeight : 0) + 
+                          (exportData.dates.paid_at ? lineHeight : 0));
+      
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Subtotal', financialX, finYPos);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`£${exportData.financial.subtotal.toFixed(2)}`, financialX + 40, finYPos);
+      finYPos += lineHeight;
+      
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Deductions', financialX, finYPos);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`£${exportData.financial.deductions.toFixed(2)}`, financialX + 40, finYPos);
+      finYPos += lineHeight;
+      
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Total', financialX, finYPos);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(`£${exportData.financial.total.toFixed(2)}`, financialX + 40, finYPos);
+      
+      // Set yPos to the maximum of both columns
+      yPos = Math.max(yPos, finYPos + lineHeight);
+      yPos += 20; // Add space before line items
+      
+      // Line Items heading
+      checkPageBreak();
+      addText('Line Items', 16, true);
+      yPos += 5;
+      
+      // Line Items table
+      const colWidths = [80, 30, 20, 25, 25];
+      const colPositions = [
+        margin, // Description
+        margin + colWidths[0], // Date
+        margin + colWidths[0] + colWidths[1], // Hours 
+        margin + colWidths[0] + colWidths[1] + colWidths[2], // Rate
+        margin + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3] // Amount
+      ];
+      
+      // Table header
+      pdf.setFillColor(243, 244, 246); // Light gray bg
+      pdf.rect(margin, yPos, contentWidth, 10, 'F');
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(9);
+      pdf.text('Description', colPositions[0] + 2, yPos + 7);
+      pdf.text('Date', colPositions[1] + 2, yPos + 7);
+      pdf.text('Hours', colPositions[2] + 2, yPos + 7);
+      pdf.text('Rate', colPositions[3] + 2, yPos + 7);
+      pdf.text('Amount', colPositions[4] + 2, yPos + 7);
+      yPos += 10;
+      
+      // Sort line items
+      const sortedLineItems = [...exportData.line_items].sort((a, b) => {
+        const dateComparison = new Date(a.date).getTime() - new Date(b.date).getTime();
+        if (dateComparison !== 0) return dateComparison;
+        if (a.is_deduction !== b.is_deduction) {
+          return a.is_deduction ? 1 : -1;
+        }
+        return a.description.localeCompare(b.description);
+      });
+      
+      // Table rows
+      for (let i = 0; i < sortedLineItems.length; i++) {
+        const item = sortedLineItems[i];
+        
+        // Check if we need a new page
+        checkPageBreak(15);
+        
+        // Set background for deductions
+        if (item.is_deduction) {
+          pdf.setFillColor(254, 226, 226); // Light red
+          pdf.rect(margin, yPos, contentWidth, 12, 'F');
+        } else if (i % 2 === 1) {
+          pdf.setFillColor(249, 250, 251); // Light gray alternate row
+          pdf.rect(margin, yPos, contentWidth, 12, 'F');
+        }
+        
+        // Cell content
+        pdf.setFont('helvetica', 'normal');
+        
+        // Description with possible deduction label
+        let description = item.description;
+        if (item.is_deduction) {
+          pdf.setTextColor(220, 38, 38); // Red for deduction
+          description = `[Deduction] ${description}`;
+        }
+        if (item.register_id) {
+          description = `${description} (Register)`;
+        }
+        
+        // Limit description to fit in cell
+        if (description.length > 30) {
+          description = description.substring(0, 27) + '...';
+        }
+        
+        pdf.text(description, colPositions[0] + 2, yPos + 7);
+        
+        // Reset color
+        pdf.setTextColor(0, 0, 0);
+        
+        // Other columns
+        pdf.text(new Date(item.date).toLocaleDateString(), colPositions[1] + 2, yPos + 7);
+        pdf.text(item.hours.toFixed(2), colPositions[2] + 2, yPos + 7);
+        pdf.text(`£${item.rate.toFixed(2)}`, colPositions[3] + 2, yPos + 7);
+        
+        // Amount (with minus sign and red color for deductions)
+        if (item.is_deduction) {
+          pdf.setTextColor(220, 38, 38); // Red
+          pdf.text(`-£${item.amount.toFixed(2)}`, colPositions[4] + 2, yPos + 7);
+          pdf.setTextColor(0, 0, 0); // Reset color
+        } else {
+          pdf.text(`£${item.amount.toFixed(2)}`, colPositions[4] + 2, yPos + 7);
+        }
+        
+        yPos += 12;
+      }
+      
+      // Table footer
+      checkPageBreak();
+      pdf.setFillColor(243, 244, 246); // Light gray bg
+      pdf.rect(margin, yPos, contentWidth, 12, 'F');
+      
+      // Total row
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Total:', colPositions[3] - 5, yPos + 7, { align: 'right' as const });
+      pdf.text(`£${exportData.financial.total.toFixed(2)}`, colPositions[4] + 2, yPos + 7);
+      
+      yPos += 20;
+      
+      // Notes section if available
+      if (exportData.notes) {
+        checkPageBreak();
+        addText('Notes', 12, true);
+        
+        // Notes box
+        pdf.setFillColor(249, 250, 251); // Light gray bg
+        pdf.setDrawColor(221, 221, 221); // Border color
+        pdf.roundedRect(margin, yPos, contentWidth, 40, 3, 3, 'FD');
+        
+        // Notes text (wrapped)
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(10);
+        
+        // Split notes into lines that fit
+        const maxWidth = contentWidth - 10;
+        const lines = pdf.splitTextToSize(exportData.notes, maxWidth);
+        
+        // Add each line
+        for (let i = 0; i < lines.length && i < 10; i++) { // Limit to 10 lines
+          checkPageBreak();
+          pdf.text(lines[i], margin + 5, yPos + 8 + (i * 6));
+        }
+      }
+      
+      // Save the PDF
+      pdf.save(`Invoice-${exportData.invoice_number}.pdf`);
       
     } catch (err) {
       console.error('Error generating PDF:', err);
@@ -131,167 +387,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     }
     return await response.json();
   };
-  
-  // Generate PDF with dynamically loaded libraries
-  const generatePdf = async (
-    exportData: ExportData, 
-    html2canvasLib: any, 
-    pdf: any
-  ) => {
-    // Create a temporary div styled for PDF export
-    const pdfContent = document.createElement('div');
-    pdfContent.className = 'pdf-export-content';
-    pdfContent.style.width = '210mm';
-    pdfContent.style.padding = '20mm';
-    pdfContent.style.backgroundColor = 'white';
-    pdfContent.style.position = 'absolute';
-    pdfContent.style.left = '-9999px';
-    pdfContent.style.fontSize = '12pt';
-    pdfContent.style.fontFamily = 'Arial, sans-serif';
-    
-    // Populate the PDF content with properly formatted data
-    pdfContent.innerHTML = `
-      <div style="text-align: center; margin-bottom: 30px;">
-        <h1 style="font-size: 24pt; margin-bottom: 5px;">INVOICE #${exportData.invoice_number}</h1>
-        <p style="font-size: 16pt; margin-top: 5px;">${exportData.month_name} ${exportData.year}</p>
-        ${exportData.status === 'paid' ? `<p style="font-size: 14pt; color: #047857; font-weight: bold; margin-top: 10px;">PAID</p>` : ''}
-      </div>
-      
-      <div style="display: flex; justify-content: space-between; margin-bottom: 30px;">
-        <div style="width: 48%;">
-          <h3 style="border-bottom: 1px solid #ccc; padding-bottom: 5px; text-transform: uppercase; color: #666;">Invoice Details</h3>
-          <table style="width: 100%;">
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold;">Coach</td>
-              <td style="padding: 8px 0;">${exportData.coach.name}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold;">Period</td>
-              <td style="padding: 8px 0;">${exportData.month_name} ${exportData.year}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold;">Created</td>
-              <td style="padding: 8px 0;">${exportData.dates.created_at}</td>
-            </tr>
-            ${exportData.dates.submitted_at ? `
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold;">Submitted</td>
-              <td style="padding: 8px 0;">${exportData.dates.submitted_at}</td>
-            </tr>` : ''}
-            ${exportData.dates.approved_at ? `
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold;">Approved</td>
-              <td style="padding: 8px 0;">${exportData.dates.approved_at}</td>
-            </tr>` : ''}
-            ${exportData.dates.paid_at ? `
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold;">Paid</td>
-              <td style="padding: 8px 0;">${exportData.dates.paid_at}</td>
-            </tr>` : ''}
-          </table>
-        </div>
-        
-        <div style="width: 48%;">
-          <h3 style="border-bottom: 1px solid #ccc; padding-bottom: 5px; text-transform: uppercase; color: #666;">Financial Summary</h3>
-          <table style="width: 100%;">
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold;">Subtotal</td>
-              <td style="padding: 8px 0;">£${exportData.financial.subtotal.toFixed(2)}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold;">Deductions</td>
-              <td style="padding: 8px 0;">£${exportData.financial.deductions.toFixed(2)}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold;">Total</td>
-              <td style="padding: 8px 0; font-weight: bold;">£${exportData.financial.total.toFixed(2)}</td>
-            </tr>
-          </table>
-        </div>
-      </div>
-      
-      <div>
-        <h3 style="margin-bottom: 15px; font-size: 16pt;">Line Items</h3>
-        <table style="width: 100%; border-collapse: collapse;">
-          <thead>
-            <tr style="background-color: #f3f4f6;">
-              <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Description</th>
-              <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Date</th>
-              <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Hours</th>
-              <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Rate</th>
-              <th style="padding: 10px; text-align: left; border-bottom: 1px solid #ddd;">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${exportData.line_items.map((item: ExportLineItem, index: number) => `
-              <tr style="${item.is_deduction ? 'background-color: #fee2e2;' : index % 2 === 1 ? 'background-color: #f9fafb;' : ''}">
-                <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">
-                  ${item.is_deduction ? '<span style="color: #dc2626; font-weight: 500;">[Deduction] </span>' : ''}
-                  ${item.description}
-                  ${item.register_id ? '<span style="color: #047857; font-size: 0.9em;"> (Register)</span>' : ''}
-                </td>
-                <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">${item.date}</td>
-                <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">${item.hours.toFixed(2)}</td>
-                <td style="padding: 12px 10px; border-bottom: 1px solid #ddd;">£${item.rate.toFixed(2)}</td>
-                <td style="padding: 12px 10px; border-bottom: 1px solid #ddd; ${item.is_deduction ? 'color: #dc2626;' : ''}">
-                  ${item.is_deduction ? '-' : ''}£${item.amount.toFixed(2)}
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
-          <tfoot>
-            <tr style="background-color: #f3f4f6;">
-              <td colspan="4" style="padding: 12px 10px; text-align: right; font-weight: bold; border-top: 2px solid #ddd;">Total:</td>
-              <td style="padding: 12px 10px; font-weight: bold; border-top: 2px solid #ddd;">£${exportData.financial.total.toFixed(2)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-      
-      ${exportData.notes ? `
-      <div style="margin-top: 30px;">
-        <h3 style="margin-bottom: 10px;">Notes</h3>
-        <div style="padding: 15px; background-color: #f9fafb; border: 1px solid #ddd; border-radius: 4px;">
-          ${exportData.notes}
-        </div>
-      </div>
-      ` : ''}
-    `;
-    
-    // Add to the body temporarily for rendering
-    document.body.appendChild(pdfContent);
-    
-    // Render with html2canvas
-    const canvas = await html2canvasLib(pdfContent, {
-      scale: 2,
-      useCORS: true,
-      logging: false
-    });
-    
-    // Remove the temporary content
-    document.body.removeChild(pdfContent);
-    
-    // Create PDF
-    const imgData = canvas.toDataURL('image/png');
-    
-    // Configure PDF document
-    pdf.addImage(imgData, 'PNG', 0, 0, 210, (canvas.height * 210) / canvas.width);
-    
-    // Handle multiple pages if needed
-    let heightLeft = (canvas.height * 210) / canvas.width;
-    let position = 0;
-    const pageHeight = 297;
-    
-    while (heightLeft > pageHeight) {
-      position = heightLeft - (canvas.height * 210) / canvas.width;
-      pdf.addPage();
-      pdf.addImage(imgData, 'PNG', 0, position, 210, (canvas.height * 210) / canvas.width);
-      heightLeft -= pageHeight;
-    }
-    
-    // Save the PDF
-    pdf.save(`Invoice-${exportData.invoice_number}.pdf`);
-  };
+
   
   // Handle invoice submission
   const handleSubmit = async () => {
@@ -639,9 +735,9 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
                   })
                   .map((item, index) => {
                     // Determine if this is a lead session or assistant session
-                    const isLeadSession = item.item_type === 'lead_session' || 
+                    const isLeadSession = item.item_type === 'group' && 
                                         (item.description && item.description.includes('Lead Coach'));
-                    const isAssistantSession = item.item_type === 'assistant_session' || 
+                    const isAssistantSession = item.item_type === 'group' && 
                                             (item.description && item.description.includes('Assistant Coach'));
                                             
                     return (
@@ -685,11 +781,6 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
                             <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
                               Manual
                             </span>
-                          )}
-                          {item.notes && item.notes.includes('Rate:') && (
-                            <div className="mt-1 text-xs text-gray-500">
-                              {item.notes.substring(item.notes.indexOf('Rate:'))}
-                            </div>
                           )}
                         </td>
                       </tr>

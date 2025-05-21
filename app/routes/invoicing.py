@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
-from app.models import Invoice, InvoiceLineItem, CoachingRate, Register, User, UserRole, RegisterAssistantCoach
+from app.models import Invoice, InvoiceLineItem, CoachingRate, Register, User, UserRole, RegisterAssistantCoach, RateType
 from app.models.invoice import InvoiceStatus
 from app.utils.auth import admin_required
 from app import db
@@ -35,7 +35,8 @@ def manage_rates():
         return jsonify([{
             'id': rate.id,
             'rate_name': rate.rate_name,
-            'hourly_rate': rate.hourly_rate
+            'hourly_rate': rate.hourly_rate,
+            'rate_type': rate.rate_type.name.lower() if rate.rate_type else 'other'
         } for rate in rates])
     
     elif request.method == 'POST':
@@ -43,6 +44,7 @@ def manage_rates():
         data = request.json
         rate_name = data.get('rate_name')
         hourly_rate = data.get('hourly_rate')
+        rate_type = data.get('rate_type', 'other')
         
         if not rate_name or not hourly_rate:
             return jsonify({'error': 'Rate name and hourly rate are required'}), 400
@@ -55,18 +57,44 @@ def manage_rates():
         ).first()
         
         if not rate:
-            rate = CoachingRate(
-                coach_id=current_user.id,
-                tennis_club_id=current_user.tennis_club_id,
-                rate_name=rate_name,
-                hourly_rate=float(hourly_rate)
-            )
-            db.session.add(rate)
+            # Convert rate_type to uppercase to match the enum definition
+            enum_rate_type = rate_type.upper() if rate_type else 'OTHER'
+            try:
+                rate = CoachingRate(
+                    coach_id=current_user.id,
+                    tennis_club_id=current_user.tennis_club_id,
+                    rate_name=rate_name,
+                    hourly_rate=float(hourly_rate),
+                    rate_type=RateType[enum_rate_type]
+                )
+                db.session.add(rate)
+            except KeyError:
+                # If enum value is not found, default to OTHER
+                rate = CoachingRate(
+                    coach_id=current_user.id,
+                    tennis_club_id=current_user.tennis_club_id,
+                    rate_name=rate_name,
+                    hourly_rate=float(hourly_rate),
+                    rate_type=RateType.OTHER
+                )
+                db.session.add(rate)
         else:
             rate.hourly_rate = float(hourly_rate)
+            # Update rate_type if provided
+            if rate_type:
+                try:
+                    rate.rate_type = RateType[rate_type.upper()]
+                except KeyError:
+                    # If enum value is not found, don't change it
+                    pass
         
         db.session.commit()
-        return jsonify({'id': rate.id, 'rate_name': rate.rate_name, 'hourly_rate': rate.hourly_rate})
+        return jsonify({
+            'id': rate.id, 
+            'rate_name': rate.rate_name, 
+            'hourly_rate': rate.hourly_rate,
+            'rate_type': rate.rate_type.name.lower() if rate.rate_type else 'other'
+        })
 
 @invoice_routes.route('/generate/<int:year>/<int:month>', methods=['POST'])
 @login_required
@@ -218,7 +246,7 @@ def _process_lead_coach_register(register, invoice, coach_id):
     line_item = InvoiceLineItem(
         invoice_id=invoice.id,
         register_id=register.id,
-        item_type='lead_session',
+        item_type='group',
         is_deduction=False,
         description=f"{group_name} - {group_time.day_of_week.value} (Lead Coach)",
         date=register.date,
@@ -320,7 +348,7 @@ def _process_assistant_coach_register(register, invoice, coach_id):
     line_item = InvoiceLineItem(
         invoice_id=invoice.id,
         register_id=register.id,
-        item_type='assistant_session',
+        item_type='group',
         is_deduction=False,
         description=f"{group_name} - {group_time.day_of_week.value} (Assistant Coach)",
         date=register.date,
@@ -734,7 +762,7 @@ def export_invoice(invoice_id):
 @invoice_routes.route('/month-summaries', methods=['GET'])
 @login_required
 def get_month_summaries():
-    """Get summaries for each month of a year, showing if invoice exists and register counts"""
+    """Get summaries for each month of a year, showing if invoice exists and lead/assist session counts"""
     year = request.args.get('year', datetime.now().year, type=int)
     
     # Get all months and initialize response
@@ -744,8 +772,8 @@ def get_month_summaries():
             'month': month_num,
             'month_name': calendar.month_name[month_num],
             'year': year,
-            'total_registers': 0,
-            'total_hours': 0.0,
+            'total_lead_sessions': 0,
+            'total_assist_sessions': 0,
             'has_invoice': False,
             'invoice_id': None,
             'invoice_status': None
@@ -755,34 +783,45 @@ def get_month_summaries():
     start_date = datetime(year, 1, 1).date()
     end_date = datetime(year, 12, 31).date()
     
-    # Get all registers for this coach in this year
-    registers = Register.query.filter(
+    # Get all registers where this coach is the lead coach
+    lead_registers = Register.query.filter(
         Register.coach_id == current_user.id,
         Register.tennis_club_id == current_user.tennis_club_id,
         Register.date >= start_date,
         Register.date <= end_date
     ).all()
     
-    # Calculate hours and count for each month
-    for register in registers:
+    # Count lead sessions by month
+    for register in lead_registers:
         month = register.date.month
         
-        # Calculate duration in hours
-        group_time = register.group_time
-        if not group_time:
+        # Skip if group_time is missing
+        if not register.group_time:
             continue
             
-        start_time = group_time.start_time
-        end_time = group_time.end_time
+        # Update month summary for lead sessions
+        months[month-1]['total_lead_sessions'] += 1
+    
+    # Get all registers where this coach is an assistant coach
+    assist_sessions = db.session.query(Register, RegisterAssistantCoach).join(
+        RegisterAssistantCoach, Register.id == RegisterAssistantCoach.register_id
+    ).filter(
+        RegisterAssistantCoach.coach_id == current_user.id,
+        Register.tennis_club_id == current_user.tennis_club_id,
+        Register.date >= start_date,
+        Register.date <= end_date
+    ).all()
+    
+    # Count assist sessions by month
+    for register, assistant_record in assist_sessions:
+        month = register.date.month
         
-        # Calculate hours
-        start_datetime = datetime.combine(register.date, start_time)
-        end_datetime = datetime.combine(register.date, end_time)
-        duration = (end_datetime - start_datetime).total_seconds() / 3600
-        
-        # Update month summary
-        months[month-1]['total_registers'] += 1
-        months[month-1]['total_hours'] += duration
+        # Skip if group_time is missing
+        if not register.group_time:
+            continue
+            
+        # Update month summary for assist sessions
+        months[month-1]['total_assist_sessions'] += 1
     
     # Check which months have invoices already
     invoices = Invoice.query.filter(
@@ -888,7 +927,8 @@ def manage_coach_rates(coach_id):
             'id': rate.id,
             'coach_id': rate.coach_id,
             'rate_name': rate.rate_name,
-            'hourly_rate': rate.hourly_rate
+            'hourly_rate': rate.hourly_rate,
+            'rate_type': rate.rate_type.name.lower() if rate.rate_type else 'other'
         } for rate in rates])
     
     elif request.method == 'POST':
@@ -896,6 +936,7 @@ def manage_coach_rates(coach_id):
         data = request.json
         rate_name = data.get('rate_name')
         hourly_rate = data.get('hourly_rate')
+        rate_type = data.get('rate_type', 'other')
         
         if not rate_name or not hourly_rate:
             return jsonify({'error': 'Rate name and hourly rate are required'}), 400
@@ -908,22 +949,44 @@ def manage_coach_rates(coach_id):
         ).first()
         
         if not rate:
-            rate = CoachingRate(
-                coach_id=coach_id,
-                tennis_club_id=current_user.tennis_club_id,
-                rate_name=rate_name,
-                hourly_rate=float(hourly_rate)
-            )
-            db.session.add(rate)
+            # Convert rate_type to uppercase to match the enum definition
+            enum_rate_type = rate_type.upper() if rate_type else 'OTHER'
+            try:
+                rate = CoachingRate(
+                    coach_id=coach_id,
+                    tennis_club_id=current_user.tennis_club_id,
+                    rate_name=rate_name,
+                    hourly_rate=float(hourly_rate),
+                    rate_type=RateType[enum_rate_type]
+                )
+                db.session.add(rate)
+            except KeyError:
+                # If enum value is not found, default to OTHER
+                rate = CoachingRate(
+                    coach_id=coach_id,
+                    tennis_club_id=current_user.tennis_club_id,
+                    rate_name=rate_name,
+                    hourly_rate=float(hourly_rate),
+                    rate_type=RateType.OTHER
+                )
+                db.session.add(rate)
         else:
             rate.hourly_rate = float(hourly_rate)
+            # Update rate_type if provided
+            if rate_type:
+                try:
+                    rate.rate_type = RateType[rate_type.upper()]
+                except KeyError:
+                    # If enum value is not found, don't change it
+                    pass
         
         db.session.commit()
         return jsonify({
             'id': rate.id,
             'coach_id': rate.coach_id,
             'rate_name': rate.rate_name,
-            'hourly_rate': rate.hourly_rate
+            'hourly_rate': rate.hourly_rate,
+            'rate_type': rate.rate_type.name.lower() if rate.rate_type else 'other'
         })
 
 @invoice_routes.route('/rates/<int:rate_id>', methods=['DELETE'])

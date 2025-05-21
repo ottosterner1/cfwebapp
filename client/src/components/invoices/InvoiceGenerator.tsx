@@ -193,7 +193,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
               {availableMonths.map(month => {
                 const isSelected = month.month === selectedMonth;
                 const hasInvoice = month.has_invoice;
-                const hasRegisters = month.total_registers > 0;
+                const hasSessions = (month.total_lead_sessions || 0) > 0 || (month.total_assist_sessions || 0) > 0;
                 
                 // Determine button style
                 let buttonStyle = '';
@@ -201,7 +201,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
                   buttonStyle = 'bg-gray-100 text-gray-400 cursor-not-allowed';
                 } else if (isSelected) {
                   buttonStyle = 'bg-blue-100 border-blue-500 text-blue-700';
-                } else if (!hasRegisters) {
+                } else if (!hasSessions) {
                   buttonStyle = 'bg-gray-50 text-gray-500 hover:bg-gray-100'; // Changed to make it selectable
                 } else {
                   buttonStyle = 'bg-white hover:bg-gray-50 text-gray-700';
@@ -218,10 +218,12 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
                     <div className="text-xs mt-1">
                       {hasInvoice ? (
                         <span className="text-gray-500">Invoice exists</span>
-                      ) : hasRegisters ? (
-                        <span>{month.total_registers} registers</span>
+                      ) : hasSessions ? (
+                        <span>
+                          {month.total_lead_sessions || 0} lead / {month.total_assist_sessions || 0} assist
+                        </span>
                       ) : (
-                        <span>No registers</span>
+                        <span>No sessions</span>
                       )}
                     </div>
                   </button>
@@ -238,7 +240,8 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
               Summary for {selectedMonthSummary.month_name} {selectedYear}
             </h3>
             <ul className="text-sm space-y-1 mb-4">
-              <li>Total registers: {selectedMonthSummary.total_registers}</li>
+              <li>Lead sessions: {selectedMonthSummary.total_lead_sessions || 0}</li>
+              <li>Assistant sessions: {selectedMonthSummary.total_assist_sessions || 0}</li>
             </ul>
             
             <button
@@ -260,9 +263,9 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
               )}
             </button>
             
-            {!selectedMonthSummary.total_registers && (
+            {!selectedMonthSummary.total_lead_sessions && !selectedMonthSummary.total_assist_sessions && (
               <p className="text-sm text-gray-600 mt-2">
-                No registers found for this month. An empty invoice will be created.
+                No coaching sessions found for this month. An empty invoice will be created.
               </p>
             )}
           </div>

@@ -266,30 +266,30 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
         </div>
       ) : (
         <>
-          {/* Month summaries (if no invoice exists for a month with registers) */}
-          {monthSummaries.length > 0 && (
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold mb-2">Available Months for Invoice Generation</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {monthSummaries
-                  .filter(summary => !summary.has_invoice && summary.total_registers > 0)
-                  .map(summary => (
-                    <div key={`${summary.year}-${summary.month}`} className="border p-4 rounded shadow-sm hover:shadow-md transition-shadow">
-                      <h3 className="font-medium">{summary.month_name} {summary.year}</h3>
-                      <p className="text-sm text-gray-600">
-                        {summary.total_registers} registers
-                      </p>
-                      <button 
-                        onClick={onGenerateInvoice}
-                        className="mt-2 text-sm px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-                      >
-                        Generate Invoice
-                      </button>
+        {monthSummaries.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold mb-2">Months to Generate Invoices</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {monthSummaries
+                .filter(summary => !summary.has_invoice && (summary.total_lead_sessions > 0 || summary.total_assist_sessions > 0))
+                .map(summary => (
+                  <div key={`${summary.year}-${summary.month}`} className="border p-4 rounded shadow-sm hover:shadow-md transition-shadow">
+                    <h3 className="font-medium">{summary.month_name} {summary.year}</h3>
+                    <div className="text-sm text-gray-600 space-y-1">
+                      <p>Lead Sessions: {summary.total_lead_sessions}</p>
+                      <p>Assist Sessions: {summary.total_assist_sessions}</p>
                     </div>
-                  ))}
-              </div>
+                    <button 
+                      onClick={onGenerateInvoice}
+                      className="mt-2 text-sm px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                    >
+                      Generate Invoice
+                    </button>
+                  </div>
+                ))}
             </div>
-          )}
+          </div>
+        )}
           
           {/* Invoice list */}
           {filteredInvoices.length === 0 ? (

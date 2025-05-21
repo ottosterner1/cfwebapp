@@ -128,9 +128,9 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
     const today = new Date().toISOString().split('T')[0];
     
     const newItem: InvoiceLineItem = {
-      item_type: 'session',
+      item_type: '',  // Leave type blank for user to select
       is_deduction: false,
-      description: 'Group Session',
+      description: '', // Leave description blank
       date: today,
       hours: 1,
       rate: selectedRate,
@@ -147,11 +147,11 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
     const newItem: InvoiceLineItem = {
       item_type: 'deduction',
       is_deduction: true,
-      description: 'Court Fee',
+      description: '', // Leave description blank
       date: today,
-      hours: 1,
-      rate: 10,
-      amount: 10
+      hours: 0, // Leave hours blank
+      rate: 0,  // Leave rate blank
+      amount: 0 // Will be calculated when user fills in hours and rate
     };
     
     setLineItems([...lineItems, newItem]);
@@ -356,9 +356,10 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                       }}
                       className="px-2 py-1 border border-gray-300 rounded w-full"
                     >
-                      <option value="session">Group</option>
-                      <option value="cardio">Individual</option>
-                      <option value="team">Team</option>
+                      <option value="">Select Type</option>
+                      <option value="group">Group</option>
+                      <option value="camp">Camp</option>
+                      <option value="admin">Admin</option>
                       <option value="other">Other</option>
                       <option value="deduction">Deduction</option>
                     </select>
@@ -369,6 +370,7 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                       value={item.description}
                       onChange={(e) => handleUpdateLineItem(index, 'description', e.target.value)}
                       className="px-2 py-1 border border-gray-300 rounded w-full"
+                      placeholder="Enter description"
                     />
                   </td>
                   <td className="px-4 py-2">
@@ -454,11 +456,11 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
             onClick={handleAddLineItem}
             className="flex-1 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
           >
-            Add Income Item
+            Add Item
           </button>
           <button
             onClick={handleAddDeduction}
-            className="flex-1 py-2 bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors"
+            className="flex-1 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
           >
             Add Deduction
           </button>
@@ -467,7 +469,7 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
         {lineItems.map((item, index) => (
           <div key={index} className={`border rounded p-3 ${item.is_deduction ? 'bg-amber-50 border-amber-200' : 'bg-white'}`}>
             <div className="flex justify-between mb-2">
-              <div className="font-medium">{item.description}</div>
+              <div className="font-medium">{item.description || "No description"}</div>
               <button
                 onClick={() => handleRemoveLineItem(index)}
                 className="text-red-600 hover:text-red-800"
@@ -492,9 +494,10 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                   }}
                   className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
                 >
-                  <option value="session">Group</option>
-                  <option value="cardio">Individual</option>
-                  <option value="team">Team</option>
+                  <option value="">Select Type</option>
+                  <option value="group">Group</option>
+                  <option value="camp">Camp</option>
+                  <option value="admin">Admin</option>
                   <option value="other">Other</option>
                   <option value="deduction">Deduction</option>
                 </select>
@@ -542,6 +545,17 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                   {item.is_deduction ? '-' : ''}{item.amount.toFixed(2)}
                 </div>
               </div>
+            </div>
+            
+            <div className="mt-2">
+              <label className="block text-xs text-gray-500">Description</label>
+              <input
+                type="text"
+                value={item.description}
+                onChange={(e) => handleUpdateLineItem(index, 'description', e.target.value)}
+                className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
+                placeholder="Enter description"
+              />
             </div>
           </div>
         ))}

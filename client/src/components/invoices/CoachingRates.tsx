@@ -8,17 +8,6 @@ interface CoachingRatesProps {
   userRole: 'coach' | 'admin' | 'super_admin';
 }
 
-// Pre-defined rate templates to help users with type information
-const SUGGESTED_RATES = [
-  { name: "Group Coaching", type: "lead" },
-  { name: "Lead Coach", type: "lead" },
-  { name: "Assistant Coach", type: "assistant" },
-  { name: "Private Lesson", type: "lead" },
-  { name: "Admin Work", type: "admin" },
-  { name: "Tournament Coaching", type: "lead" },
-  { name: "Holiday Camp", type: "lead" }
-];
-
 // Rate type options for the dropdown
 const RATE_TYPES = [
   { value: "lead", label: "Lead Coach", color: "bg-green-100 text-green-800" },
@@ -42,8 +31,6 @@ const CoachingRates: React.FC<CoachingRatesProps> = ({ onBack, userRole }) => {
   const [editingRateId, setEditingRateId] = useState<number | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [rateToDelete, setRateToDelete] = useState<CoachingRate | null>(null);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [filteredSuggestions, setFilteredSuggestions] = useState<typeof SUGGESTED_RATES>([]);
   
   const isAdmin = userRole === 'admin' || userRole === 'super_admin';
   
@@ -64,10 +51,7 @@ const CoachingRates: React.FC<CoachingRatesProps> = ({ onBack, userRole }) => {
           const data = await response.json();
           setCoaches(data);
           
-          // Select the first coach by default if there are any
-          if (data.length > 0) {
-            setSelectedCoach(data[0].id);
-          }
+          // No default coach selection for admins
         } else {
           // For coaches, just fetch their own info
           const response = await fetch('/api/user/info');
@@ -128,18 +112,6 @@ const CoachingRates: React.FC<CoachingRatesProps> = ({ onBack, userRole }) => {
     
     fetchRates();
   }, [selectedCoach, isAdmin]);
-  
-  // Filter suggestions based on input
-  useEffect(() => {
-    if (newRate.rate_name.trim() === '') {
-      setFilteredSuggestions(SUGGESTED_RATES);
-    } else {
-      const filtered = SUGGESTED_RATES.filter(
-        suggestion => suggestion.name.toLowerCase().includes(newRate.rate_name.toLowerCase())
-      );
-      setFilteredSuggestions(filtered);
-    }
-  }, [newRate.rate_name]);
   
   // Auto-hide success message after 5 seconds
   useEffect(() => {
@@ -207,7 +179,6 @@ const CoachingRates: React.FC<CoachingRatesProps> = ({ onBack, userRole }) => {
       setNewRate({ rate_name: '', hourly_rate: '', rate_type: 'lead' });
       setEditingRateId(null);
       setError(null);
-      setShowSuggestions(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save rate');
     } finally {
@@ -269,31 +240,18 @@ const CoachingRates: React.FC<CoachingRatesProps> = ({ onBack, userRole }) => {
     if (isAdmin) {
       setSelectedCoach(rate.coach_id);
     }
-    
-    setShowSuggestions(false);
   };
   
   // Cancel editing
   const handleCancelEdit = () => {
     setNewRate({ rate_name: '', hourly_rate: '', rate_type: 'lead' });
     setEditingRateId(null);
-    setShowSuggestions(false);
-  };
-  
-  // Select a suggestion
-  const handleSelectSuggestion = (suggestion: { name: string, type: string }) => {
-    setNewRate({ 
-      ...newRate, 
-      rate_name: suggestion.name,
-      rate_type: suggestion.type as RateType
-    });
-    setShowSuggestions(false);
   };
   
   // Get the selected coach name
   const getSelectedCoachName = () => {
     const coach = coaches.find(c => c.id === selectedCoach);
-    return coach ? coach.name : 'Select a coach';
+    return coach ? coach.name : 'No coach selected';
   };
 
   // Get rate type display info
@@ -354,7 +312,7 @@ const CoachingRates: React.FC<CoachingRatesProps> = ({ onBack, userRole }) => {
               <select
                 value={selectedCoach || ''}
                 onChange={(e) => {
-                  setSelectedCoach(Number(e.target.value));
+                  setSelectedCoach(Number(e.target.value) || null);
                   setNewRate({ rate_name: '', hourly_rate: '', rate_type: 'lead' });
                   setEditingRateId(null);
                 }}
@@ -378,7 +336,7 @@ const CoachingRates: React.FC<CoachingRatesProps> = ({ onBack, userRole }) => {
           </h2>
           
           <form onSubmit={handleSubmit}>
-            <div className="mb-4 relative">
+            <div className="mb-4">
               <label htmlFor="rate_name" className="block text-sm font-medium text-gray-700 mb-1">
                 Rate Name
               </label>
@@ -386,51 +344,13 @@ const CoachingRates: React.FC<CoachingRatesProps> = ({ onBack, userRole }) => {
                 type="text"
                 id="rate_name"
                 value={newRate.rate_name}
-                onChange={(e) => {
-                  setNewRate({ ...newRate, rate_name: e.target.value });
-                  setShowSuggestions(true);
-                }}
-                onFocus={() => setShowSuggestions(true)}
+                onChange={(e) => setNewRate({ ...newRate, rate_name: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded"
                 placeholder="e.g. Lead Coach, Assistant Coach, Admin Work"
                 disabled={loading}
               />
-              
-              {/* Rate Name Suggestions */}
-              {showSuggestions && filteredSuggestions.length > 0 && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded shadow-lg max-h-60 overflow-auto">
-                  {filteredSuggestions.map((suggestion, index) => (
-                    <div
-                      key={index}
-                      className={`px-4 py-2 cursor-pointer hover:bg-gray-100 ${
-                        suggestion.type === 'assistant' ? 'bg-blue-50' : 
-                        suggestion.type === 'lead' ? 'bg-green-50' : 
-                        suggestion.type === 'admin' ? 'bg-purple-50' : 'bg-gray-50'
-                      }`}
-                      onClick={() => handleSelectSuggestion(suggestion)}
-                    >
-                      {suggestion.name}
-                      <span className={`ml-2 text-xs ${
-                        suggestion.type === 'assistant' ? 'text-blue-600' : 
-                        suggestion.type === 'lead' ? 'text-green-600' : 
-                        suggestion.type === 'admin' ? 'text-purple-600' : 'text-gray-600'
-                      }`}>
-                        ({getRateTypeInfo(suggestion.type).label})
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              
               <p className="mt-1 text-sm text-gray-500">
-                Use descriptive names like "Lead Coach", "Group Coaching", etc. 
-                <button 
-                  type="button" 
-                  onClick={() => setShowSuggestions(!showSuggestions)}
-                  className="ml-1 text-blue-600 hover:underline"
-                >
-                  View suggestions
-                </button>
+                Use descriptive names like "Lead Coach", "Group Coaching", etc.
               </p>
             </div>
             
@@ -506,12 +426,16 @@ const CoachingRates: React.FC<CoachingRatesProps> = ({ onBack, userRole }) => {
       <div className="bg-white p-6 rounded-lg shadow-sm">
         <h2 className="text-lg font-semibold mb-4">
           {isAdmin 
-            ? `Coaching Rates for ${getSelectedCoachName()}`
+            ? selectedCoach ? `Coaching Rates for ${getSelectedCoachName()}` : 'Select a coach to view rates'
             : 'Your Coaching Rates'
           }
         </h2>
         
-        {loading && !editingRateId ? (
+        {!selectedCoach && isAdmin ? (
+          <div className="text-center py-4 text-gray-500">
+            Please select a coach to view their rates.
+          </div>
+        ) : loading && !editingRateId ? (
           <div className="flex justify-center py-4">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
           </div>

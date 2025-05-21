@@ -25,7 +25,7 @@ class CoachingRate(db.Model):
     coach_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     tennis_club_id = db.Column(db.Integer, db.ForeignKey('tennis_club.id'), nullable=False)
     rate_name = db.Column(db.String(50), nullable=False)  # e.g., 'Group Coaching', 'Private Lesson'
-    rate_type = db.Column(SQLAEnum(RateType), default=RateType.OTHER)  # New column
+    rate_type = db.Column(SQLAEnum(RateType, name='ratetype', values_callable=lambda x: [e.value for e in x]), default=RateType.OTHER)
     hourly_rate = db.Column(db.Float, nullable=False)
     created_at = db.Column(db.DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
     updated_at = db.Column(db.DateTime(timezone=True), onupdate=text('CURRENT_TIMESTAMP'))

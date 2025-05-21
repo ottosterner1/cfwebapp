@@ -52,14 +52,12 @@ export interface InvoiceGenerateResponse {
 }
 
 export interface InvoiceMonthSummary {
+  year: number;
   month: number;
   month_name: string;
-  year: number;
-  total_registers: number;
-  total_hours: number;
   has_invoice: boolean;
-  invoice_id?: number;
-  invoice_status?: InvoiceStatus;
+  total_lead_sessions: number;
+  total_assist_sessions: number;
 }
 
 export interface CoachingRate {

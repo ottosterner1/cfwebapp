@@ -7,7 +7,7 @@ import getpass
 import sys
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
+# Load environment variables from .envrc file
 load_dotenv()
 
 def migrate_database(source_db_url, target_db_url, target_name):
