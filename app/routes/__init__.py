@@ -1,8 +1,3 @@
-"""
-Routes package for the application.
-Imports and registers all route blueprints.
-"""
-
 def register_routes(app):
     """Register all application routes with the Flask app"""
     
@@ -17,6 +12,8 @@ def register_routes(app):
     
     # Import register routes - both API and view routes
     from app.routes.registers import register_routes, register_views
+    from app.routes.invoices_view import invoice_views
+    from app.routes.invoicing import invoice_routes 
     
     # Register blueprints
     app.register_blueprint(main)
@@ -30,5 +27,7 @@ def register_routes(app):
     
     # Register the view routes for the register functionality
     app.register_blueprint(register_views)
+    app.register_blueprint(invoice_views)
+    app.register_blueprint(invoice_routes)  # Add this line
     
     return app

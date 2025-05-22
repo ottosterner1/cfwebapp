@@ -7,6 +7,15 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    // Turn off HMR to prevent refresh loops
+    hmr: false,
+    // Add CORS headers
+    cors: {
+      origin: ['https://cfwebapp.local'],
+      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      credentials: true
+    },
+    // Keep your existing proxy configuration
     proxy: {
       '/api': {
         target: 'https://cfwebapp.local',
@@ -31,6 +40,8 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     assetsDir: 'assets',
+    // Increase warning limit since we know we have a few large chunks
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),  
@@ -49,7 +60,26 @@ export default defineConfig({
         registers: path.resolve(__dirname, 'src/entry/registers.tsx'),
         create_register: path.resolve(__dirname, 'src/entry/create_register.tsx'),
         edit_register: path.resolve(__dirname, 'src/entry/edit_register.tsx'),
-        view_register: path.resolve(__dirname, 'src/entry/view_register.tsx')
+        view_register: path.resolve(__dirname, 'src/entry/view_register.tsx'),
+        invoices: path.resolve(__dirname, 'src/entry/invoices.tsx'),
+      },
+      output: {
+        manualChunks: (id) => {
+          // Put react in a vendor chunk
+          if (id.includes('node_modules/react') || 
+              id.includes('node_modules/react-dom')) {
+            return 'vendor-react';
+          }
+          
+          // Put PDF-related dependencies in separate chunks
+          if (id.includes('node_modules/html2canvas')) {
+            return 'vendor-html2canvas';
+          }
+          
+          if (id.includes('node_modules/jspdf')) {
+            return 'vendor-jspdf';
+          }
+        }
       }
     }
   }
