@@ -196,32 +196,41 @@ def _process_lead_coach_register(register, invoice, coach_id):
     group_name = group_time.tennis_group.name if group_time.tennis_group else "Unknown Group"
     
     # Get the group session rate - try in this order:
-    # 1. Rate specific to this group (e.g., "Green Group")
-    # 2. Rate for "Lead Coach" 
-    # 3. Generic "Group Coaching" rate
+    # 1. Rate with LEAD type that's specific to this group (e.g., "Green Group")
+    # 2. Any rate with LEAD type
+    # 3. Rate specific to this group (fallback for backwards compatibility)
     # 4. Default to zero rate if nothing found
     
-    # 1. Try group-specific rate first
+    # 1. Try group-specific rate with LEAD type first
     coaching_rate = CoachingRate.query.filter_by(
         coach_id=coach_id,
         tennis_club_id=register.tennis_club_id,
-        rate_name=group_name
+        rate_name=group_name,
+        rate_type=RateType.LEAD
     ).first()
     
-    # 2. If no group-specific rate, try "Lead Coach" rate
+    # 2. If no group-specific LEAD rate, try any LEAD rate
     if not coaching_rate:
         coaching_rate = CoachingRate.query.filter_by(
             coach_id=coach_id,
             tennis_club_id=register.tennis_club_id,
-            rate_name="Lead Coach"
+            rate_type=RateType.LEAD
         ).first()
     
-    # 3. If no lead coach rate, try generic "Group Coaching" rate
+    # 3. Fallback: Try group-specific rate regardless of type (backwards compatibility)
     if not coaching_rate:
         coaching_rate = CoachingRate.query.filter_by(
             coach_id=coach_id,
             tennis_club_id=register.tennis_club_id,
-            rate_name="Group Coaching"
+            rate_name=group_name
+        ).first()
+    
+    # 4. Fallback: Try any rate with "lead" in the name (backwards compatibility)
+    if not coaching_rate:
+        coaching_rate = CoachingRate.query.filter(
+            CoachingRate.coach_id == coach_id,
+            CoachingRate.tennis_club_id == register.tennis_club_id,
+            CoachingRate.rate_name.ilike('%lead%')
         ).first()
     
     # Set rate and amount values
@@ -229,16 +238,17 @@ def _process_lead_coach_register(register, invoice, coach_id):
         rate_name = coaching_rate.rate_name
         rate_value = coaching_rate.hourly_rate
         amount_value = duration_in_hours * rate_value
-        notes = f"Auto-generated from register (Rate: {rate_name})"
+        rate_type_str = coaching_rate.rate_type.value if coaching_rate.rate_type else 'unknown'
+        notes = f"Auto-generated from register (Rate: {rate_name}, Type: {rate_type_str})"
     else:
         # Default to zero rate for manual adjustment later
         rate_value = 0.0
         amount_value = 0.0
-        notes = "Rate not found - please set manually"
+        notes = "Lead coach rate not found - please set manually"
         
         # Log a warning
         current_app.logger.warning(
-            f"No coaching rate found for coach {coach_id} and group {group_name}. "
+            f"No lead coaching rate found for coach {coach_id} and group {group_name}. "
             f"Creating line item with zero rate for register {register.id}."
         )
     
@@ -282,48 +292,61 @@ def _process_assistant_coach_register(register, invoice, coach_id):
     group_name = group_time.tennis_group.name if group_time.tennis_group else "Unknown Group"
     
     # Get the assistant rate - try in this order:
-    # 1. Group-specific assistant rate (e.g. "Green Group Assistant")
-    # 2. Generic "Assistant Coach" rate
-    # 3. Fall back to the same rates as lead coach
-    # 4. Default to zero rate if nothing found
+    # 1. Rate with ASSISTANT type that's specific to this group (e.g., "Green Group")
+    # 2. Any rate with ASSISTANT type
+    # 3. Rate specific to this group with "assistant" in name (backwards compatibility)
+    # 4. Any rate with "assistant" in name (backwards compatibility)
+    # 5. Fall back to lead rates if no assistant rates found
+    # 6. Default to zero rate if nothing found
     
-    # 1. Try group-specific assistant rate
+    # 1. Try group-specific rate with ASSISTANT type
     coaching_rate = CoachingRate.query.filter_by(
         coach_id=coach_id,
         tennis_club_id=register.tennis_club_id,
-        rate_name=f"{group_name} Assistant"
+        rate_name=group_name,
+        rate_type=RateType.ASSISTANT
     ).first()
     
-    # 2. Try generic "Assistant Coach" rate
+    # 2. Try any ASSISTANT rate
     if not coaching_rate:
         coaching_rate = CoachingRate.query.filter_by(
             coach_id=coach_id,
             tennis_club_id=register.tennis_club_id,
-            rate_name="Assistant Coach"
+            rate_type=RateType.ASSISTANT
         ).first()
     
-    # 3. Fall back to group-specific rate
+    # 3. Fallback: Try group-specific rate with "assistant" in name (backwards compatibility)
     if not coaching_rate:
-        coaching_rate = CoachingRate.query.filter_by(
-            coach_id=coach_id,
-            tennis_club_id=register.tennis_club_id,
-            rate_name=group_name
+        coaching_rate = CoachingRate.query.filter(
+            CoachingRate.coach_id == coach_id,
+            CoachingRate.tennis_club_id == register.tennis_club_id,
+            CoachingRate.rate_name.ilike(f'%{group_name}%assistant%')
         ).first()
     
-    # 4. Try "Lead Coach" rate
+    # 4. Fallback: Try any rate with "assistant" in name (backwards compatibility)
     if not coaching_rate:
-        coaching_rate = CoachingRate.query.filter_by(
-            coach_id=coach_id,
-            tennis_club_id=register.tennis_club_id,
-            rate_name="Lead Coach"
+        coaching_rate = CoachingRate.query.filter(
+            CoachingRate.coach_id == coach_id,
+            CoachingRate.tennis_club_id == register.tennis_club_id,
+            CoachingRate.rate_name.ilike('%assistant%')
         ).first()
     
-    # 5. Try generic "Group Coaching" rate
+    # 5. Fall back to lead rates if no assistant rates found
+    if not coaching_rate:
+        # Try group-specific LEAD rate
+        coaching_rate = CoachingRate.query.filter_by(
+            coach_id=coach_id,
+            tennis_club_id=register.tennis_club_id,
+            rate_name=group_name,
+            rate_type=RateType.LEAD
+        ).first()
+    
+    # 6. Try any LEAD rate
     if not coaching_rate:
         coaching_rate = CoachingRate.query.filter_by(
             coach_id=coach_id,
             tennis_club_id=register.tennis_club_id,
-            rate_name="Group Coaching"
+            rate_type=RateType.LEAD
         ).first()
     
     # Set rate and amount values
@@ -331,12 +354,13 @@ def _process_assistant_coach_register(register, invoice, coach_id):
         rate_name = coaching_rate.rate_name
         rate_value = coaching_rate.hourly_rate
         amount_value = duration_in_hours * rate_value
-        notes = f"Auto-generated from register (Rate: {rate_name})"
+        rate_type_str = coaching_rate.rate_type.value if coaching_rate.rate_type else 'unknown'
+        notes = f"Auto-generated from register (Rate: {rate_name}, Type: {rate_type_str})"
     else:
         # Default to zero rate for manual adjustment later
         rate_value = 0.0
         amount_value = 0.0
-        notes = "Assistant rate not found - please set manually"
+        notes = "Assistant coach rate not found - please set manually"
         
         # Log a warning
         current_app.logger.warning(
