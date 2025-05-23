@@ -153,7 +153,7 @@ class CoachDetails(db.Model):
 
     # Accreditations
     accreditation_expiry = db.Column(db.DateTime(timezone=True))
-    bcta_accreditation = db.Column(db.String(10), default='N/A')
+    bcta_accreditation = db.Column(db.DateTime(timezone=True)) 
 
     # DBS Information
     dbs_number = db.Column(db.String(50))

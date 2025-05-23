@@ -12,21 +12,28 @@ admin_routes = Blueprint('admin', __name__, url_prefix='/api')
 
 @admin_routes.route('/coaches/accreditations')
 @login_required
-@admin_required
 def get_coach_accreditations():
+    """Get accreditation status for coaches - accessible to all users"""
     club_id = current_user.tennis_club_id
-    coaches = User.query.filter(
-        and_(
-            User.tennis_club_id == club_id,
-            or_(
-                User.role == UserRole.COACH,
-                User.role == UserRole.ADMIN,
-                User.role == UserRole.SUPER_ADMIN
+    
+    # If user is admin or super_admin, get all coaches
+    # Otherwise, only get the current user
+    if current_user.is_admin or current_user.is_super_admin:
+        coaches = User.query.filter(
+            and_(
+                User.tennis_club_id == club_id,
+                or_(
+                    User.role == UserRole.COACH,
+                    User.role == UserRole.ADMIN,
+                    User.role == UserRole.SUPER_ADMIN
+                )
             )
-        )
-    ).all()
+        ).all()
+    else:
+        coaches = [current_user]  # Only include the current user
     
     def get_accreditation_status(expiry_date):
+        """Get status for date-based accreditations"""
         if not expiry_date:
             return {'status': 'expired', 'days_remaining': None}
             
@@ -42,6 +49,7 @@ def get_coach_accreditations():
             return {'status': 'warning', 'days_remaining': days_remaining}
         else:
             return {'status': 'valid', 'days_remaining': days_remaining}
+
     
     coach_data = []
     for coach in coaches:
@@ -52,14 +60,16 @@ def get_coach_accreditations():
                 'first_aid': get_accreditation_status(details.first_aid_expiry),
                 'safeguarding': get_accreditation_status(details.safeguarding_expiry),
                 'pediatric_first_aid': get_accreditation_status(details.pediatric_first_aid_expiry),
-                'accreditation': get_accreditation_status(details.accreditation_expiry)
+                'accreditation': get_accreditation_status(details.accreditation_expiry),
+                'bcta_accreditation': get_accreditation_status(details.bcta_accreditation) 
             }
             
             coach_data.append({
                 'id': coach.id,
                 'name': coach.name,
                 'email': coach.email,
-                'accreditations': accreditations
+                'accreditations': accreditations,
+                'is_current_user': coach.id == current_user.id
             })
     
     return jsonify(coach_data)
@@ -68,7 +78,7 @@ def get_coach_accreditations():
 @login_required
 @admin_required
 def send_accreditation_reminders():
-    """Send accreditation reminder emails to coaches"""
+    """Send accreditation reminder emails to coaches - admin only"""
     try:
         club_id = current_user.tennis_club_id
         club_name = current_user.tennis_club.name
@@ -94,7 +104,8 @@ def send_accreditation_reminders():
             'first_aid_expiry': ('First Aid', 'First Aid'),
             'safeguarding_expiry': ('Safeguarding', 'Safeguarding'),
             'pediatric_first_aid_expiry': ('Pediatric First Aid', 'Pediatric First Aid'),
-            'accreditation_expiry': ('LTA Accreditation', 'LTA Accreditation')
+            'accreditation_expiry': ('LTA Accreditation', 'LTA Accreditation'),
+            'bcta_accreditation': ('BCTA Accreditation', 'BCTA Accreditation')
         }
         
         current_time = datetime.now(timezone.utc)
@@ -112,6 +123,7 @@ def send_accreditation_reminders():
             
             # Check each accreditation type
             for field_name, (display_name, email_name) in accreditation_types.items():
+                
                 expiry_date = getattr(details, field_name)
                 
                 # Skip if expiry date is not set
@@ -179,13 +191,18 @@ def send_accreditation_reminders():
             
             # Add each issue to the email
             for issue in issues:
-                formatted_date = issue['expiry_date'].strftime('%d/%m/%Y')
-                status_color = "#dc2626" if issue['status'] == 'expired' else "#eab308"
-                
-                if issue['status'] == 'expired':
-                    status_text = f"<span style='color: {status_color};'><strong>EXPIRED</strong></span> on {formatted_date} ({abs(issue['days_remaining'])} days ago)"
+                if 'expiry_date' in issue and issue['expiry_date']:
+                    formatted_date = issue['expiry_date'].strftime('%d/%m/%Y')
+                    status_color = "#dc2626" if issue['status'] == 'expired' else "#eab308"
+                    
+                    if issue['status'] == 'expired':
+                        status_text = f"<span style='color: {status_color};'><strong>EXPIRED</strong></span> on {formatted_date} ({abs(issue['days_remaining'])} days ago)"
+                    else:
+                        status_text = f"<span style='color: {status_color};'><strong>EXPIRING SOON</strong></span> on {formatted_date} ({issue['days_remaining']} days remaining)"
                 else:
-                    status_text = f"<span style='color: {status_color};'><strong>EXPIRING SOON</strong></span> on {formatted_date} ({issue['days_remaining']} days remaining)"
+                    # Handle non-date fields like BCTA accreditation
+                    status_color = "#dc2626"
+                    status_text = f"<span style='color: {status_color};'><strong>MISSING</strong></span> - Please update your profile"
                 
                 html_body += f"""
                     <li style="margin-bottom: 15px; padding: 10px; border-left: 4px solid {status_color}; background-color: #f9fafb;">

@@ -3,7 +3,8 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/ca
 import { Alert, AlertDescription } from '../../components/ui/alert';
 import { PencilIcon, Calendar, AlertTriangle, CheckCircle, XCircle, Bell } from 'lucide-react';
 
-type AccreditationType = 'dbs' | 'first_aid' | 'safeguarding' | 'pediatric_first_aid' | 'accreditation';
+// Update AccreditationType to include bcta_accreditation
+type AccreditationType = 'dbs' | 'first_aid' | 'safeguarding' | 'pediatric_first_aid' | 'accreditation' | 'bcta_accreditation';
 
 interface Coach {
   id: number;
@@ -16,17 +17,39 @@ interface Coach {
       days_remaining: number | null;
     };
   };
+  is_current_user: boolean;
+}
+
+interface CurrentUser {
+  is_admin: boolean;
+  is_super_admin: boolean;
 }
 
 const AccreditationDashboard = () => {
   const [coaches, setCoaches] = useState<Coach[]>([]);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sendingReminders, setSendingReminders] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   useEffect(() => {
-    fetchCoachesData();
+    // Fetch current user info first
+    const fetchCurrentUser = async () => {
+      try {
+        const response = await fetch('/api/current-user');
+        if (!response.ok) throw new Error('Failed to fetch current user');
+        const data = await response.json();
+        setCurrentUser({
+          is_admin: data.is_admin,
+          is_super_admin: data.is_super_admin
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch user data');
+      }
+    };
+
+    fetchCurrentUser().then(() => fetchCoachesData());
   }, []);
 
   const fetchCoachesData = async () => {
@@ -63,7 +86,7 @@ const AccreditationDashboard = () => {
         const accreditation = coach.accreditations[key];
         // Only include if it has a valid date (days_remaining is not null)
         // and it's either warning or expired status
-        if (accreditation.days_remaining !== null && 
+        if (accreditation?.days_remaining !== null && 
             (accreditation.status === 'warning' || accreditation.status === 'expired')) {
           coachReminders.push({
             type: label,
@@ -182,29 +205,38 @@ const AccreditationDashboard = () => {
     );
   }
 
+  // Add bcta_accreditation to the list of accreditation types
   const accreditationTypes: { key: AccreditationType; label: string }[] = [
     { key: 'dbs', label: 'DBS Check' },
     { key: 'first_aid', label: 'First Aid' },
     { key: 'safeguarding', label: 'Safeguarding' },
     { key: 'pediatric_first_aid', label: 'Pediatric First Aid' },
     { key: 'accreditation', label: 'LTA Accreditation' },
+    { key: 'bcta_accreditation', label: 'BCTA Accreditation' },
   ];
 
   const { details: reminderDetails, reminderCount, noticeCount, totalCoaches } = getDetailedReminderInfo();
+
+  // Filter coaches based on user role
+  const visibleCoaches = currentUser?.is_admin || currentUser?.is_super_admin 
+    ? coaches 
+    : coaches.filter(coach => coach.is_current_user);
 
   return (
     <>
       <Card className="w-full">
         <CardHeader className="flex flex-col sm:flex-row items-center justify-between">
           <CardTitle>Coach Accreditation Status</CardTitle>
-          <button
-            onClick={handleSendReminders}
-            disabled={sendingReminders}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 mt-4 sm:mt-0"
-          >
-            <Bell className="h-4 w-4 mr-2" />
-            {sendingReminders ? 'Sending...' : 'Send Reminders'}
-          </button>
+          {(currentUser?.is_admin || currentUser?.is_super_admin) && (
+            <button
+              onClick={handleSendReminders}
+              disabled={sendingReminders}
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 mt-4 sm:mt-0"
+            >
+              <Bell className="h-4 w-4 mr-2" />
+              {sendingReminders ? 'Sending...' : 'Send Reminders'}
+            </button>
+          )}
         </CardHeader>
 
         <CardContent>
@@ -215,24 +247,35 @@ const AccreditationDashboard = () => {
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {coaches.map((coach) => (
+            {visibleCoaches.map((coach) => (
               <div key={coach.id} className="border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow duration-200">
                 <div className="flex justify-between items-start mb-4">
                   <div>
-                    <h3 className="font-semibold text-lg">{coach.name}</h3>
+                    <h3 className="font-semibold text-lg">
+                      {coach.name}
+                      {coach.is_current_user && (
+                        <span className="ml-2 px-2 py-0.5 text-xs bg-blue-100 text-blue-800 rounded-full">
+                          You
+                        </span>
+                      )}
+                    </h3>
                     <p className="text-sm text-gray-500">{coach.email}</p>
                   </div>
-                  <button
-                    onClick={() => navigateToEditCoach(coach.id)}
-                    className="text-blue-600 hover:text-blue-900 focus:outline-none flex items-center p-2 rounded-full hover:bg-blue-50"
-                    aria-label={`Edit ${coach.name}`}
-                  >
-                    <PencilIcon className="h-5 w-5" />
-                  </button>
+                  {(currentUser?.is_admin || currentUser?.is_super_admin) && (
+                    <button
+                      onClick={() => navigateToEditCoach(coach.id)}
+                      className="text-blue-600 hover:text-blue-900 focus:outline-none flex items-center p-2 rounded-full hover:bg-blue-50"
+                      aria-label={`Edit ${coach.name}`}
+                    >
+                      <PencilIcon className="h-5 w-5" />
+                    </button>
+                  )}
                 </div>
                 <div className="space-y-2">
                   {accreditationTypes.map(({ key, label }) => {
                     const accreditation = coach.accreditations[key];
+                    if (!accreditation) return null;
+                    
                     return (
                       <div key={key} className="flex justify-between items-center p-2 hover:bg-gray-50 rounded-md">
                         <span className="text-sm font-medium">{label}</span>
@@ -247,11 +290,17 @@ const AccreditationDashboard = () => {
               </div>
             ))}
           </div>
+
+          {visibleCoaches.length === 0 && (
+            <div className="text-center py-8">
+              <p className="text-gray-500">No coach accreditation data available.</p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Confirmation Dialog */}
-      {showConfirmDialog && (
+      {/* Confirmation Dialog - Only shown to admins */}
+      {(currentUser?.is_admin || currentUser?.is_super_admin) && showConfirmDialog && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <div className="mt-3 text-center">

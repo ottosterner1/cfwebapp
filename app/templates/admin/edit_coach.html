@@ -48,7 +48,8 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {{ form_select("coach_role", "Role", coach_roles, details.coach_role if details else None) }}
                     {{ form_field("utr_number", "UTR Number", details.utr_number if details else "") }}
-                    {{ form_date("accreditation_expiry", "Accreditation Expiry", details.accreditation_expiry if details else None) }}
+                    {{ form_date("accreditation_expiry", "LTA Accreditation Expiry", details.accreditation_expiry if details else None) }}
+                    {{ form_date("bcta_accreditation", "BCTA Accreditation Expiry", details.bcta_accreditation if details else None) }}
                 </div>
             </div>
 

@@ -35,7 +35,7 @@ def dashboard():
 
 @main.route('/lta-accreditation')
 @login_required
-@admin_required
+@verify_club_access()
 def lta_accreditation():
     return render_template('pages/lta_accreditation.html')  
 
