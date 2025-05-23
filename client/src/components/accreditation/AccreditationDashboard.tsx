@@ -359,9 +359,6 @@ const AccreditationDashboard = () => {
                     ))}
                   </ul>
                 </div>
-                <p className="text-xs text-gray-400 mt-3">
-                  Note: Emails will be sent to ottosterner1@gmail.com for testing purposes.
-                </p>
               </div>
               <div className="items-center px-4 py-3">
                 <button
