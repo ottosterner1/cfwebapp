@@ -24,6 +24,11 @@ from app.models.register import (
     Register, RegisterEntry, RegisterAssistantCoach
 )
 
+# Register models
+from app.models.invoice import (
+    CoachingRate, Invoice, InvoiceLineItem, InvoiceStatus, RateType
+)
+
 # This approach maintains backward compatibility
 # Old code can still import from app.models without changes
 # while new code can import specific models from their respective modules

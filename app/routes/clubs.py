@@ -1071,6 +1071,7 @@ def edit_coach(club_id, coach_id):
             # Parse dates
             details.date_of_birth = parse_birth_date(request.form.get('date_of_birth'))
             details.accreditation_expiry = parse_date(request.form.get('accreditation_expiry'))
+            details.bcta_accreditation = parse_date(request.form.get('bcta_accreditation'))  # Now parsed as a date
             details.dbs_expiry = parse_date(request.form.get('dbs_expiry'))
             details.first_aid_expiry = parse_date(request.form.get('first_aid_expiry'))
             details.safeguarding_expiry = parse_date(request.form.get('safeguarding_expiry'))
@@ -1083,9 +1084,8 @@ def edit_coach(club_id, coach_id):
             fields = [
                 'contact_number', 'emergency_contact_name', 'emergency_contact_number',
                 'address_line1', 'address_line2', 'city', 'postcode',
-                'utr_number', 'bcta_accreditation', 'dbs_number', 
-                'dbs_update_service_id'
-            ]
+                'utr_number', 'dbs_number', 'dbs_update_service_id'
+            ]  # Removed bcta_accreditation from this list since it's now a date field
             
             for field in fields:
                 value = request.form.get(field)
