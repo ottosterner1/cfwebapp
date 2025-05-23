@@ -512,31 +512,31 @@ def submit_invoice(invoice_id):
     invoice.submitted_at = datetime.now(timezone.utc)
     db.session.commit()
     
-    # # Notify admin
-    # admin_users = User.query.filter_by(
-    #     tennis_club_id=current_user.tennis_club_id,
-    #     role=UserRole.ADMIN
-    # ).all()
+    # Notify admin
+    admin_users = User.query.filter_by(
+        tennis_club_id=current_user.tennis_club_id,
+        role=UserRole.ADMIN
+    ).all()
     
-    # email_service = EmailService()
-    # for admin in admin_users:
-    #     # Send email notification
-    #     email_subject = f"{'Resubmitted' if is_resubmission else 'New'} Invoice - {current_user.name} - {invoice.month}/{invoice.year}"
-    #     email_body = f"""
-    #     <p>Hello {admin.name},</p>
-    #     <p>{current_user.name} has {'resubmitted' if is_resubmission else 'submitted'} an invoice for {calendar.month_name[invoice.month]} {invoice.year}.</p>
-    #     <p>Invoice #: {invoice.invoice_number}</p>
-    #     <p>Total amount: £{invoice.total:.2f}</p>
-    #     <p>Please log in to the system to review and approve this invoice.</p>
-    #     """
+    email_service = EmailService()
+    for admin in admin_users:
+        # Send email notification
+        email_subject = f"{'Resubmitted' if is_resubmission else 'New'} Invoice - {current_user.name} - {invoice.month}/{invoice.year}"
+        email_body = f"""
+        <p>Hello {admin.name},</p>
+        <p>{current_user.name} has {'resubmitted' if is_resubmission else 'submitted'} an invoice for {calendar.month_name[invoice.month]} {invoice.year}.</p>
+        <p>Invoice #: {invoice.invoice_number}</p>
+        <p>Total amount: £{invoice.total:.2f}</p>
+        <p>Please log in to the system to review and approve this invoice.</p>
+        """
         
-    #     # Use your existing email service
-    #     email_service.send_generic_email(
-    #         recipient_email=admin.email,
-    #         subject=email_subject,
-    #         html_content=email_body,
-    #         sender_name="CourtFlow Invoicing"
-    #     )
+        # Use your existing email service
+        email_service.send_generic_email(
+            recipient_email=admin.email,
+            subject=email_subject,
+            html_content=email_body,
+            sender_name="CourtFlow Invoicing"
+        )
     
     return jsonify({
         'status': invoice.status.value,
