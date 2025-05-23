@@ -164,7 +164,8 @@ def send_accreditation_reminders():
                 
             # Compose email with all accreditation issues for this coach
             # For testing purposes, send to ottosterner1@gmail.com
-            recipient_email = "ottosterner1@gmail.com"
+            # recipient_email = "ottosterner1@gmail.com"
+            recipient_email = coach.email
             coach_name = coach.name
             
             # Determine most urgent issue type (expired takes precedence over warning)
