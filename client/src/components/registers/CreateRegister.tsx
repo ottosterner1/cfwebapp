@@ -449,7 +449,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     
     // Get additional future occurrences of the selected day
     let futureDate = new Date(matchingDates[matchingDates.length - 1]);
-    for (let i = 0; i < 4; i++) {  // Add 4 more future dates
+    for (let i = 0; i < 1; i++) {  // Add 2 more future dates
       futureDate = new Date(futureDate.getTime() + 7 * 24 * 60 * 60 * 1000); // Add exactly 7 days
       matchingDates.push(futureDate.toISOString().split('T')[0]);
     }
@@ -460,18 +460,9 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     // Update available dates
     setAvailableDates(matchingDates);
     
-    // Find today's date
-    const todayStr = today.toISOString().split('T')[0];
-    
-    // Find the date that's today or the next upcoming one
-    let defaultDateIndex = matchingDates.findIndex(date => date >= todayStr);
-    if (defaultDateIndex === -1) defaultDateIndex = matchingDates.length - 1;
-    
-    // Auto-select the current date or next upcoming one if none is selected
-    if (matchingDates.length > 0 && !selectedDate) {
-      setSelectedDate(matchingDates[defaultDateIndex]);
-    }
-  }, [selectedDay, selectedTimeSlotId, selectedDate]);
+    // DO NOT auto-select any date - force coaches to manually select the correct session date
+    // This prevents confusion when coaches fill out registers late and accidentally select future dates
+  }, [selectedDay, selectedTimeSlotId]);
 
   // Fetch players when all required criteria are set
   useEffect(() => {
@@ -523,14 +514,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     
     fetchPlayers();
   }, [selectedTimeSlotId, selectedPeriodId, selectedGroupId, selectedDay, showAllPlayerInfo]);
-
-  // Handle date focus for makeup class
-  const handleDateFocus = () => {
-    // Only set date for non-makeup classes if it's currently empty
-    if (!selectedDate && !isMakeupClass && availableDates.length > 0) {
-      setSelectedDate(availableDates[0]);
-    }
-  };
 
   // Handle toggling show all sessions
   const handleToggleShowAllSessions = () => {
@@ -947,7 +930,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
                   id="dateSelect"
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
-                  onFocus={handleDateFocus}
                   className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                   required
                   disabled={availableDates.length === 0}
