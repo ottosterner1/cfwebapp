@@ -10,6 +10,7 @@ class FeatureType:
     MANAGE_PROGRAMME = 'manage_programme'
     LTA_ACCREDITATION = 'lta_accreditation'
     REGISTERS = 'registers'
+    INVOICES = 'invoices'
     
     @classmethod
     def get_all_features(cls):
@@ -42,5 +43,11 @@ class FeatureType:
                 'display_name': 'Registers', 
                 'description': 'Track player attendance for groups',
                 'icon': '📋'
+            },
+            { 
+                'name': cls.INVOICES,
+                'display_name': 'Invoice Management', 
+                'description': 'Create, manage and track invoices for coaching sessions',
+                'icon': '💰'
             }
         ]
