@@ -801,15 +801,15 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
           </div>
         </div>
         
-        {/* Notes */}
-        {invoice.notes && (
-          <div className="mb-6">
-            <h3 className="text-lg font-medium text-gray-800 mb-2">Notes</h3>
-            <div className="p-4 bg-gray-50 rounded border">
-              {invoice.notes}
-            </div>
+      {/* Notes */}
+      {invoice.notes && (
+        <div className="mb-6">
+          <h3 className="text-lg font-medium text-gray-800 mb-2">Notes</h3>
+          <div className="p-4 bg-gray-50 rounded border whitespace-pre-wrap">
+            {invoice.notes}
           </div>
-        )}
+        </div>
+      )}
       </div>
       
       {/* Rejection form - outside of print area */}
