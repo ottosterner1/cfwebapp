@@ -1372,3 +1372,60 @@ def update_assistant_coaches(register_id):
         current_app.logger.error(f"Error updating assistant coaches: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
+    
+@register_routes.route('/registers/<int:register_id>/clear-notes', methods=['DELETE'])
+@login_required
+@verify_club_access()
+def clear_register_notes(register_id):
+    """Clear/delete notes from a register"""
+    try:
+        register = Register.query.get_or_404(register_id)
+        
+        # Check permissions - only admin or the coach who created it can delete notes
+        if not current_user.is_admin and register.coach_id != current_user.id:
+            return jsonify({'error': 'Permission denied'}), 403
+        
+        # Clear the register notes
+        register.notes = ''
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Register notes cleared successfully',
+            'register_id': register_id
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error clearing register notes: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@register_routes.route('/registers/<int:register_id>/entries/<int:entry_id>/clear-notes', methods=['DELETE'])
+@login_required
+@verify_club_access()
+def clear_entry_notes(register_id, entry_id):
+    """Clear/delete notes from a specific register entry"""
+    try:
+        register = Register.query.get_or_404(register_id)
+        
+        # Check permissions
+        if not current_user.is_admin and register.coach_id != current_user.id:
+            return jsonify({'error': 'Permission denied'}), 403
+        
+        entry = RegisterEntry.query.filter_by(
+            id=entry_id,
+            register_id=register_id
+        ).first_or_404()
+        
+        # Clear the entry notes
+        entry.notes = ''
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Entry notes cleared successfully',
+            'entry_id': entry_id
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error clearing entry notes: {str(e)}")
+        return jsonify({'error': str(e)}), 500
