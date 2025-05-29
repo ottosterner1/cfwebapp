@@ -114,15 +114,33 @@ interface AttendanceStatsProps {
   groupId?: number;
 }
 
-// Notes list modal component
-const NotesListModal: React.FC<{
+// Update the NotesListModal component props to include delete handlers
+interface NotesListModalProps {
   isOpen: boolean;
   onClose: () => void;
   registerNotes: RegisterNote[];
   onViewRegister: (registerId: number) => void;
   formatDate: (dateString: string) => string;
-}> = ({ isOpen, onClose, registerNotes, onViewRegister, formatDate }) => {
+  onDeleteRegisterNote: (registerId: number) => void;
+  onDeleteEntryNote: (registerId: number, entryId: number) => void;
+}
+
+const NotesListModal: React.FC<NotesListModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  registerNotes, 
+  onViewRegister, 
+  formatDate,
+  onDeleteRegisterNote,
+  onDeleteEntryNote
+}) => {
   const [selectedNote, setSelectedNote] = useState<RegisterNote | null>(null);
+  const [deletingNoteId, setDeletingNoteId] = useState<number | null>(null);
+  const [deletingEntryId, setDeletingEntryId] = useState<number | null>(null);
+  
+  // Add delete confirmation states
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [noteToDelete, setNoteToDelete] = useState<{type: 'register' | 'entry', registerId: number, entryId?: number} | null>(null);
   
   if (!isOpen) return null;
   
@@ -141,6 +159,38 @@ const NotesListModal: React.FC<{
     setSelectedNote(null);
   };
   
+  // Handler for confirming note deletion
+  const handleDeleteNote = async () => {
+    if (!noteToDelete) return;
+    
+    try {
+      if (noteToDelete.type === 'register') {
+        setDeletingNoteId(noteToDelete.registerId);
+        await onDeleteRegisterNote(noteToDelete.registerId);
+        setDeletingNoteId(null);
+      } else if (noteToDelete.type === 'entry' && noteToDelete.entryId) {
+        setDeletingEntryId(noteToDelete.entryId);
+        await onDeleteEntryNote(noteToDelete.registerId, noteToDelete.entryId);
+        setDeletingEntryId(null);
+      }
+      
+      // Always navigate back to the notes list after deletion
+      setSelectedNote(null);
+    } catch (err) {
+      console.error('Error deleting note:', err);
+      alert('Failed to delete note. Please try again.');
+    } finally {
+      setShowDeleteConfirm(false);
+      setNoteToDelete(null);
+    }
+  };
+  
+  // Handler for initiating delete
+  const initiateDelete = (type: 'register' | 'entry', registerId: number, entryId?: number) => {
+    setNoteToDelete({ type, registerId, entryId });
+    setShowDeleteConfirm(true);
+  };
+  
   // Calculate total notes
   const totalRegistersWithNotes = registerNotes.length;
   const sessionNotesCount = registerNotes.filter(note => note.notes?.trim()).length;
@@ -150,182 +200,231 @@ const NotesListModal: React.FC<{
   const totalNotesCount = sessionNotesCount + playerNotesCount;
   
   return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-screen overflow-hidden">
-        {/* Modal header */}
-        <div className="px-6 py-4 border-b flex justify-between items-center">
-          {selectedNote ? (
-            <>
-              <div>
-                <button
-                  onClick={handleBackToList}
-                  className="text-blue-600 hover:text-blue-800 flex items-center"
-                >
-                  <svg className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                  Back to List
-                </button>
-                <h3 className="text-lg font-medium text-gray-900 mt-1">
-                  Notes from {formatDate(selectedNote.date)}
-                </h3>
-                <p className="text-sm text-gray-500">
-                  {selectedNote.group.name} • {selectedNote.time_slot.day} {selectedNote.time_slot.start_time}-{selectedNote.time_slot.end_time} • Coach: {selectedNote.coach.name}
-                </p>
-              </div>
-            </>
-          ) : (
-            <>
-              <div>
-                <h3 className="text-lg font-medium text-gray-900">
-                  Coach Notes Summary
-                </h3>
-                <p className="text-sm text-gray-500">
-                  {totalNotesCount} notes across {totalRegistersWithNotes} registers
-                </p>
-              </div>
-            </>
-          )}
-          
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-500"
-          >
-            <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        
-        {/* Modal body */}
-        <div className="px-6 py-4 max-h-96 overflow-y-auto">
-          {selectedNote ? (
-            // Show detailed note view
-            <>
-              {/* Register note */}
-              {selectedNote.notes && (
-                <div className="mb-6">
-                  <h4 className="text-sm font-medium text-gray-900 mb-2">Session Notes</h4>
-                  <div className="bg-yellow-50 p-4 rounded-md">
-                    <p className="text-sm text-gray-800 whitespace-pre-wrap">{selectedNote.notes}</p>
-                  </div>
-                </div>
-              )}
-              
-              {/* Student notes */}
-              {selectedNote.entries_with_notes.length > 0 && (
+    <>
+      <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-screen overflow-hidden">
+          {/* Modal header */}
+          <div className="px-6 py-4 border-b flex justify-between items-center">
+            {selectedNote ? (
+              <>
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900 mb-2">Player Notes</h4>
-                  <div className="space-y-4">
-                    {selectedNote.entries_with_notes.map(entry => (
-                      <div key={entry.id} className="bg-blue-50 p-4 rounded-md">
-                        <div className="flex justify-between">
-                          <h5 className="font-medium text-gray-900">{entry.student_name}</h5>
-                          <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                            entry.attendance_status === 'present' ? 'bg-green-100 text-green-800' :
-                            entry.attendance_status === 'absent' ? 'bg-red-100 text-red-800' :
-                            entry.attendance_status === 'sick' ? 'bg-indigo-100 text-indigo-800' :
-                            'bg-yellow-100 text-yellow-800'
-                          }`}>
-                            {entry.attendance_status.replace('_', ' ')}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">{entry.notes}</p>
-                      </div>
-                    ))}
-                  </div>
+                  <button
+                    onClick={handleBackToList}
+                    className="text-blue-600 hover:text-blue-800 flex items-center"
+                  >
+                    <svg className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                    </svg>
+                    Back to List
+                  </button>
+                  <h3 className="text-lg font-medium text-gray-900 mt-1">
+                    Notes from {formatDate(selectedNote.date)}
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    {selectedNote.group.name} • {selectedNote.time_slot.day} {selectedNote.time_slot.start_time}-{selectedNote.time_slot.end_time} • Coach: {selectedNote.coach.name}
+                  </p>
                 </div>
-              )}
-              
-              {/* View register button */}
-              <div className="mt-6 flex justify-end">
-                <button
-                  onClick={() => onViewRegister(selectedNote.id)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                >
-                  View Register
-                </button>
-              </div>
-            </>
-          ) : (
-            // Show notes list - now using sortedRegisterNotes instead of registerNotes
-            <div className="divide-y divide-gray-200">
-              {sortedRegisterNotes.length === 0 ? (
-                <p className="py-4 text-gray-500">No notes found for the selected filters</p>
-              ) : (
-                sortedRegisterNotes.map(note => {
-                  // Count notes in this register
-                  const hasRegisterNote = note.notes && note.notes.trim() !== '';
-                  const studentNotes = note.entries_with_notes.length;
-                  const notesCount = (hasRegisterNote ? 1 : 0) + studentNotes;
-                  
-                  return (
-                    <div 
-                      key={note.id} 
-                      className="py-4 cursor-pointer hover:bg-gray-50 transition-colors duration-150"
-                      onClick={() => handleViewNoteDetails(note)}
-                    >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="font-medium text-gray-900">
-                            {formatDate(note.date)} - {note.group.name}
-                          </p>
-                          <p className="text-sm text-gray-500">
-                            {note.coach.name} • {note.time_slot.day} {note.time_slot.start_time}-{note.time_slot.end_time}
-                          </p>
-                        </div>
-                        <span className="bg-blue-100 text-blue-800 py-1 px-3 rounded-full text-xs font-medium">
-                          {notesCount} {notesCount === 1 ? 'Note' : 'Notes'}
-                        </span>
-                      </div>
-                      
-                      {/* Preview of notes content */}
-                      {hasRegisterNote && (
-                        <div className="mt-2 text-sm">
-                          <span className="font-medium">Session note:</span>{' '}
-                          <span className="text-gray-600">
-                            {note.notes.length > 60 ? note.notes.substring(0, 60) + '...' : note.notes}
-                          </span>
-                        </div>
-                      )}
-                      
-                      {studentNotes > 0 && (
-                        <div className="mt-1 text-sm">
-                          <span className="font-medium">Player notes:</span>{' '}
-                          <span className="text-gray-600">
-                            {studentNotes} player{studentNotes !== 1 ? 's' : ''} with notes
-                          </span>
-                        </div>
-                      )}
-                      
-                      {/* View details button */}
-                      <div className="mt-2">
-                        <button className="text-sm text-blue-600 hover:text-blue-800 flex items-center">
-                          View Details
-                          <svg className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                          </svg>
-                        </button>
-                      </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900">
+                    Coach Notes Summary
+                  </h3>
+                  <p className="text-sm text-gray-500">
+                    {totalNotesCount} notes across {totalRegistersWithNotes} registers
+                  </p>
+                </div>
+              </>
+            )}
+            
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-500"
+            >
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          
+          {/* Modal body */}
+          <div className="px-6 py-4 max-h-96 overflow-y-auto">
+            {selectedNote ? (
+              // Show detailed note view with delete buttons
+              <>
+                {/* Register note */}
+                {selectedNote.notes && (
+                  <div className="mb-6">
+                    <div className="flex justify-between items-start mb-2">
+                      <h4 className="text-sm font-medium text-gray-900">Session Notes</h4>
+                      <button
+                        onClick={() => initiateDelete('register', selectedNote.id)}
+                        disabled={deletingNoteId === selectedNote.id}
+                        className="text-sm text-red-600 hover:text-red-800 disabled:opacity-50"
+                      >
+                        {deletingNoteId === selectedNote.id ? 'Deleting...' : 'Delete'}
+                      </button>
                     </div>
-                  );
-                })
-              )}
-            </div>
-          )}
-        </div>
-        
-        {/* Modal footer */}
-        <div className="px-6 py-4 border-t flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-          >
-            Close
-          </button>
+                    <div className="bg-yellow-50 p-4 rounded-md">
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap">{selectedNote.notes}</p>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Student notes */}
+                {selectedNote.entries_with_notes.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-900 mb-2">Player Notes</h4>
+                    <div className="space-y-4">
+                      {selectedNote.entries_with_notes.map(entry => (
+                        <div key={entry.id} className="bg-blue-50 p-4 rounded-md">
+                          <div className="flex justify-between">
+                            <div>
+                              <h5 className="font-medium text-gray-900">{entry.student_name}</h5>
+                              <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                                entry.attendance_status === 'present' ? 'bg-green-100 text-green-800' :
+                                entry.attendance_status === 'absent' ? 'bg-red-100 text-red-800' :
+                                entry.attendance_status === 'sick' ? 'bg-indigo-100 text-indigo-800' :
+                                'bg-yellow-100 text-yellow-800'
+                              }`}>
+                                {entry.attendance_status.replace('_', ' ')}
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => initiateDelete('entry', selectedNote.id, entry.id)}
+                              disabled={deletingEntryId === entry.id}
+                              className="text-sm text-red-600 hover:text-red-800 disabled:opacity-50"
+                            >
+                              {deletingEntryId === entry.id ? 'Deleting...' : 'Delete'}
+                            </button>
+                          </div>
+                          <p className="mt-2 text-sm text-gray-800 whitespace-pre-wrap">{entry.notes}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* View register button */}
+                <div className="mt-6 flex justify-end">
+                  <button
+                    onClick={() => onViewRegister(selectedNote.id)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  >
+                    View Register
+                  </button>
+                </div>
+              </>
+            ) : (
+              // Show notes list
+              <div className="divide-y divide-gray-200">
+                {sortedRegisterNotes.length === 0 ? (
+                  <p className="py-4 text-gray-500">No notes found for the selected filters</p>
+                ) : (
+                  sortedRegisterNotes.map(note => {
+                    // Count notes in this register
+                    const hasRegisterNote = note.notes && note.notes.trim() !== '';
+                    const studentNotes = note.entries_with_notes.length;
+                    const notesCount = (hasRegisterNote ? 1 : 0) + studentNotes;
+                    
+                    return (
+                      <div 
+                        key={note.id} 
+                        className="py-4 cursor-pointer hover:bg-gray-50 transition-colors duration-150"
+                        onClick={() => handleViewNoteDetails(note)}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-medium text-gray-900">
+                              {formatDate(note.date)} - {note.group.name}
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              {note.coach.name} • {note.time_slot.day} {note.time_slot.start_time}-{note.time_slot.end_time}
+                            </p>
+                          </div>
+                          <span className="bg-blue-100 text-blue-800 py-1 px-3 rounded-full text-xs font-medium">
+                            {notesCount} {notesCount === 1 ? 'Note' : 'Notes'}
+                          </span>
+                        </div>
+                        
+                        {/* Preview of notes content */}
+                        {hasRegisterNote && (
+                          <div className="mt-2 text-sm">
+                            <span className="font-medium">Session note:</span>{' '}
+                            <span className="text-gray-600">
+                              {note.notes.length > 60 ? note.notes.substring(0, 60) + '...' : note.notes}
+                            </span>
+                          </div>
+                        )}
+                        
+                        {studentNotes > 0 && (
+                          <div className="mt-1 text-sm">
+                            <span className="font-medium">Player notes:</span>{' '}
+                            <span className="text-gray-600">
+                              {studentNotes} player{studentNotes !== 1 ? 's' : ''} with notes
+                            </span>
+                          </div>
+                        )}
+                        
+                        {/* View details button */}
+                        <div className="mt-2">
+                          <button className="text-sm text-blue-600 hover:text-blue-800 flex items-center">
+                            View Details
+                            <svg className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+          
+          {/* Modal footer */}
+          <div className="px-6 py-4 border-t flex justify-end">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+      
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-75 flex items-center justify-center" style={{ zIndex: 60 }}>
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Confirm Delete</h3>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to delete this note? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setNoteToDelete(null);
+                }}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteNote}
+                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+              >
+                Delete Note
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
@@ -666,7 +765,7 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
     };
     
     fetchRegisters();
-  }, [selectedPeriodId, selectedDay, selectedCoachId, selectedGroupId, selectedSessionId]);
+  }, [selectedPeriodId, selectedDay, selectedCoachId, selectedGroupId, selectedSessionId, sessions]);
 
   // NEW: Fetch register notes
   useEffect(() => {
@@ -713,6 +812,61 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
     
     fetchRegisterNotes();
   }, [selectedPeriodId, selectedDay, selectedCoachId, selectedGroupId]);
+
+  // Add the delete handlers
+  const handleDeleteRegisterNote = async (registerId: number) => {
+    try {
+      const response = await fetch(`/api/registers/${registerId}/clear-notes`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete register note');
+      }
+      
+      // Update the local state to remove the note
+      setRegisterNotes(prev => 
+        prev.map(note => 
+          note.id === registerId 
+            ? { ...note, notes: '' } 
+            : note
+        ).filter(note => note.notes || note.entries_with_notes.length > 0)
+      );
+      
+    } catch (err) {
+      console.error('Error deleting register note:', err);
+      alert('Failed to delete note. Please try again.');
+    }
+  };
+
+  const handleDeleteEntryNote = async (registerId: number, entryId: number) => {
+    try {
+      const response = await fetch(`/api/registers/${registerId}/entries/${entryId}/clear-notes`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete entry note');
+      }
+      
+      // Update the local state to remove the entry note
+      setRegisterNotes(prev => 
+        prev.map(note => {
+          if (note.id === registerId) {
+            return {
+              ...note,
+              entries_with_notes: note.entries_with_notes.filter(entry => entry.id !== entryId)
+            };
+          }
+          return note;
+        }).filter(note => note.notes || note.entries_with_notes.length > 0)
+      );
+      
+    } catch (err) {
+      console.error('Error deleting entry note:', err);
+      alert('Failed to delete note. Please try again.');
+    }
+  };
 
   // Calculate weekly stats from registers
   const calculateWeeklyStats = (registers: RegisterSummary[]) => {
@@ -1426,7 +1580,7 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
         </div>
       )}
       
-      {/* Notes List Modal */}
+      {/* Notes List Modal with delete functionality */}
       {showNotesListModal && (
         <NotesListModal
           isOpen={showNotesListModal}
@@ -1434,6 +1588,8 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
           registerNotes={registerNotes}
           onViewRegister={handleViewRegister}
           formatDate={formatDate}
+          onDeleteRegisterNote={handleDeleteRegisterNote}
+          onDeleteEntryNote={handleDeleteEntryNote}
         />
       )}
     </div>
