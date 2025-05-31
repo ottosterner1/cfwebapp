@@ -160,7 +160,9 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
     
     const newErrors: string[] = [];
     if (!name.trim()) newErrors.push('Please provide a template name');
-    if (sections.length === 0) newErrors.push('Add at least one section');
+    
+    // Removed the validation that requires at least one section
+    // if (sections.length === 0) newErrors.push('Add at least one section');
     
     sections.forEach((section, sIndex) => {
       if (!section.name.trim()) {
@@ -238,7 +240,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
               onChange={(e) => setDescription(e.target.value)}
               className="w-full px-3 py-2 rounded-md border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
               rows={3}
-              placeholder="Enter template description"
+              placeholder="Enter template description (e.g., 'Recommendation-only template for group progression')"
             />
           </div>
         </div>
@@ -274,7 +276,15 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
 
       <div className="space-y-6">
         <div className="flex justify-between items-center">
-          <h3 className="text-lg font-medium text-gray-900">Assessment Sections</h3>
+          <div>
+            <h3 className="text-lg font-medium text-gray-900">Assessment Sections</h3>
+            <p className="text-sm text-gray-500 mt-1">
+              {sections.length === 0 ? 
+                'This template will only collect group recommendations (no assessment fields)' : 
+                'Add sections and fields for detailed assessments'
+              }
+            </p>
+          </div>
           <button
             type="button"
             onClick={addSection}
@@ -285,112 +295,130 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
           </button>
         </div>
 
-        <div className="space-y-4">
-          {sections.map((section, sectionIndex) => (
-            <Card key={sectionIndex} className="border border-gray-200">
-              <CardHeader>
-                <div 
-                  className="flex items-center justify-between cursor-pointer hover:bg-gray-50"
-                  onClick={() => toggleSection(sectionIndex)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      toggleSection(sectionIndex);
-                    }
-                  }}
-                >
-                  <div className="flex items-center space-x-3">
-                    <GripVertical className="h-5 w-5 text-gray-400" />
-                    <input
-                      type="text"
-                      value={section.name}
-                      onChange={(e) => updateSection(sectionIndex, { name: e.target.value })}
-                      placeholder="Section Name"
-                      className="text-lg font-medium bg-transparent border-none focus:ring-0 p-0"
-                      onClick={(e) => e.stopPropagation()}
-                      onKeyDown={(e) => e.stopPropagation()} 
-                    />
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeSection(sectionIndex);
-                      }}
-                      className="p-1 text-gray-400 hover:text-red-500 transition-colors"
-                    >
-                      <X className="h-5 w-5" />
-                    </button>
-                    {expandedSections.has(sectionIndex) ? (
-                      <ChevronUp className="h-5 w-5 text-gray-400" />
-                    ) : (
-                      <ChevronDown className="h-5 w-5 text-gray-400" />
-                    )}
-                  </div>
+        {sections.length === 0 ? (
+          <div className="border-2 border-dashed border-gray-300 rounded-lg">
+            <Card>
+              <CardContent>
+                <div className="p-8 text-center text-gray-500">
+                  <p className="text-lg font-medium mb-2">Recommendation-Only Template</p>
+                  <p className="text-sm">
+                    This template will only collect group recommendations for the next term.
+                    You can add assessment sections later if needed.
+                  </p>
                 </div>
-              </CardHeader>
-
-              {expandedSections.has(sectionIndex) && (
-                <CardContent>
-                  <div className="space-y-4">
-                    {section.fields.map((field, fieldIndex) => (
-                      <div
-                        key={fieldIndex}
-                        className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 bg-gray-50 rounded-lg"
-                      >
-                        <div className="flex-1">
-                          <input
-                            type="text"
-                            value={field.name}
-                            onChange={(e) => updateField(sectionIndex, fieldIndex, { name: e.target.value })}
-                            placeholder="Field Name"
-                            className="w-full px-3 py-2 rounded-md border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                          />
-                        </div>
-                        <select
-                          value={field.fieldType}
-                          onChange={(e) => updateField(sectionIndex, fieldIndex, { fieldType: e.target.value as 'text' | 'textarea' | 'rating' | 'select' | 'progress' })}
-                          className="w-full sm:w-auto px-3 py-2 rounded-md border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                        >
-                          {FIELD_TYPES.map(type => (
-                            <option key={type.value} value={type.value}>{type.label}</option>
-                          ))}
-                        </select>
-                        <label className="flex items-center space-x-2">
-                          <input
-                            type="checkbox"
-                            checked={field.isRequired}
-                            onChange={(e) => updateField(sectionIndex, fieldIndex, { isRequired: e.target.checked })}
-                            className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="text-sm text-gray-700">Required</span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => removeField(sectionIndex, fieldIndex)}
-                          className="p-1 text-gray-400 hover:text-red-500 transition-colors"
-                        >
-                          <X className="h-5 w-5" />
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={() => addField(sectionIndex)}
-                      className="inline-flex items-center px-4 py-2 text-sm text-blue-600 hover:text-blue-700 transition-colors"
-                    >
-                      <PlusCircle className="h-4 w-4 mr-2" />
-                      Add Field
-                    </button>
-                  </div>
-                </CardContent>
-              )}
+              </CardContent>
             </Card>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {sections.map((section, sectionIndex) => (
+              <div key={sectionIndex} className="border border-gray-200 rounded-lg">
+                <Card>
+                  <CardHeader>
+                  <div 
+                    className="flex items-center justify-between cursor-pointer hover:bg-gray-50"
+                    onClick={() => toggleSection(sectionIndex)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        toggleSection(sectionIndex);
+                      }
+                    }}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <GripVertical className="h-5 w-5 text-gray-400" />
+                      <input
+                        type="text"
+                        value={section.name}
+                        onChange={(e) => updateSection(sectionIndex, { name: e.target.value })}
+                        placeholder="Section Name"
+                        className="text-lg font-medium bg-transparent border-none focus:ring-0 p-0"
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()} 
+                      />
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeSection(sectionIndex);
+                        }}
+                        className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                      {expandedSections.has(sectionIndex) ? (
+                        <ChevronUp className="h-5 w-5 text-gray-400" />
+                      ) : (
+                        <ChevronDown className="h-5 w-5 text-gray-400" />
+                      )}
+                    </div>
+                  </div>
+                </CardHeader>
+
+                {expandedSections.has(sectionIndex) && (
+                  <CardContent>
+                    <div className="space-y-4">
+                      {section.fields.map((field, fieldIndex) => (
+                        <div
+                          key={fieldIndex}
+                          className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 bg-gray-50 rounded-lg"
+                        >
+                          <div className="flex-1">
+                            <input
+                              type="text"
+                              value={field.name}
+                              onChange={(e) => updateField(sectionIndex, fieldIndex, { name: e.target.value })}
+                              placeholder="Field Name"
+                              className="w-full px-3 py-2 rounded-md border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                            />
+                          </div>
+                          <select
+                            value={field.fieldType}
+                            onChange={(e) => updateField(sectionIndex, fieldIndex, { fieldType: e.target.value as 'text' | 'textarea' | 'rating' | 'select' | 'progress' })}
+                            className="w-full sm:w-auto px-3 py-2 rounded-md border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                          >
+                            {FIELD_TYPES.map(type => (
+                              <option key={type.value} value={type.value}>{type.label}</option>
+                            ))}
+                          </select>
+                          <label className="flex items-center space-x-2">
+                            <input
+                              type="checkbox"
+                              checked={field.isRequired}
+                              onChange={(e) => updateField(sectionIndex, fieldIndex, { isRequired: e.target.checked })}
+                              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span className="text-sm text-gray-700">Required</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => removeField(sectionIndex, fieldIndex)}
+                            className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                          >
+                            <X className="h-5 w-5" />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => addField(sectionIndex)}
+                        className="inline-flex items-center px-4 py-2 text-sm text-blue-600 hover:text-blue-700 transition-colors"
+                      >
+                        <PlusCircle className="h-4 w-4 mr-2" />
+                        Add Field
+                      </button>
+                    </div>
+                  </CardContent>
+                )}
+              </Card>
+            </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end space-x-4 pt-6 border-t">
