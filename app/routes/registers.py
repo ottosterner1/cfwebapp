@@ -222,13 +222,23 @@ def get_register(register_id):
         group_time = register.group_time
         group = group_time.tennis_group if group_time else None
         
-        # Format entries with student information
+        # Format entries with student information and makeup flag
         entries = []
         for entry in register.entries:
             player = entry.programme_player
             student = player.student if player else None
             
             if student:
+                # Determine if this is a makeup player and get group info
+                is_makeup = False
+                group_name = None
+                
+                # Check if this is a makeup player (not from the main group/time slot)
+                if player.group_time_id != register.group_time_id:
+                    is_makeup = True
+                    group_name = player.tennis_group.name
+                    current_app.logger.debug(f"Player {student.name} identified as makeup from group {group_name}")
+                
                 # Use the serializer function for consistent formatting
                 entries.append({
                     'id': entry.id,
@@ -237,7 +247,9 @@ def get_register(register_id):
                     'attendance_status': serialize_attendance_status(entry.attendance_status),
                     'notes': entry.notes,
                     'player_id': player.id,
-                    'predicted_attendance': entry.predicted_attendance
+                    'predicted_attendance': entry.predicted_attendance,
+                    'is_makeup': is_makeup,
+                    'group_name': group_name  # Will be None for regular players, group name for makeup players
                 })
                 
         # Get assistant coaches
@@ -266,7 +278,7 @@ def get_register(register_id):
                 'id': register.coach_id,
                 'name': register.coach.name
             },
-            'assistant_coaches': assistant_coaches,  # Add assistant coaches to response
+            'assistant_coaches': assistant_coaches,
             'notes': register.notes, 
             'entries': entries,
             'teaching_period': {
@@ -274,6 +286,11 @@ def get_register(register_id):
                 'name': register.teaching_period.name
             }
         }
+        
+        # Log summary for debugging
+        regular_count = len([e for e in entries if not e['is_makeup']])
+        makeup_count = len([e for e in entries if e['is_makeup']])
+        current_app.logger.info(f"Register {register_id}: {regular_count} regular players, {makeup_count} makeup players")
         
         return jsonify(response)
         
@@ -340,7 +357,7 @@ def create_register():
                 )
                 db.session.add(assistant)
 
-        # Pre-populate entries for all students in this group time
+        # Pre-populate entries for all students in this group time (regular players)
         players = ProgrammePlayers.query.filter_by(
             group_time_id=data['group_time_id'],
             teaching_period_id=data['teaching_period_id'],
@@ -355,6 +372,35 @@ def create_register():
                 predicted_attendance=data.get('predicted_attendance', False)
             )
             db.session.add(entry)
+
+        # NEW: Add makeup players if provided
+        makeup_player_ids = data.get('makeup_player_ids', [])
+        if makeup_player_ids:
+            current_app.logger.info(f"Adding {len(makeup_player_ids)} makeup players to register")
+            
+            # Validate and add makeup players
+            makeup_players = ProgrammePlayers.query.filter(
+                ProgrammePlayers.id.in_(makeup_player_ids),
+                ProgrammePlayers.teaching_period_id == data['teaching_period_id'],
+                ProgrammePlayers.tennis_club_id == current_user.tennis_club_id
+            ).all()
+            
+            # Verify all requested makeup players were found
+            found_ids = [p.id for p in makeup_players]
+            missing_ids = [pid for pid in makeup_player_ids if pid not in found_ids]
+            if missing_ids:
+                current_app.logger.warning(f"Some makeup players not found: {missing_ids}")
+            
+            for makeup_player in makeup_players:
+                # Create entry for makeup player
+                entry = RegisterEntry(
+                    register_id=register.id,
+                    programme_player_id=makeup_player.id,
+                    attendance_status=AttendanceStatus.PRESENT,  # Default makeup players to present
+                    predicted_attendance=False
+                )
+                db.session.add(entry)
+                current_app.logger.info(f"Added makeup player: {makeup_player.student.name} from group {makeup_player.tennis_group.name}")
             
         db.session.commit()
         
@@ -1428,4 +1474,69 @@ def clear_entry_notes(register_id, entry_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error clearing entry notes: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+    
+# Add this new route to registers.py
+
+@register_routes.route('/players/search')
+@login_required
+@verify_club_access()
+def search_makeup_players():
+    """Search for players from other groups for makeup classes"""
+    try:
+        # Get query parameters
+        teaching_period_id = request.args.get('teaching_period_id', type=int)
+        exclude_group_time_id = request.args.get('exclude_group_time_id', type=int)
+        query = request.args.get('query', '').strip()
+        
+        if not teaching_period_id or not exclude_group_time_id:
+            return jsonify({'error': 'Missing required parameters'}), 400
+        
+        # Base query for players in the same teaching period but different group times
+        players_query = ProgrammePlayers.query.join(
+            Student, ProgrammePlayers.student_id == Student.id
+        ).join(
+            TennisGroup, ProgrammePlayers.group_id == TennisGroup.id
+        ).filter(
+            ProgrammePlayers.teaching_period_id == teaching_period_id,
+            ProgrammePlayers.tennis_club_id == current_user.tennis_club_id,
+            ProgrammePlayers.group_time_id != exclude_group_time_id
+        )
+        
+        # Add name search filter if provided
+        if query:
+            players_query = players_query.filter(
+                Student.name.ilike(f'%{query}%')
+            )
+        
+        # Get players
+        players = players_query.all()
+        
+        # Format response
+        results = []
+        for player in players:
+            student = player.student
+            group = player.tennis_group
+            
+            results.append({
+                'id': player.id,
+                'student_id': student.id,
+                'student_name': student.name,
+                'group_name': group.name,
+                'contact_number': student.contact_number,
+                'emergency_contact_number': student.emergency_contact_number,
+                'medical_information': student.medical_information,
+                'walk_home': player.walk_home,
+                'contact_email': student.contact_email,
+                'date_of_birth': student.date_of_birth.isoformat() if student.date_of_birth else None,
+                'attendance_status': 'present',
+                'notes': '',
+                'predicted_attendance': False
+            })
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error searching makeup players: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
