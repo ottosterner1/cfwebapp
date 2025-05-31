@@ -35,6 +35,8 @@ interface Player {
   notes: string;
   predicted_attendance: boolean;
   date_of_birth: string | null;
+  group_name?: string; // For makeup players
+  is_makeup?: boolean; // Flag to identify makeup players
 }
 
 interface CreateRegisterProps {
@@ -51,7 +53,7 @@ interface SessionResponse {
   start_time: string;
   end_time: string;
   player_count?: number;
-  coach_player_count?: number; // Number of players assigned to the current coach
+  coach_player_count?: number;
   [key: string]: any;
 }
 
@@ -67,24 +69,28 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
   const [selectedTimeSlotId, setSelectedTimeSlotId] = useState<number | ''>('');
   const [selectedDate, setSelectedDate] = useState<string>('');
   
-  // New state for assistant coaches
+  // Existing state for assistant coaches
   const [availableCoaches, setAvailableCoaches] = useState<Coach[]>([]);
   const [selectedAssistantCoachIds, setSelectedAssistantCoachIds] = useState<number[]>([]);
   const [loadingCoaches, setLoadingCoaches] = useState<boolean>(false);
   const [isCoachDropdownOpen, setIsCoachDropdownOpen] = useState<boolean>(false);
   const coachDropdownRef = useRef<HTMLDivElement>(null);
   
-  // New state for make up class
+  // Existing state
   const [isMakeupClass, setIsMakeupClass] = useState<boolean>(false);
-  // New state for available dates based on day of week
   const [availableDates, setAvailableDates] = useState<string[]>([]);
-  
-  // New state for showing all sessions
   const [showAllSessions, setShowAllSessions] = useState<boolean>(false);
   
   // Session data
   const [players, setPlayers] = useState<Player[]>([]);
   const [notes, setNotes] = useState<string>('');
+  
+  // NEW: Makeup players state
+  const [makeupPlayers, setMakeupPlayers] = useState<Player[]>([]);
+  const [makeupPlayerSearch, setMakeupPlayerSearch] = useState<string>('');
+  const [availableMakeupPlayers, setAvailableMakeupPlayers] = useState<Player[]>([]);
+  const [loadingMakeupPlayers, setLoadingMakeupPlayers] = useState<boolean>(false);
+  const [showMakeupSection, setShowMakeupSection] = useState<boolean>(false);
   
   // UI state
   const [loading, setLoading] = useState<{[key: string]: boolean}>({
@@ -99,11 +105,8 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [expandedPlayerInfo, setExpandedPlayerInfo] = useState<{[key: number]: boolean}>({});
-  
-  // Add state for the "show all player info" toggle - default to true
   const [showAllPlayerInfo, setShowAllPlayerInfo] = useState<boolean>(true);
 
-  // Define days of week in Monday-Sunday order for consistency across the component
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   
   // Handle clicking outside of coach dropdown to close it
@@ -132,7 +135,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         }
         
         const data = await response.json();
-        // Validate data is an array of teaching periods
         if (Array.isArray(data) && data.every(item => 
           typeof item === 'object' && 
           item !== null &&
@@ -141,7 +143,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         )) {
           setTeachingPeriods(data as TeachingPeriod[]);
           
-          // If there are periods, select the first one by default
           if (data.length > 0 && typeof data[0].id === 'number') {
             setSelectedPeriodId(data[0].id);
           }
@@ -201,48 +202,39 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         setLoading(prev => ({ ...prev, days: true }));
         setError(null);
         
-        // Get current day of week
         const today = new Date();
         const currentDayIndex = today.getDay();
-        // Convert JavaScript day index (0=Sunday) to our array (0=Monday)
         const adjustedCurrentDayIndex = currentDayIndex === 0 ? 6 : currentDayIndex - 1;
         const currentDay = daysOfWeek[adjustedCurrentDayIndex];
         
-        // Since the API requires day_of_week, we need to make multiple requests for each day
         const allDays = new Set<string>();
         const fetchPromises = daysOfWeek.map(day => 
           fetch(`/api/coach-sessions?day_of_week=${day}&teaching_period_id=${selectedPeriodId}&show_all=${showAllSessions}`)
             .then(response => {
               if (!response.ok) {
-                // Skip days that don't have sessions
                 return [];
               }
               return response.json();
             })
             .then(data => {
               if (Array.isArray(data) && data.length > 0) {
-                // This day has sessions
                 allDays.add(day);
               }
               return data;
             })
             .catch(() => {
-              // Handle errors gracefully
               return [];
             })
         );
         
-        // Wait for all requests to complete
         await Promise.all(fetchPromises);
         
-        // Convert set to array and sort by day of week (Monday-Sunday)
         const availableDaysList = Array.from(allDays).sort((a, b) => 
           daysOfWeek.indexOf(a) - daysOfWeek.indexOf(b)
         );
         
         setAvailableDays(availableDaysList);
         
-        // Default to current day if available, otherwise first day
         if (availableDaysList.includes(currentDay)) {
           setSelectedDay(currentDay);
         } else if (availableDaysList.length > 0) {
@@ -251,11 +243,11 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
           setSelectedDay('');
         }
         
-        // Reset child selections
         setSelectedGroupId('');
         setSelectedTimeSlotId('');
         setSelectedDate('');
         setPlayers([]);
+        setMakeupPlayers([]); // Clear makeup players when changing period
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
         setError(errorMessage);
@@ -277,7 +269,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         setLoading(prev => ({ ...prev, groups: true }));
         setError(null);
         
-        // Fetch sessions for the selected day and period
         const response = await fetch(`/api/coach-sessions?day_of_week=${selectedDay}&teaching_period_id=${selectedPeriodId}&show_all=${showAllSessions}`);
         
         if (!response.ok) {
@@ -286,10 +277,8 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         
         const data = await response.json();
         
-        // Type guard to ensure we have an array of sessions
         const sessions: SessionResponse[] = Array.isArray(data) ? data as SessionResponse[] : [];
         
-        // Extract unique groups with names
         const uniqueGroups: Record<string, Group> = {};
         sessions.forEach(session => {
           if (typeof session.group_name === 'string' && !uniqueGroups[session.group_name]) {
@@ -304,13 +293,12 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         const groups = Object.values(uniqueGroups);
         setAvailableGroups(groups);
         
-        // Don't select any group by default, coach must select manually
         setSelectedGroupId('');
         
-        // Reset child selections
         setSelectedTimeSlotId('');
         setSelectedDate('');
         setPlayers([]);
+        setMakeupPlayers([]); // Clear makeup players when changing group
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
         setError(errorMessage);
@@ -332,7 +320,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         setLoading(prev => ({ ...prev, timeSlots: true }));
         setError(null);
         
-        // Fetch sessions for the selected day, group, and period
         const response = await fetch(`/api/coach-sessions?day_of_week=${selectedDay}&teaching_period_id=${selectedPeriodId}&show_all=${showAllSessions}`);
         
         if (!response.ok) {
@@ -341,14 +328,11 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         
         const data = await response.json();
         
-        // Type guard to ensure we have an array of sessions
         const sessions: SessionResponse[] = Array.isArray(data) ? data as SessionResponse[] : [];
         
-        // Filter sessions for the selected group and create time slots
         const timeSlots: TimeSlot[] = [];
         
         for (const session of sessions) {
-          // Determine if this session belongs to the selected group
           const sessionGroupId = typeof session.group_id === 'number' ? session.group_id : 0;
           const groupIdMatch = sessionGroupId === selectedGroupId;
           const groupNameMatch = typeof session.group_name === 'string' && 
@@ -370,18 +354,15 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         
         setAvailableTimeSlots(timeSlots);
         
-        // Only auto-select time slot if there's exactly ONE option available
         if (timeSlots.length === 1) {
           setSelectedTimeSlotId(timeSlots[0].id);
         } else {
           setSelectedTimeSlotId('');
         }
         
-        // Reset date selection
         setSelectedDate('');
-        
-        // Reset players
         setPlayers([]);
+        setMakeupPlayers([]); // Clear makeup players when changing time slot
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
         setError(errorMessage);
@@ -401,10 +382,8 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       return;
     }
 
-    // Get the current date
     const today = new Date();
     
-    // Map day names directly to their JS day index values
     const dayToIndex: {[key: string]: number} = {
       'Monday': 1,
       'Tuesday': 2, 
@@ -421,12 +400,9 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       return;
     }
     
-    // Clear existing dates
     const matchingDates: string[] = [];
     
-    // Find the previous occurrence of the target day (up to 7 days ago)
     let previousDate = new Date(today);
-    // Go back up to 7 days to find the most recent past occurrence
     for (let i = 0; i < 7; i++) {
       previousDate = new Date(previousDate.getTime() - 24 * 60 * 60 * 1000);
       if (previousDate.getDay() === targetDayIndex) {
@@ -435,11 +411,9 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       }
     }
     
-    // Check if today is the target day
     if (today.getDay() === targetDayIndex) {
       matchingDates.push(today.toISOString().split('T')[0]);
     } else {
-      // Find the next occurrence of the target day (which might be today)
       let nextDate = new Date(today);
       while (nextDate.getDay() !== targetDayIndex) {
         nextDate = new Date(nextDate.getTime() + 24 * 60 * 60 * 1000);
@@ -447,26 +421,18 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       matchingDates.push(nextDate.toISOString().split('T')[0]);
     }
     
-    // Get additional future occurrences of the selected day
     let futureDate = new Date(matchingDates[matchingDates.length - 1]);
-    for (let i = 0; i < 1; i++) {  // Add 2 more future dates
-      futureDate = new Date(futureDate.getTime() + 7 * 24 * 60 * 60 * 1000); // Add exactly 7 days
+    for (let i = 0; i < 1; i++) {
+      futureDate = new Date(futureDate.getTime() + 7 * 24 * 60 * 60 * 1000);
       matchingDates.push(futureDate.toISOString().split('T')[0]);
     }
     
-    // Sort dates chronologically
     matchingDates.sort();
-    
-    // Update available dates
     setAvailableDates(matchingDates);
-    
-    // DO NOT auto-select any date - force coaches to manually select the correct session date
-    // This prevents confusion when coaches fill out registers late and accidentally select future dates
   }, [selectedDay, selectedTimeSlotId]);
 
   // Fetch players when all required criteria are set
   useEffect(() => {
-    // Clear players array if any required selections are missing
     if (!selectedTimeSlotId || !selectedPeriodId || !selectedGroupId || !selectedDay) {
       setPlayers([]);
       return;
@@ -483,7 +449,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         
         const data = await response.json();
         
-        // Validate data is an array of players
         if (Array.isArray(data)) {
           const validatedPlayers = data.filter(player => 
             typeof player === 'object' && 
@@ -494,7 +459,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
           
           setPlayers(validatedPlayers);
           
-          // Initialize expanded state for all players based on the showAllPlayerInfo state
           const expandedState: {[key: number]: boolean} = {};
           validatedPlayers.forEach(player => {
             expandedState[player.id] = showAllPlayerInfo;
@@ -515,10 +479,50 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     fetchPlayers();
   }, [selectedTimeSlotId, selectedPeriodId, selectedGroupId, selectedDay, showAllPlayerInfo]);
 
-  // Handle toggling show all sessions
+  // NEW: Fetch available makeup players when teaching period and time slot are selected
+  useEffect(() => {
+    const fetchMakeupPlayers = async () => {
+      if (!selectedPeriodId || !selectedTimeSlotId) {
+        setAvailableMakeupPlayers([]);
+        return;
+      }
+      
+      try {
+        setLoadingMakeupPlayers(true);
+        const query = makeupPlayerSearch ? `&query=${encodeURIComponent(makeupPlayerSearch)}` : '';
+        const response = await fetch(
+          `/api/players/search?teaching_period_id=${selectedPeriodId}&exclude_group_time_id=${selectedTimeSlotId}${query}`
+        );
+        
+        if (!response.ok) {
+          throw new Error(`Error fetching makeup players: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (Array.isArray(data)) {
+          // Filter out players already added as makeup players
+          const alreadyAddedIds = makeupPlayers.map(p => p.id);
+          const filteredData = data.filter(player => !alreadyAddedIds.includes(player.id));
+          setAvailableMakeupPlayers(filteredData);
+        } else {
+          throw new Error('Invalid makeup players data received');
+        }
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'An error occurred';
+        console.error('Error fetching makeup players:', errorMessage);
+        setAvailableMakeupPlayers([]);
+      } finally {
+        setLoadingMakeupPlayers(false);
+      }
+    };
+    
+    fetchMakeupPlayers();
+  }, [selectedPeriodId, selectedTimeSlotId, makeupPlayerSearch, makeupPlayers]);
+
+  // Handle toggle show all sessions
   const handleToggleShowAllSessions = () => {
     setShowAllSessions(prev => !prev);
-    // Reset selections since the available options will change
     setSelectedDay('');
     setSelectedGroupId('');
     setSelectedTimeSlotId('');
@@ -527,7 +531,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
   // Handle makeup class toggle
   const handleMakeupClassToggle = () => {
     setIsMakeupClass(prev => !prev);
-    // Clear the date when toggling to allow selection of any date when makeup is true
     setSelectedDate('');
   };
 
@@ -536,9 +539,8 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     const newShowAllValue = !showAllPlayerInfo;
     setShowAllPlayerInfo(newShowAllValue);
     
-    // Update all individual player toggles
     const updatedExpandedState: {[key: number]: boolean} = {};
-    players.forEach(player => {
+    [...players, ...makeupPlayers].forEach(player => {
       updatedExpandedState[player.id] = newShowAllValue;
     });
     setExpandedPlayerInfo(updatedExpandedState);
@@ -551,7 +553,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
 
   // Handle toggle assistant coach selection
   const toggleAssistantCoach = (coachId: number, e?: React.MouseEvent) => {
-    // If the event came from the checkbox directly, stop propagation to prevent double toggling
     if (e) {
       e.stopPropagation();
     }
@@ -584,26 +585,46 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     }
   };
 
-  // Handle updating player attendance status
-  const updatePlayerAttendance = (playerId: number, status: 'present' | 'absent' | 'sick' | 'away_with_notice') => {
-    setPlayers(prevPlayers => 
-      prevPlayers.map(player => 
-        player.id === playerId 
-          ? { ...player, attendance_status: status } 
-          : player
-      )
-    );
+  // Handle updating player attendance status (works for both regular and makeup players)
+  const updatePlayerAttendance = (playerId: number, status: 'present' | 'absent' | 'sick' | 'away_with_notice', isRegular: boolean = true) => {
+    if (isRegular) {
+      setPlayers(prevPlayers => 
+        prevPlayers.map(player => 
+          player.id === playerId 
+            ? { ...player, attendance_status: status } 
+            : player
+        )
+      );
+    } else {
+      setMakeupPlayers(prevPlayers => 
+        prevPlayers.map(player => 
+          player.id === playerId 
+            ? { ...player, attendance_status: status } 
+            : player
+        )
+      );
+    }
   };
 
-  // Handle updating player notes
-  const updatePlayerNotes = (playerId: number, notes: string) => {
-    setPlayers(prevPlayers => 
-      prevPlayers.map(player => 
-        player.id === playerId 
-          ? { ...player, notes } 
-          : player
-      )
-    );
+  // Handle updating player notes (works for both regular and makeup players)
+  const updatePlayerNotes = (playerId: number, notes: string, isRegular: boolean = true) => {
+    if (isRegular) {
+      setPlayers(prevPlayers => 
+        prevPlayers.map(player => 
+          player.id === playerId 
+            ? { ...player, notes } 
+            : player
+        )
+      );
+    } else {
+      setMakeupPlayers(prevPlayers => 
+        prevPlayers.map(player => 
+          player.id === playerId 
+            ? { ...player, notes } 
+            : player
+        )
+      );
+    }
   };
 
   // Toggle player info expansion
@@ -614,9 +635,12 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     }));
   };
 
-  // Quick actions for attendance
+  // Quick actions for attendance (applies to both regular and makeup players)
   const handleMarkAllPresent = () => {
     setPlayers(prevPlayers => 
+      prevPlayers.map(player => ({ ...player, attendance_status: 'present' }))
+    );
+    setMakeupPlayers(prevPlayers => 
       prevPlayers.map(player => ({ ...player, attendance_status: 'present' }))
     );
   };
@@ -625,6 +649,38 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     setPlayers(prevPlayers => 
       prevPlayers.map(player => ({ ...player, attendance_status: 'absent' }))
     );
+    setMakeupPlayers(prevPlayers => 
+      prevPlayers.map(player => ({ ...player, attendance_status: 'absent' }))
+    );
+  };
+
+  // NEW: Add makeup player
+  const addMakeupPlayer = (player: Player) => {
+    const makeupPlayer = {
+      ...player,
+      attendance_status: 'present' as const, // Default makeup players to present
+      notes: '',
+      is_makeup: true
+    };
+    
+    setMakeupPlayers(prev => [...prev, makeupPlayer]);
+    
+    // Add to expanded info
+    setExpandedPlayerInfo(prev => ({
+      ...prev,
+      [player.id]: showAllPlayerInfo
+    }));
+  };
+
+  // NEW: Remove makeup player
+  const removeMakeupPlayer = (playerId: number) => {
+    setMakeupPlayers(prev => prev.filter(player => player.id !== playerId));
+    
+    // Remove from expanded info
+    setExpandedPlayerInfo(prev => {
+      const { [playerId]: removed, ...rest } = prev;
+      return rest;
+    });
   };
 
   // Handle form submission
@@ -640,6 +696,9 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       setLoading(prev => ({ ...prev, creating: true }));
       setError(null);
       
+      // Combine regular players and makeup players for submission
+      const allPlayers = [...players, ...makeupPlayers];
+      
       // First create the register
       const createResponse = await fetch('/api/registers', {
         method: 'POST',
@@ -651,23 +710,20 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
           group_time_id: selectedTimeSlotId,
           date: selectedDate,
           notes: notes,
-          assistant_coach_ids: selectedAssistantCoachIds // Add assistant coach IDs
+          assistant_coach_ids: selectedAssistantCoachIds,
+          makeup_player_ids: makeupPlayers.map(p => p.id) // NEW: Send makeup player IDs
         }),
       });
       
       const data = await createResponse.json();
       
-      // Special handling for conflict (register already exists)
+      // Handle conflict (register already exists)
       if (createResponse.status === 409 && data.register_id) {
-        // Instead of trying to update the existing register (which might fail with permission denied),
-        // ask the user if they want to view the existing register
-        
         setLoading(prev => ({ ...prev, creating: false }));
         
         const groupInfo = availableGroups.find(g => g.id === selectedGroupId)?.name || 'this group';
         const message = `A register already exists for ${groupInfo} on ${new Date(selectedDate).toLocaleDateString()}`;
         
-        // Offer to view the existing register
         if (window.confirm(`${message}. Would you like to view the existing register?`)) {
           onNavigate(`/registers/${data.register_id}`);
         }
@@ -682,11 +738,10 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       const registerId = data.register_id;
       
       // If we have players with attendance data, update the register entries
-      if (players.length > 0) {
+      if (allPlayers.length > 0) {
         try {
-          await updateRegisterEntries(registerId);
+          await updateRegisterEntries(registerId, allPlayers);
         } catch (error) {
-          // If updating entries fails, still allow viewing the register
           console.error('Error updating register entries:', error);
           
           setSuccessMessage('Register created, but there was an error updating attendance data.');
@@ -700,7 +755,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       
       setSuccessMessage('Register created and attendance recorded successfully');
       
-      // Call success callback after a brief delay
       setTimeout(() => {
         onCreateSuccess(registerId.toString());
       }, 1500);
@@ -713,14 +767,14 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     }
   };
 
-  // Update register entries with attendance data
-  const updateRegisterEntries = async (registerId: number) => {
-    // Map players to register entries
-    const entries = players.map(player => ({
+  // Update register entries with attendance data (modified to handle both regular and makeup players)
+  const updateRegisterEntries = async (registerId: number, allPlayers: Player[]) => {
+    const entries = allPlayers.map(player => ({
       player_id: player.id,
       attendance_status: player.attendance_status,
       notes: player.notes,
-      predicted_attendance: player.predicted_attendance
+      predicted_attendance: player.predicted_attendance,
+      is_makeup: player.is_makeup || false // NEW: Flag for makeup players
     }));
     
     const response = await fetch(`/api/registers/${registerId}/entries`, {
@@ -738,6 +792,145 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     
     return response.json();
   };
+
+  // NEW: Render player card (works for both regular and makeup players)
+  const renderPlayerCard = (player: Player, isRegular: boolean = true) => (
+    <div key={`${isRegular ? 'regular' : 'makeup'}-${player.id}`} className="border rounded-md p-3">
+      <div className="flex justify-between items-start">
+        <div className="flex items-center gap-2">
+          <div className="font-medium">{player.student_name}</div>
+          {!isRegular && (
+            <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
+              Makeup ({player.group_name})
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button 
+            type="button"
+            onClick={() => togglePlayerInfo(player.id)}
+            className="text-xs text-blue-600 hover:text-blue-800"
+          >
+            {expandedPlayerInfo[player.id] ? 'Hide Info' : 'Show Info'}
+          </button>
+          {!isRegular && (
+            <button
+              type="button"
+              onClick={() => removeMakeupPlayer(player.id)}
+              className="text-xs text-red-600 hover:text-red-800"
+            >
+              Remove
+            </button>
+          )}
+        </div>
+      </div>
+      
+      {/* Contact Information */}
+      {expandedPlayerInfo[player.id] && (
+        <div className="mt-2 p-2 bg-gray-50 rounded-md text-xs">
+          <div className="grid grid-cols-1 gap-y-1">
+            {player.date_of_birth && (
+              <div>
+                <span className="font-semibold">DOB:</span>{" "}
+                {new Date(player.date_of_birth).toLocaleDateString()}
+              </div>
+            )}
+            {player.contact_number && (
+              <div>
+                <span className="font-semibold">Contact:</span>{" "}
+                <a href={`tel:${player.contact_number}`} className="text-blue-600 hover:underline">
+                  {player.contact_number}
+                </a>
+              </div>
+            )}
+            {player.emergency_contact_number && (
+              <div>
+                <span className="font-semibold">Emergency:</span>{" "}
+                <a href={`tel:${player.emergency_contact_number}`} className="text-blue-600 hover:underline">
+                  {player.emergency_contact_number}
+                </a>
+              </div>
+            )}
+            {player.contact_email && (
+              <div>
+                <span className="font-semibold">Email:</span>{" "}
+                <a href={`mailto:${player.contact_email}`} className="text-blue-600 hover:underline">
+                  {player.contact_email}
+                </a>
+              </div>
+            )}
+            {player.medical_information && (
+              <div>
+                <span className="font-semibold">Medical:</span> {player.medical_information}
+              </div>
+            )}
+            {player.walk_home !== null && (
+              <div>
+                <span className="font-semibold">Walk home:</span> {player.walk_home ? 'Yes' : 'No'}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      
+      <div className="mt-2 grid grid-cols-2 gap-1">
+        <button
+          type="button"
+          className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+            player.attendance_status === 'present' 
+              ? 'bg-green-100 border-green-500 text-green-800' 
+              : 'bg-gray-100 border-gray-300 text-gray-800'
+          }`}
+          onClick={() => updatePlayerAttendance(player.id, 'present', isRegular)}
+        >
+          Present
+        </button>
+        <button
+          type="button"
+          className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+            player.attendance_status === 'absent' 
+              ? 'bg-red-100 border-red-500 text-red-800' 
+              : 'bg-gray-100 border-gray-300 text-gray-800'
+          }`}
+          onClick={() => updatePlayerAttendance(player.id, 'absent', isRegular)}
+        >
+          Absent
+        </button>
+        <button
+          type="button"
+          className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+            player.attendance_status === 'away_with_notice' 
+              ? 'bg-yellow-100 border-yellow-500 text-yellow-800' 
+              : 'bg-gray-100 border-gray-300 text-gray-800'
+          }`}
+          onClick={() => updatePlayerAttendance(player.id, 'away_with_notice', isRegular)}
+        >
+          Away With Notice
+        </button>
+        <button
+          type="button"
+          className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+            player.attendance_status === 'sick' 
+              ? 'bg-blue-100 border-blue-500 text-blue-800' 
+              : 'bg-gray-100 border-gray-300 text-gray-800'
+          }`}
+          onClick={() => updatePlayerAttendance(player.id, 'sick', isRegular)}
+        >
+          Sick
+        </button>
+      </div>
+      
+      <div className="mt-2">
+        <input
+          type="text"
+          value={player.notes || ''}
+          onChange={(e) => updatePlayerNotes(player.id, e.target.value, isRegular)}
+          className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+          placeholder="Notes"
+        />
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -915,7 +1108,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
               </div>
               
               {isMakeupClass ? (
-                // For makeup classes, allow any date selection
                 <input
                   type="date"
                   id="date"
@@ -925,7 +1117,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
                   required
                 />
               ) : (
-                // For regular classes, only show dates that match the day of week
                 <select
                   id="dateSelect"
                   value={selectedDate}
@@ -938,9 +1129,8 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
                   {availableDates.map((date) => {
                     const dateObj = new Date(date);
                     const today = new Date();
-                    today.setHours(0, 0, 0, 0); // Normalize today's date for comparison
+                    today.setHours(0, 0, 0, 0);
                     
-                    // Check if date is in the past
                     const isPast = dateObj < today;
                     
                     return (
@@ -950,7 +1140,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
                         className={isPast ? 'text-gray-500 italic' : ''}
                       >
                         {dateObj.toLocaleDateString('en-US', { 
-                          weekday: 'long',  // Show full day name 
+                          weekday: 'long',
                           day: 'numeric',
                           month: 'long'
                         })}
@@ -1039,7 +1229,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
                               className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                               checked={selectedAssistantCoachIds.includes(coach.id)}
                               onChange={(e) => {
-                                // Prevent the click event from bubbling to the parent div
                                 e.stopPropagation();
                                 toggleAssistantCoach(coach.id);
                               }}
@@ -1081,14 +1270,77 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
               </div>
             )}
           </div>
+
+          {/* NEW: Makeup Players Section */}
+          {selectedPeriodId && selectedTimeSlotId && (
+            <div className="mt-8 mb-6">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium">Makeup Players</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowMakeupSection(!showMakeupSection)}
+                  className="px-3 py-1.5 text-sm rounded-md shadow-sm text-blue-600 border border-blue-600 hover:bg-blue-50"
+                >
+                  {showMakeupSection ? 'Hide Makeup Section' : 'Add Makeup Players'}
+                </button>
+              </div>
+              
+              {showMakeupSection && (
+                <div className="border rounded-md p-4 bg-gray-50">
+                  <div className="mb-4">
+                    <label htmlFor="makeupSearch" className="block text-sm font-medium text-gray-700 mb-1">
+                      Search for players from other groups
+                    </label>
+                    <input
+                      type="text"
+                      id="makeupSearch"
+                      value={makeupPlayerSearch}
+                      onChange={(e) => setMakeupPlayerSearch(e.target.value)}
+                      className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                      placeholder="Search by player name..."
+                    />
+                  </div>
+                  
+                  {loadingMakeupPlayers ? (
+                    <div className="flex justify-center items-center h-20">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-700"></div>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {availableMakeupPlayers.length === 0 ? (
+                        <div className="text-sm text-gray-500 py-4 text-center">
+                          {makeupPlayerSearch ? 'No players found matching your search.' : 'No other players available for makeup classes.'}
+                        </div>
+                      ) : (
+                        availableMakeupPlayers.map((player) => (
+                          <div key={player.id} className="flex justify-between items-center p-2 bg-white rounded border">
+                            <div>
+                              <div className="font-medium">{player.student_name}</div>
+                              <div className="text-sm text-gray-500">{player.group_name}</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => addMakeupPlayer(player)}
+                              className="px-2 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           
           {/* Player Attendance Section */}
-          {players.length > 0 && (
+          {(players.length > 0 || makeupPlayers.length > 0) && (
             <div className="mt-8">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-medium">Attendance</h3>
                 <div className="flex gap-2">
-                  {/* Toggle All Player Info Button */}
                   <button
                     type="button"
                     onClick={handleToggleAllPlayerInfo}
@@ -1121,131 +1373,17 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <p className="text-sm text-gray-700">{players.length} players</p>
+                  <p className="text-sm text-gray-700">
+                    {players.length} regular players
+                    {makeupPlayers.length > 0 && `, ${makeupPlayers.length} makeup players`}
+                  </p>
                   
                   <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                    {players.map((player) => (
-                      <div 
-                        key={player.id} 
-                        className="border rounded-md p-3"
-                      >
-                        <div className="flex justify-between items-start">
-                          <div className="font-medium">{player.student_name}</div>
-                          <button 
-                            type="button"
-                            onClick={() => togglePlayerInfo(player.id)}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
-                            {expandedPlayerInfo[player.id] ? 'Hide Info' : 'Show Info'}
-                          </button>
-                        </div>
-                        
-                        {/* Contact Information - Updated with clickable phone numbers and email */}
-                        {expandedPlayerInfo[player.id] && (
-                          <div className="mt-2 p-2 bg-gray-50 rounded-md text-xs">
-                            <div className="grid grid-cols-1 gap-y-1">
-                              {player.date_of_birth && (
-                                <div>
-                                  <span className="font-semibold">DOB:</span>{" "}
-                                  {new Date(player.date_of_birth).toLocaleDateString()}
-                                </div>
-                              )}
-                              {player.contact_number && (
-                                <div>
-                                  <span className="font-semibold">Contact:</span>{" "}
-                                  <a href={`tel:${player.contact_number}`} className="text-blue-600 hover:underline">
-                                    {player.contact_number}
-                                  </a>
-                                </div>
-                              )}
-                              {player.emergency_contact_number && (
-                                <div>
-                                  <span className="font-semibold">Emergency:</span>{" "}
-                                  <a href={`tel:${player.emergency_contact_number}`} className="text-blue-600 hover:underline">
-                                    {player.emergency_contact_number}
-                                  </a>
-                                </div>
-                              )}
-                              {player.contact_email && (
-                                <div>
-                                  <span className="font-semibold">Email:</span>{" "}
-                                  <a href={`mailto:${player.contact_email}`} className="text-blue-600 hover:underline">
-                                    {player.contact_email}
-                                  </a>
-                                </div>
-                              )}
-                              {player.medical_information && (
-                                <div>
-                                  <span className="font-semibold">Medical:</span> {player.medical_information}
-                                </div>
-                              )}
-                              {player.walk_home !== null && (
-                                <div>
-                                  <span className="font-semibold">Walk home:</span> {player.walk_home ? 'Yes' : 'No'}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                        
-                        <div className="mt-2 grid grid-cols-2 gap-1">
-                          <button
-                            type="button"
-                            className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
-                              player.attendance_status === 'present' 
-                                ? 'bg-green-100 border-green-500 text-green-800' 
-                                : 'bg-gray-100 border-gray-300 text-gray-800'
-                            }`}
-                            onClick={() => updatePlayerAttendance(player.id, 'present')}
-                          >
-                            Present
-                          </button>
-                          <button
-                            type="button"
-                            className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
-                              player.attendance_status === 'absent' 
-                                ? 'bg-red-100 border-red-500 text-red-800' 
-                                : 'bg-gray-100 border-gray-300 text-gray-800'
-                            }`}
-                            onClick={() => updatePlayerAttendance(player.id, 'absent')}
-                          >
-                            Absent
-                          </button>
-                          <button
-                            type="button"
-                            className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
-                              player.attendance_status === 'away_with_notice' 
-                                ? 'bg-yellow-100 border-yellow-500 text-yellow-800' 
-                                : 'bg-gray-100 border-gray-300 text-gray-800'
-                            }`}
-                            onClick={() => updatePlayerAttendance(player.id, 'away_with_notice')}
-                          >
-                            Away With Notice
-                          </button>
-                          <button
-                            type="button"
-                            className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
-                              player.attendance_status === 'sick' 
-                                ? 'bg-blue-100 border-blue-500 text-blue-800' 
-                                : 'bg-gray-100 border-gray-300 text-gray-800'
-                            }`}
-                            onClick={() => updatePlayerAttendance(player.id, 'sick')}
-                          >
-                            Sick
-                          </button>
-                        </div>
-                        
-                        <div className="mt-2">
-                          <input
-                            type="text"
-                            value={player.notes || ''}
-                            onChange={(e) => updatePlayerNotes(player.id, e.target.value)}
-                            className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="Notes"
-                          />
-                        </div>
-                      </div>
-                    ))}
+                    {/* Regular Players */}
+                    {players.map((player) => renderPlayerCard(player, true))}
+                    
+                    {/* Makeup Players */}
+                    {makeupPlayers.map((player) => renderPlayerCard(player, false))}
                   </div>
                 </div>
               )}
@@ -1264,9 +1402,9 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
-                  {players.length > 0 ? 'Save Attendance' : 'Create Register'}
+                  {(players.length > 0 || makeupPlayers.length > 0) ? 'Save Attendance' : 'Create Register'}
                 </span>
-              ) : (players.length > 0 ? 'Save Attendance' : 'Create Register')}
+              ) : ((players.length > 0 || makeupPlayers.length > 0) ? 'Save Attendance' : 'Create Register')}
             </button>
           </div>
         </form>
