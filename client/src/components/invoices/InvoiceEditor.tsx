@@ -21,7 +21,7 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [coachRates, setCoachRates] = useState<CoachRate[]>([]);
-  const [selectedRate, setSelectedRate] = useState<number>(25);
+  const [selectedRate, setSelectedRate] = useState<number | null>(null); // Changed to null default
   
   // Fetch invoice details
   useEffect(() => {
@@ -63,10 +63,7 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
         const data = await response.json();
         setCoachRates(data);
         
-        // Set default rate if available
-        if (data.length > 0) {
-          setSelectedRate(data[0].hourly_rate);
-        }
+        // Don't set a default rate - let user select
       } catch (err) {
         console.error('Error fetching coach rates:', err);
       }
@@ -133,8 +130,8 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
       description: '', // Leave description blank
       date: today,
       hours: 1,
-      rate: selectedRate,
-      amount: selectedRate * 1
+      rate: selectedRate || 0, // Use selected rate or 0 if none selected
+      amount: (selectedRate || 0) * 1
     };
     
     setLineItems([...lineItems, newItem]);
@@ -285,10 +282,13 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                 </label>
                 <select
                   id="rate"
-                  value={selectedRate}
-                  onChange={(e) => setSelectedRate(parseFloat(e.target.value))}
-                  className="px-3 py-1 border border-gray-300 rounded"
+                  value={selectedRate || ''}
+                  onChange={(e) => setSelectedRate(e.target.value ? parseFloat(e.target.value) : null)}
+                  className={`px-3 py-1 border rounded ${
+                    selectedRate === null ? 'border-gray-300 text-gray-500' : 'border-gray-300'
+                  }`}
                 >
+                  <option value="">Select rate...</option>
                   {coachRates.map(rate => (
                     <option key={rate.id} value={rate.hourly_rate}>
                       {rate.rate_name}: £{rate.hourly_rate.toFixed(2)}/hr
@@ -311,6 +311,13 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
             </button>
           </div>
         </div>
+        
+        {/* Rate selection reminder */}
+        {selectedRate === null && coachRates.length > 0 && (
+          <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
+            💡 Tip: Select a rate above before adding items. If no rate is selected, items will be added with £0.00 rate.
+          </div>
+        )}
         
         <div className="overflow-x-auto rounded border">
           <table className="min-w-full divide-y divide-gray-200">
@@ -450,6 +457,37 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
       {/* Mobile-friendly view */}
       <div className="md:hidden mt-8 space-y-4">
         <h3 className="font-medium text-gray-700">Mobile View</h3>
+        
+        {/* Mobile rate selector */}
+        {coachRates.length > 0 && (
+          <div className="mb-3">
+            <label htmlFor="mobile-rate" className="block text-sm font-medium text-gray-700 mb-1">
+              Select Rate:
+            </label>
+            <select
+              id="mobile-rate"
+              value={selectedRate || ''}
+              onChange={(e) => setSelectedRate(e.target.value ? parseFloat(e.target.value) : null)}
+              className={`w-full px-3 py-2 border rounded ${
+                selectedRate === null ? 'border-gray-300 text-gray-500' : 'border-gray-300'
+              }`}
+            >
+              <option value="">Select rate...</option>
+              {coachRates.map(rate => (
+                <option key={rate.id} value={rate.hourly_rate}>
+                  {rate.rate_name}: £{rate.hourly_rate.toFixed(2)}/hr
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        
+        {/* Rate selection reminder for mobile */}
+        {selectedRate === null && coachRates.length > 0 && (
+          <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
+            💡 Select a rate above before adding items. If no rate is selected, items will be added with £0.00 rate.
+          </div>
+        )}
         
         <div className="flex space-x-2 mb-3">
           <button

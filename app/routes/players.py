@@ -294,6 +294,7 @@ def programme_players():
         ).with_entities(
             ProgrammePlayers.id,
             Student.name.label('student_name'),
+            Student.contact_email,  # ADD THIS LINE
             Student.contact_number,
             Student.emergency_contact_number, 
             Student.medical_information,
@@ -315,6 +316,7 @@ def programme_players():
         ).group_by(
             ProgrammePlayers.id,
             Student.name,
+            Student.contact_email,  # ADD THIS LINE
             Student.contact_number,
             Student.emergency_contact_number,
             Student.medical_information,
@@ -339,6 +341,7 @@ def programme_players():
         return jsonify([{
             'id': player.id,
             'student_name': player.student_name,
+            'contact_email': player.contact_email,  # ADD THIS LINE
             'contact_number': player.contact_number,
             'emergency_contact_number': player.emergency_contact_number,
             'medical_information': player.medical_information,
