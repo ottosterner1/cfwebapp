@@ -231,11 +231,6 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
         <div className="flex items-center">
           <Users className="h-5 w-5 text-indigo-600 mr-2" />
           <h3 className="font-medium text-indigo-900">Programme Analytics</h3>
-          {duplicateCount > 0 && (
-            <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">
-              {duplicateCount} students in multiple groups
-            </span>
-          )}
         </div>
         {expanded ? (
           <ChevronUp className="h-5 w-5 text-indigo-600" />
