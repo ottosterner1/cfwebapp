@@ -53,8 +53,49 @@ def setup_initial_teaching_period(club_id):
        end_date=start_date + timedelta(weeks=12)
    ))
 
+
+def parse_birth_date(date_str):
+    """Parse birth date string to date object."""
+    if date_str:
+        try:
+            return datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return None
+    return None
+
+def days_until_expiry(expiry_date):
+        """Calculate days until expiry for a given date."""
+        if expiry_date is None:
+            return None, None
+            
+        # Convert expiry date to UK timezone if it isn't already
+        if hasattr(expiry_date, 'tzinfo') and expiry_date.tzinfo != uk_timezone:
+            expiry_date = expiry_date.astimezone(uk_timezone)
+        
+        current_time = datetime.now(uk_timezone)
+        
+        # Set both dates to midnight for accurate day calculation
+        if hasattr(expiry_date, 'replace'):
+            expiry_midnight = expiry_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            current_midnight = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            # Handle date objects
+            expiry_midnight = datetime.combine(expiry_date, datetime.min.time())
+            current_midnight = datetime.combine(current_time.date(), datetime.min.time())
+            expiry_midnight = uk_timezone.localize(expiry_midnight)
+            current_midnight = uk_timezone.localize(current_midnight)
+        
+        days = (expiry_midnight - current_midnight).days
+        
+        if days < 0:
+            return 'expired', days
+        elif days <= 90:
+            return 'warning', days
+        else:
+            return 'valid', days
+
 def clean_phone_number(phone_str):
-    """Clean phone number by removing leading apostrophe and whitespace."""
+    """Clean phone number while preserving leading zeros."""
     if phone_str is None or pd.isna(phone_str):
         return None
         
@@ -64,14 +105,444 @@ def clean_phone_number(phone_str):
     # Remove leading apostrophe if present
     if phone_str.startswith("'"):
         phone_str = phone_str[1:]
-        
-    return phone_str
+    
+    # If it's a number that got converted to float, handle it properly
+    if '.' in phone_str and phone_str.replace('.', '').isdigit():
+        # Convert back to int to remove decimal, then to string to preserve leading zeros
+        phone_str = str(int(float(phone_str))).zfill(len(phone_str.split('.')[0]))
+    
+    # Ensure UK mobile numbers have proper formatting
+    if phone_str.isdigit() and len(phone_str) == 10 and not phone_str.startswith('0'):
+        phone_str = '0' + phone_str
+    
+    return phone_str if phone_str else None
 
+def parse_walk_home(value):
+    """Parse walk_home value from Y/N/Blank to True/False/None."""
+    if value is None or pd.isna(value):
+        return None
+        
+    value_str = str(value).strip().upper()
+    
+    if value_str in ('Y', 'YES', 'TRUE', '1'):
+        return True
+    elif value_str in ('N', 'NO', 'FALSE', '0'):
+        return False
+    elif value_str in ('', 'BLANK', 'NULL', 'NONE'):
+        return None
+    else:
+        return None  # Default to None for invalid values
+
+def validate_time_format(time_str):
+    """Validate time format and return parsed time or raise error."""
+    if pd.isna(time_str):
+        raise ValueError("Time value is missing")
+    
+    try:
+        # Try parsing as HH:MM
+        return datetime.strptime(str(time_str).strip(), '%H:%M').time()
+    except ValueError:
+        try:
+            # Try parsing as H:MM (single digit hour)
+            return datetime.strptime(str(time_str).strip(), '%H:%M').time()
+        except ValueError:
+            raise ValueError(f"Invalid time format '{time_str}'. Use HH:MM format (e.g., 09:30, 15:45)")
+
+def validate_phone_number(phone_str):
+    """Validate phone number format."""
+    if phone_str is None or pd.isna(phone_str) or str(phone_str).strip() == '':
+        return True  # Optional field
+    
+    cleaned = clean_phone_number(phone_str)
+    if not cleaned:
+        return False
+    
+    # UK phone number validation (basic)
+    if not cleaned.isdigit():
+        return False
+    
+    # UK numbers should be 11 digits starting with 0, or 10 digits for mobile
+    if len(cleaned) not in [10, 11]:
+        return False
+    
+    return True
+
+def pre_validate_csv(df):
+    """
+    Pre-validate the entire CSV file before processing.
+    Returns (is_valid, errors, warnings)
+    """
+    errors = []
+    warnings = []
+    
+    # Check required columns
+    required_columns = [
+        'student_name', 'date_of_birth', 'contact_email', 
+        'coach_email', 'group_name', 'day_of_week',
+        'start_time', 'end_time'
+    ]
+    
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    if missing_columns:
+        errors.append(f"Missing required columns: {', '.join(missing_columns)}")
+        return False, errors, warnings
+    
+    # Validate each row
+    for index, row in df.iterrows():
+        row_number = index + 2  # +2 for header row and 0-indexing
+        
+        # Check required fields
+        if pd.isna(row['student_name']):
+            errors.append(f"Row {row_number}: Missing student name")
+        
+        if pd.isna(row['contact_email']):
+            errors.append(f"Row {row_number}: Missing contact email")
+        
+        if pd.isna(row['coach_email']):
+            errors.append(f"Row {row_number}: Missing coach email")
+            
+        if pd.isna(row['group_name']):
+            errors.append(f"Row {row_number}: Missing group name")
+        
+        # Validate day of week
+        if not pd.isna(row['day_of_week']):
+            try:
+                DayOfWeek[str(row['day_of_week']).upper()]
+            except KeyError:
+                valid_days = ', '.join([d.name.title() for d in DayOfWeek])
+                errors.append(f"Row {row_number}: Invalid day of week '{row['day_of_week']}'. Must be one of: {valid_days}")
+        else:
+            errors.append(f"Row {row_number}: Missing day of week")
+        
+        # Validate time formats
+        try:
+            validate_time_format(row['start_time'])
+        except ValueError as e:
+            errors.append(f"Row {row_number}: Start time error - {str(e)}")
+        
+        try:
+            validate_time_format(row['end_time'])
+        except ValueError as e:
+            errors.append(f"Row {row_number}: End time error - {str(e)}")
+        
+        # Validate walk_home values if present
+        if 'walk_home' in row and not pd.isna(row['walk_home']):
+            walk_home_value = str(row['walk_home']).strip().upper()
+            valid_walk_home = ['Y', 'N', 'YES', 'NO', 'TRUE', 'FALSE', '1', '0', '', 'BLANK', 'NULL', 'NONE']
+            if walk_home_value not in valid_walk_home:
+                errors.append(f"Row {row_number}: Invalid walk_home value '{row['walk_home']}'. Use Y, N, or leave blank")
+        
+        # Validate phone numbers
+        if 'contact_number' in row and not validate_phone_number(row['contact_number']):
+            errors.append(f"Row {row_number}: Invalid contact number format '{row['contact_number']}'")
+        
+        if 'emergency_contact_number' in row and not validate_phone_number(row['emergency_contact_number']):
+            errors.append(f"Row {row_number}: Invalid emergency contact number format '{row['emergency_contact_number']}'")
+        
+        # Validate email format (basic)
+        if not pd.isna(row['contact_email']):
+            email = str(row['contact_email']).strip()
+            if '@' not in email or '.' not in email:
+                errors.append(f"Row {row_number}: Invalid email format '{email}'")
+    
+    # Stop processing if there are critical errors
+    if errors:
+        return False, errors, warnings
+    
+    return True, [], warnings
+
+def process_batch(batch_df, club_id, teaching_period, coaches, groups, allow_updates=True):
+    """
+    Process a batch of CSV rows with validation, database updates, and update capability.
+    
+    Args:
+        batch_df: DataFrame containing the batch of rows to process
+        club_id: Tennis club ID
+        teaching_period: TeachingPeriod object
+        coaches: Dictionary of coach email -> coach object
+        groups: Dictionary of group name -> group object
+        allow_updates: Boolean to allow updating existing player assignments
+    """
+    
+    valid_rows = []
+    batch_errors = []
+    batch_warnings = []
+    
+    # Validate all rows first
+    for index, row in batch_df.iterrows():
+        try:
+            row_number = index + 2  # +2 for header row and 0-indexing
+            row_data = {}
+            
+            # Validate student name
+            if pd.isna(row['student_name']):
+                batch_errors.append(f"Row {row_number}: Missing student name")
+                continue
+            row_data['student_name'] = str(row['student_name']).strip()
+            
+            # Validate contact email
+            if pd.isna(row['contact_email']):
+                batch_errors.append(f"Row {row_number}: Missing contact email for {row['student_name']}")
+                continue
+            row_data['contact_email'] = str(row['contact_email']).strip()
+            
+            # Validate coach
+            if pd.isna(row['coach_email']):
+                batch_errors.append(f"Row {row_number}: Missing coach email for {row['student_name']}")
+                continue
+                
+            coach_email = str(row['coach_email']).lower().strip()
+            if coach_email not in coaches:
+                batch_errors.append(f"Row {row_number}: Coach with email {row['coach_email']} not found")
+                continue
+            row_data['coach'] = coaches[coach_email]
+            
+            # Validate group
+            if pd.isna(row['group_name']):
+                batch_errors.append(f"Row {row_number}: Missing group name for {row['student_name']}")
+                continue
+                
+            group_name = str(row['group_name']).lower().strip()
+            if group_name not in groups:
+                batch_errors.append(f"Row {row_number}: Group '{row['group_name']}' not found")
+                continue
+            row_data['group'] = groups[group_name]
+            
+            # Parse day of week
+            if pd.isna(row['day_of_week']):
+                batch_errors.append(f"Row {row_number}: Missing day of week for {row['student_name']}")
+                continue
+                
+            try:
+                day_of_week = DayOfWeek[str(row['day_of_week']).upper()]
+                row_data['day_of_week'] = day_of_week
+            except KeyError:
+                valid_days = ', '.join([d.name.title() for d in DayOfWeek])
+                batch_errors.append(f"Row {row_number}: Invalid day of week '{row['day_of_week']}'. Must be one of: {valid_days}")
+                continue
+            
+            # Parse time values with improved validation
+            if pd.isna(row['start_time']) or pd.isna(row['end_time']):
+                batch_errors.append(f"Row {row_number}: Missing start or end time for {row['student_name']}")
+                continue
+                
+            try:
+                start_time = validate_time_format(row['start_time'])
+                end_time = validate_time_format(row['end_time'])
+                
+                if start_time >= end_time:
+                    batch_errors.append(f"Row {row_number}: End time must be after start time")
+                    continue
+                    
+                row_data['start_time'] = start_time
+                row_data['end_time'] = end_time
+            except ValueError as e:
+                batch_errors.append(f"Row {row_number}: {str(e)}")
+                continue
+            
+            # Find group time slot
+            group_time = TennisGroupTimes.query.filter_by(
+                group_id=row_data['group'].id,
+                day_of_week=row_data['day_of_week'],
+                start_time=row_data['start_time'],
+                end_time=row_data['end_time'],
+                tennis_club_id=club_id
+            ).first()
+
+            if not group_time:
+                # Get available times for more helpful error message
+                available_times = TennisGroupTimes.query.filter_by(
+                    group_id=row_data['group'].id,
+                    tennis_club_id=club_id
+                ).all()
+                
+                if not available_times:
+                    time_info = "No time slots configured for this group"
+                else:
+                    time_info = ', '.join([f"{t.day_of_week.value} {t.start_time}-{t.end_time}" for t in available_times])
+                    
+                batch_errors.append(f"Row {row_number}: Group time slot not found for {row['group_name']} " +
+                                  f"on {row['day_of_week']} at {row['start_time']}-{row['end_time']}. " +
+                                  f"Available times: {time_info}")
+                continue
+                
+            row_data['group_time'] = group_time
+            
+            # Parse date of birth (optional)
+            if not pd.isna(row['date_of_birth']):
+                try:
+                    row_data['date_of_birth'] = parse_date(str(row['date_of_birth']))
+                except ValueError as e:
+                    batch_warnings.append(f"Row {row_number}: Couldn't parse date of birth '{row['date_of_birth']}', will be ignored. Error: {str(e)}")
+            
+            # Extract contact information with improved phone number handling
+            if 'contact_number' in row and not pd.isna(row['contact_number']):
+                cleaned_number = clean_phone_number(row['contact_number'])
+                if cleaned_number and validate_phone_number(row['contact_number']):
+                    row_data['contact_number'] = cleaned_number
+                else:
+                    batch_warnings.append(f"Row {row_number}: Invalid contact number '{row['contact_number']}', will be ignored")
+            
+            if 'emergency_contact_number' in row and not pd.isna(row['emergency_contact_number']):
+                cleaned_emergency = clean_phone_number(row['emergency_contact_number'])
+                if cleaned_emergency and validate_phone_number(row['emergency_contact_number']):
+                    row_data['emergency_contact_number'] = cleaned_emergency
+                else:
+                    batch_warnings.append(f"Row {row_number}: Invalid emergency contact number '{row['emergency_contact_number']}', will be ignored")
+            
+            if 'medical_information' in row and not pd.isna(row['medical_information']):
+                row_data['medical_information'] = str(row['medical_information']).strip()
+            
+            # Handle walk_home field with Y/N/Blank support
+            if 'walk_home' in row and not pd.isna(row['walk_home']):
+                walk_home_value = parse_walk_home(row['walk_home'])
+                row_data['walk_home'] = walk_home_value
+                
+                # Log if we couldn't parse it
+                if walk_home_value is None and str(row['walk_home']).strip():
+                    batch_warnings.append(f"Row {row_number}: Couldn't parse walk_home value '{row['walk_home']}', defaulting to blank")
+
+            # Extract notes (optional)
+            if 'notes' in row and not pd.isna(row['notes']):
+                row_data['notes'] = str(row['notes']).strip()
+            
+            # Add to valid rows
+            valid_rows.append(row_data)
+            
+        except Exception as e:
+            batch_errors.append(f"Row {index + 2}: Unexpected error: {str(e)}")
+    
+    # Process valid rows in a single transaction
+    batch_students_created = 0
+    batch_students_updated = 0
+    batch_players_created = 0
+    batch_players_updated = 0
+    
+    if valid_rows:
+        # Use a fresh transaction for this batch
+        try:
+            with db.session.begin_nested():
+                for row_data in valid_rows:
+                    # Get or create student
+                    student = Student.query.filter_by(
+                        name=row_data['student_name'],
+                        tennis_club_id=club_id
+                    ).first()
+
+                    if not student:
+                        student = Student(
+                            name=row_data['student_name'],
+                            date_of_birth=row_data.get('date_of_birth'),
+                            contact_email=row_data['contact_email'],
+                            contact_number=row_data.get('contact_number'),
+                            emergency_contact_number=row_data.get('emergency_contact_number'),
+                            medical_information=row_data.get('medical_information'),
+                            tennis_club_id=club_id
+                        )
+                        db.session.add(student)
+                        db.session.flush()  # Get student.id
+                        batch_students_created += 1
+                    else:
+                        # Update existing student information
+                        updated = False
+                        
+                        if student.contact_email != row_data['contact_email']:
+                            student.contact_email = row_data['contact_email']
+                            updated = True
+                            
+                        if 'date_of_birth' in row_data and student.date_of_birth != row_data.get('date_of_birth'):
+                            student.date_of_birth = row_data.get('date_of_birth')
+                            updated = True
+                            
+                        if 'contact_number' in row_data and student.contact_number != row_data.get('contact_number'):
+                            student.contact_number = row_data.get('contact_number')
+                            updated = True
+                            
+                        if 'emergency_contact_number' in row_data and student.emergency_contact_number != row_data.get('emergency_contact_number'):
+                            student.emergency_contact_number = row_data.get('emergency_contact_number')
+                            updated = True
+                            
+                        if 'medical_information' in row_data and student.medical_information != row_data.get('medical_information'):
+                            student.medical_information = row_data.get('medical_information')
+                            updated = True
+                        
+                        if updated:
+                            batch_students_updated += 1
+
+                    # Check if player assignment already exists
+                    existing_player = ProgrammePlayers.query.filter_by(
+                        student_id=student.id,
+                        group_id=row_data['group'].id,
+                        group_time_id=row_data['group_time'].id,
+                        teaching_period_id=teaching_period.id,
+                        tennis_club_id=club_id
+                    ).first()
+
+                    if existing_player:
+                        if allow_updates:
+                            # Update existing player assignment
+                            updated = False
+                            
+                            if existing_player.coach_id != row_data['coach'].id:
+                                existing_player.coach_id = row_data['coach'].id
+                                updated = True
+                                
+                            if existing_player.walk_home != row_data.get('walk_home'):
+                                existing_player.walk_home = row_data.get('walk_home')
+                                updated = True
+                                
+                            if existing_player.notes != row_data.get('notes'):
+                                existing_player.notes = row_data.get('notes')
+                                updated = True
+                            
+                            if updated:
+                                batch_players_updated += 1
+                                batch_warnings.append(f"Updated existing player assignment for {student.name} in {row_data['group'].name}")
+                        else:
+                            batch_warnings.append(f"Student {student.name} is already assigned to {row_data['group'].name} " +
+                                              f"at {row_data['day_of_week'].value} {row_data['start_time']}-{row_data['end_time']}")
+                        continue
+
+                    # Create new player assignment
+                    player = ProgrammePlayers(
+                        student_id=student.id,
+                        coach_id=row_data['coach'].id,
+                        group_id=row_data['group'].id,
+                        group_time_id=row_data['group_time'].id,
+                        teaching_period_id=teaching_period.id,
+                        tennis_club_id=club_id,
+                        walk_home=row_data.get('walk_home'),
+                        notes=row_data.get('notes') 
+                    )
+                    db.session.add(player)
+                    batch_players_created += 1
+                    
+            # Commit the outer transaction
+            db.session.commit()
+            
+        except Exception as e:
+            # Make sure to rollback
+            db.session.rollback()
+            batch_errors.append(f"Database error: {str(e)}")
+            current_app.logger.error(f"Database error in process_batch: {str(e)}")
+            current_app.logger.error(traceback.format_exc())
+    
+    # Return batch results
+    return {
+        'students_created': batch_students_created,
+        'students_updated': batch_students_updated,
+        'players_created': batch_players_created,
+        'players_updated': batch_players_updated,
+        'warnings': batch_warnings,
+        'errors': batch_errors
+    }
+
+# Helper function that should already exist but including here for completeness
 def parse_date(date_str):
     """Parse date from various formats including YYYY-MM-DD, DD-MMM-YYYY, or DD-MMM-YY"""
     
     # Return None for empty strings or None values
-    if not date_str or date_str.strip() == '':
+    if not date_str or str(date_str).strip() == '':
         return None
 
     try:
@@ -128,278 +599,7 @@ def parse_date(date_str):
     except Exception as e:
         # Log the error but return None instead of raising to prevent crashes
         current_app.logger.error(f"Date parsing failed for '{date_str}': {str(e)}")
-        # Instead of just raising, return a default date far in the past if needed
-        # return datetime(1900, 1, 1).date()  # Uncomment to use default date
-        # Or raise with a clear message
         raise ValueError(f"Invalid date format: '{date_str}'. Please use YYYY-MM-DD or DD-MMM-YYYY format.")
-
-def parse_birth_date(date_str):
-    """Parse birth date string to date object."""
-    if date_str:
-        try:
-            return datetime.strptime(date_str, '%Y-%m-%d').date()
-        except ValueError:
-            return None
-    return None
-
-def days_until_expiry(expiry_date):
-        """Calculate days until expiry for a given date."""
-        if expiry_date is None:
-            return None, None
-            
-        # Convert expiry date to UK timezone if it isn't already
-        if hasattr(expiry_date, 'tzinfo') and expiry_date.tzinfo != uk_timezone:
-            expiry_date = expiry_date.astimezone(uk_timezone)
-        
-        current_time = datetime.now(uk_timezone)
-        
-        # Set both dates to midnight for accurate day calculation
-        if hasattr(expiry_date, 'replace'):
-            expiry_midnight = expiry_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            current_midnight = current_time.replace(hour=0, minute=0, second=0, microsecond=0)
-        else:
-            # Handle date objects
-            expiry_midnight = datetime.combine(expiry_date, datetime.min.time())
-            current_midnight = datetime.combine(current_time.date(), datetime.min.time())
-            expiry_midnight = uk_timezone.localize(expiry_midnight)
-            current_midnight = uk_timezone.localize(current_midnight)
-        
-        days = (expiry_midnight - current_midnight).days
-        
-        if days < 0:
-            return 'expired', days
-        elif days <= 90:
-            return 'warning', days
-        else:
-            return 'valid', days
-
-def process_batch(batch_df, club_id, teaching_period, coaches, groups):
-    """Process a batch of CSV rows with validation and database updates"""
-    
-    valid_rows = []
-    batch_errors = []
-    batch_warnings = []
-    
-    # Validate all rows first
-    for index, row in batch_df.iterrows():
-        try:
-            row_number = index + 2  # +2 for header row and 0-indexing
-            row_data = {}
-            
-            # Validate student name
-            if pd.isna(row['student_name']):
-                batch_errors.append(f"Row {row_number}: Missing student name")
-                continue
-            row_data['student_name'] = row['student_name']
-            
-            # Validate contact email
-            if pd.isna(row['contact_email']):
-                batch_errors.append(f"Row {row_number}: Missing contact email for {row['student_name']}")
-                continue
-            row_data['contact_email'] = row['contact_email']
-            
-            # Validate coach
-            if pd.isna(row['coach_email']):
-                batch_errors.append(f"Row {row_number}: Missing coach email for {row['student_name']}")
-                continue
-                
-            coach_email = str(row['coach_email']).lower()
-            if coach_email not in coaches:
-                batch_errors.append(f"Row {row_number}: Coach with email {row['coach_email']} not found")
-                continue
-            row_data['coach'] = coaches[coach_email]
-            
-            # Validate group
-            if pd.isna(row['group_name']):
-                batch_errors.append(f"Row {row_number}: Missing group name for {row['student_name']}")
-                continue
-                
-            group_name = str(row['group_name']).lower()
-            if group_name not in groups:
-                batch_errors.append(f"Row {row_number}: Group '{row['group_name']}' not found")
-                continue
-            row_data['group'] = groups[group_name]
-            
-            # Parse day of week
-            if pd.isna(row['day_of_week']):
-                batch_errors.append(f"Row {row_number}: Missing day of week for {row['student_name']}")
-                continue
-                
-            try:
-                day_of_week = DayOfWeek[str(row['day_of_week']).upper()]
-                row_data['day_of_week'] = day_of_week
-            except KeyError:
-                valid_days = ', '.join([d.name.title() for d in DayOfWeek])
-                batch_errors.append(f"Row {row_number}: Invalid day of week '{row['day_of_week']}'. Must be one of: {valid_days}")
-                continue
-            
-            # Parse time values
-            if pd.isna(row['start_time']) or pd.isna(row['end_time']):
-                batch_errors.append(f"Row {row_number}: Missing start or end time for {row['student_name']}")
-                continue
-                
-            try:
-                start_time = datetime.strptime(str(row['start_time']), '%H:%M').time()
-                end_time = datetime.strptime(str(row['end_time']), '%H:%M').time()
-                
-                if start_time >= end_time:
-                    batch_errors.append(f"Row {row_number}: End time must be after start time")
-                    continue
-                    
-                row_data['start_time'] = start_time
-                row_data['end_time'] = end_time
-            except ValueError as e:
-                batch_errors.append(f"Row {row_number}: Invalid time format. Use HH:MM. Error: {str(e)}")
-                continue
-            
-            # Find group time slot
-            group_time = TennisGroupTimes.query.filter_by(
-                group_id=row_data['group'].id,
-                day_of_week=row_data['day_of_week'],
-                start_time=row_data['start_time'],
-                end_time=row_data['end_time'],
-                tennis_club_id=club_id
-            ).first()
-
-            if not group_time:
-                # Get available times for more helpful error message
-                available_times = TennisGroupTimes.query.filter_by(
-                    group_id=row_data['group'].id,
-                    tennis_club_id=club_id
-                ).all()
-                
-                if not available_times:
-                    time_info = "No time slots configured for this group"
-                else:
-                    time_info = ', '.join([f"{t.day_of_week.value} {t.start_time}-{t.end_time}" for t in available_times])
-                    
-                batch_errors.append(f"Row {row_number}: Group time slot not found for {row['group_name']} " +
-                                  f"on {row['day_of_week']} at {row['start_time']}-{row['end_time']}. " +
-                                  f"Available times: {time_info}")
-                continue
-                
-            row_data['group_time'] = group_time
-            
-            # Parse date of birth (optional)
-            if not pd.isna(row['date_of_birth']):
-                try:
-                    row_data['date_of_birth'] = parse_date(str(row['date_of_birth']))
-                except ValueError as e:
-                    batch_warnings.append(f"Row {row_number}: Couldn't parse date of birth '{row['date_of_birth']}', will be ignored. Error: {str(e)}")
-            
-            # Extract contact information (optional) - MODIFIED THIS SECTION
-            if 'contact_number' in row and not pd.isna(row['contact_number']):
-                row_data['contact_number'] = clean_phone_number(row['contact_number'])
-            
-            if 'emergency_contact_number' in row and not pd.isna(row['emergency_contact_number']):
-                row_data['emergency_contact_number'] = clean_phone_number(row['emergency_contact_number'])
-            
-            if 'medical_information' in row and not pd.isna(row['medical_information']):
-                row_data['medical_information'] = str(row['medical_information'])
-            
-            # Handle walk_home field (optional) - properly convert to boolean
-            if 'walk_home' in row and not pd.isna(row['walk_home']):
-                walk_home_value = str(row['walk_home']).strip().lower()
-                if walk_home_value in ('true', 't', 'yes', 'y', '1'):
-                    row_data['walk_home'] = True
-                elif walk_home_value in ('false', 'f', 'no', 'n', '0'):
-                    row_data['walk_home'] = False
-                else:
-                    batch_warnings.append(f"Row {row_number}: Invalid walk_home value '{row['walk_home']}'. Using default (None).")
-
-            # Extract notes (optional)
-            if 'notes' in row and not pd.isna(row['notes']):
-                row_data['notes'] = str(row['notes'])
-            
-            # Add to valid rows
-            valid_rows.append(row_data)
-            
-        except Exception as e:
-            batch_errors.append(f"Row {index + 2}: Unexpected error: {str(e)}")
-    
-    # Process valid rows in a single transaction
-    batch_students_created = 0
-    batch_players_created = 0
-    
-    if valid_rows:
-        # Use a fresh transaction for this batch
-        try:
-            with db.session.begin_nested():
-                for row_data in valid_rows:
-                    # Get or create student
-                    student = Student.query.filter_by(
-                        name=row_data['student_name'],
-                        tennis_club_id=club_id
-                    ).first()
-
-                    if not student:
-                        student = Student(
-                            name=row_data['student_name'],
-                            date_of_birth=row_data.get('date_of_birth'),
-                            contact_email=row_data['contact_email'],
-                            contact_number=row_data.get('contact_number'),
-                            emergency_contact_number=row_data.get('emergency_contact_number'),
-                            medical_information=row_data.get('medical_information'),
-                            tennis_club_id=club_id
-                        )
-                        db.session.add(student)
-                        db.session.flush()  # Get student.id
-                        batch_students_created += 1
-                    else:
-                        # Update existing student information
-                        student.contact_email = row_data['contact_email']  # Always update email
-                        if 'date_of_birth' in row_data:
-                            student.date_of_birth = row_data.get('date_of_birth')
-                        if 'contact_number' in row_data:
-                            student.contact_number = row_data.get('contact_number')
-                        if 'emergency_contact_number' in row_data:
-                            student.emergency_contact_number = row_data.get('emergency_contact_number')
-                        if 'medical_information' in row_data:
-                            student.medical_information = row_data.get('medical_information')
-
-                    # Check if player assignment already exists
-                    existing_player = ProgrammePlayers.query.filter_by(
-                        student_id=student.id,
-                        group_id=row_data['group'].id,
-                        group_time_id=row_data['group_time'].id,
-                        teaching_period_id=teaching_period.id,
-                        tennis_club_id=club_id
-                    ).first()
-
-                    if existing_player:
-                        batch_warnings.append(f"Student {student.name} is already assigned to {row_data['group'].name} " +
-                                          f"at {row_data['day_of_week'].value} {row_data['start_time']}-{row_data['end_time']}")
-                        continue
-
-                    # Create new player assignment with walk_home field
-                    player = ProgrammePlayers(
-                        student_id=student.id,
-                        coach_id=row_data['coach'].id,
-                        group_id=row_data['group'].id,
-                        group_time_id=row_data['group_time'].id,
-                        teaching_period_id=teaching_period.id,
-                        tennis_club_id=club_id,
-                        walk_home=row_data.get('walk_home'),
-                        notes=row_data.get('notes') 
-                    )
-                    db.session.add(player)
-                    batch_players_created += 1
-                    
-            # Commit the outer transaction
-            db.session.commit()
-            
-        except Exception as e:
-            # Make sure to rollback
-            db.session.rollback()
-            batch_errors.append(f"Database error: {str(e)}")
-    
-    # Return batch results
-    return {
-        'students_created': batch_students_created,
-        'players_created': batch_players_created,
-        'warnings': batch_warnings,
-        'errors': batch_errors
-    }
 
 # Routes:
 
@@ -1748,7 +1948,7 @@ def get_teaching_periods():
 @login_required
 @admin_required
 def bulk_upload_players():
-    """API endpoint for uploading a CSV file and parsing it for chunked processing"""
+    """API endpoint for uploading and validating a CSV file (validation step only)"""
     
     try:
         # Validate request has file
@@ -1776,24 +1976,24 @@ def bulk_upload_players():
         club = TennisClub.query.get_or_404(current_user.tennis_club_id)
         current_app.logger.info(f"Processing upload for club: {club.name} (ID: {club.id})")
 
-        # Create a unique session key for this upload
-        upload_token = str(uuid.uuid4())
-        
         # Create temp directory if it doesn't exist
         temp_dir = os.path.join(current_app.instance_path, 'uploads')
         os.makedirs(temp_dir, exist_ok=True)
+        
+        # Create a unique session key for this upload
+        upload_token = str(uuid.uuid4())
         
         # Save file to temporary location
         temp_file_path = os.path.join(temp_dir, f"upload_{upload_token}.csv")
         file.save(temp_file_path)
         
-        # Parse CSV to get row count and validate format
+        # Parse and pre-validate CSV
         try:
             # Try different encodings
             try:
-                df = pd.read_csv(temp_file_path, encoding='utf-8')
+                df = pd.read_csv(temp_file_path, encoding='utf-8', dtype=str)  # Force all columns to string
             except UnicodeDecodeError:
-                df = pd.read_csv(temp_file_path, encoding='latin-1')
+                df = pd.read_csv(temp_file_path, encoding='latin-1', dtype=str)  # Force all columns to string
             
             # Check if CSV has any rows
             if len(df) == 0:
@@ -1805,42 +2005,33 @@ def bulk_upload_players():
             df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
             df = df.replace('', pd.NA)
             
-            # Verify required columns
-            required_columns = [
-                'student_name', 'date_of_birth', 'contact_email', 
-                'coach_email', 'group_name', 'day_of_week',
-                'start_time', 'end_time'
-            ]
-            missing_columns = [col for col in required_columns if col not in df.columns]
-            if missing_columns:
-                os.remove(temp_file_path)  # Clean up file
-                current_app.logger.error(f"Missing columns: {', '.join(missing_columns)}")
-                return jsonify({
-                    'error': 'Missing required columns in CSV file', 
-                    'details': f"The following columns are required: {', '.join(missing_columns)}"
-                }), 400
-                
-            # Initialize upload session in Flask session
-            session['upload_info'] = {
+            # PRE-VALIDATION: Check the entire file before processing
+            is_valid, errors, warnings = pre_validate_csv(df)
+            
+            # Store file info in session for later processing
+            session['upload_validation'] = {
                 'token': upload_token,
                 'file_path': temp_file_path,
                 'total_rows': len(df),
-                'processed_rows': 0,
                 'teaching_period_id': teaching_period_id,
                 'club_id': club.id,
-                'students_created': 0,
-                'players_created': 0,
-                'warnings': [],
-                'errors': [],
-                'start_time': time.time()
+                'filename': file.filename,
+                'file_size': os.path.getsize(temp_file_path),
+                'created_at': time.time()
             }
             
-            # Return token and basic info
+            # Return validation results
             return jsonify({
-                'token': upload_token,
+                'validation_token': upload_token,
                 'total_rows': len(df),
-                'status': 'ready',
-                'message': 'File uploaded and ready for processing'
+                'filename': file.filename,
+                'file_size': os.path.getsize(temp_file_path),
+                'status': 'validation_complete',
+                'is_valid': is_valid,
+                'errors': errors,
+                'warnings': warnings,
+                'can_proceed': is_valid,  # Can only proceed if no critical errors
+                'message': 'File validated successfully' if is_valid else 'Validation found issues'
             })
             
         except Exception as e:
@@ -1857,6 +2048,252 @@ def bulk_upload_players():
         return jsonify({
             'error': 'Server error during upload initialization',
             'details': str(e)
+        }), 500
+
+@club_management.route('/api/players/bulk-upload/<validation_token>/start', methods=['POST'])
+@login_required
+@admin_required
+def start_bulk_upload_processing(validation_token):
+    """Start processing the validated CSV file"""
+    
+    # Get validation info from session
+    validation_info = session.get('upload_validation')
+    if not validation_info or validation_info.get('token') != validation_token:
+        return jsonify({'error': 'Invalid or expired validation token'}), 404
+    
+    # Verify club ownership
+    if validation_info['club_id'] != current_user.tennis_club_id:
+        return jsonify({'error': 'Unauthorized access'}), 403
+    
+    # Check if file still exists
+    if not os.path.exists(validation_info['file_path']):
+        session.pop('upload_validation', None)
+        return jsonify({'error': 'Upload file not found. Please upload again.'}), 404
+    
+    try:
+        # Move validation info to processing info
+        processing_token = str(uuid.uuid4())
+        
+        session['upload_info'] = {
+            'token': processing_token,
+            'file_path': validation_info['file_path'],
+            'total_rows': validation_info['total_rows'],
+            'processed_rows': 0,
+            'teaching_period_id': validation_info['teaching_period_id'],
+            'club_id': validation_info['club_id'],
+            'students_created': 0,
+            'students_updated': 0,
+            'players_created': 0,
+            'players_updated': 0,
+            'warnings': [],
+            'errors': [],
+            'start_time': time.time()
+        }
+        
+        # Clear validation session
+        session.pop('upload_validation', None)
+        
+        # Return processing token
+        return jsonify({
+            'processing_token': processing_token,
+            'status': 'ready_for_processing',
+            'message': 'File ready for processing',
+            'total_rows': validation_info['total_rows']
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Error starting processing: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({
+            'error': 'Error starting file processing',
+            'details': str(e)
+        }), 500
+
+@club_management.route('/api/players/bulk-upload/<validation_token>/reject', methods=['POST'])
+@login_required
+@admin_required
+def reject_bulk_upload(validation_token):
+    """Reject the validated CSV file and clean up"""
+    
+    # Get validation info from session
+    validation_info = session.get('upload_validation')
+    if not validation_info or validation_info.get('token') != validation_token:
+        return jsonify({'error': 'Invalid or expired validation token'}), 404
+    
+    try:
+        # Clean up file
+        if os.path.exists(validation_info['file_path']):
+            os.remove(validation_info['file_path'])
+            current_app.logger.info(f"Cleaned up rejected file: {validation_info['file_path']}")
+        
+        # Clear session
+        session.pop('upload_validation', None)
+        
+        return jsonify({
+            'status': 'rejected',
+            'message': 'File rejected and cleaned up successfully'
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Error rejecting upload: {str(e)}")
+        return jsonify({
+            'error': 'Error cleaning up rejected file',
+            'details': str(e)
+        }), 500
+
+@club_management.route('/api/players/bulk-upload/<token>/process', methods=['POST'])
+@login_required
+@admin_required 
+def process_csv_chunk(token):
+    """Process a chunk of the uploaded CSV file with update capability"""
+    
+    # Get upload info from session
+    upload_info = session.get('upload_info')
+    if not upload_info or upload_info.get('token') != token:
+        return jsonify({'error': 'Invalid or expired processing token'}), 404
+    
+    # Verify club ownership
+    if upload_info['club_id'] != current_user.tennis_club_id:
+        return jsonify({'error': 'Unauthorized access'}), 403
+    
+    # Check if file exists
+    if not os.path.exists(upload_info['file_path']):
+        if 'upload_info' in session:
+            session.pop('upload_info')
+        return jsonify({'error': 'Upload file not found'}), 404
+    
+    try:
+        # Load CSV with string dtype to preserve leading zeros
+        try:
+            df = pd.read_csv(upload_info['file_path'], encoding='utf-8', dtype=str)
+        except UnicodeDecodeError:
+            df = pd.read_csv(upload_info['file_path'], encoding='latin-1', dtype=str)
+        
+        # Clean data
+        df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
+        df = df.replace('', pd.NA)
+        
+        # Determine batch size and indices
+        BATCH_SIZE = 25  # Process 25 rows at a time
+        start_idx = upload_info['processed_rows']
+        end_idx = min(start_idx + BATCH_SIZE, upload_info['total_rows'])
+        
+        # Check if already completed
+        if start_idx >= upload_info['total_rows']:
+            # Clean up file
+            if os.path.exists(upload_info['file_path']):
+                os.remove(upload_info['file_path'])
+            
+            # Get final results
+            result = {
+                'status': 'completed',
+                'processed_rows': upload_info['processed_rows'],
+                'total_rows': upload_info['total_rows'],
+                'students_created': upload_info['students_created'],
+                'students_updated': upload_info['students_updated'],
+                'players_created': upload_info['players_created'],
+                'players_updated': upload_info['players_updated'],
+                'progress_percentage': 100,
+                'warnings': upload_info['warnings'][-50:],  # Only keep the last 50 warnings
+                'errors': upload_info['errors'][-50:],      # Only keep the last 50 errors
+                'has_more': False,
+                'total_warnings': len(upload_info['warnings']),
+                'total_errors': len(upload_info['errors'])
+            }
+            
+            # Save complete errors and warnings to a file instead of keeping in session
+            error_log_file = os.path.join(os.path.dirname(upload_info['file_path']), f"errors_{token}.json")
+            with open(error_log_file, 'w') as f:
+                json.dump({
+                    'warnings': upload_info['warnings'],
+                    'errors': upload_info['errors']
+                }, f)
+            
+            # Clear session data
+            session.pop('upload_info')
+            
+            return jsonify(result)
+        
+        # Process this batch
+        batch_df = df.iloc[start_idx:end_idx]
+        
+        # Get cached data needed for this batch
+        club_id = upload_info['club_id']
+        teaching_period_id = upload_info['teaching_period_id']
+        
+        # Get coaches and groups
+        coaches = {coach.email.lower(): coach for coach in 
+                 User.query.filter_by(tennis_club_id=club_id).all()}
+        
+        groups = {group.name.lower(): group for group in 
+                 TennisGroup.query.filter_by(tennis_club_id=club_id).all()}
+        
+        # Get teaching period
+        teaching_period = TeachingPeriod.query.get(teaching_period_id)
+        
+        # Process batch with validation and database update (allowing updates)
+        batch_results = process_batch(
+            batch_df, 
+            club_id, 
+            teaching_period, 
+            coaches, 
+            groups,
+            allow_updates=True  # Enable updates for existing players
+        )
+        
+        # Update progress
+        upload_info['processed_rows'] = end_idx
+        upload_info['students_created'] += batch_results['students_created']
+        upload_info['students_updated'] += batch_results['students_updated']
+        upload_info['players_created'] += batch_results['players_created']
+        upload_info['players_updated'] += batch_results['players_updated']
+        upload_info['warnings'].extend(batch_results['warnings'])
+        upload_info['errors'].extend(batch_results['errors'])
+        
+        # Calculate progress percentage
+        progress = int((end_idx / upload_info['total_rows']) * 100)
+        
+        # To prevent session overflow, only keep the most recent errors and warnings
+        if len(upload_info['warnings']) > 100:
+            upload_info['warnings'] = upload_info['warnings'][-100:]
+        if len(upload_info['errors']) > 100:
+            upload_info['errors'] = upload_info['errors'][-100:]
+        
+        # Update session
+        session['upload_info'] = upload_info
+        
+        # Return updated status
+        return jsonify({
+            'status': 'processing',
+            'processed_rows': end_idx,
+            'total_rows': upload_info['total_rows'],
+            'students_created': upload_info['students_created'],
+            'students_updated': upload_info['students_updated'],
+            'players_created': upload_info['players_created'],
+            'players_updated': upload_info['players_updated'],
+            'progress_percentage': progress,
+            'warnings': batch_results['warnings'],
+            'errors': batch_results['errors'],
+            'has_more': end_idx < upload_info['total_rows'],
+            'elapsed_time': round(time.time() - upload_info['start_time'])
+        })
+        
+    except Exception as e:
+        # Log error
+        current_app.logger.error(f"Error processing batch: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        
+        # Instead of storing in session, log to file
+        error_log_file = os.path.join(os.path.dirname(upload_info.get('file_path', '/tmp')), f"error_{token}.log")
+        with open(error_log_file, 'a') as f:
+            f.write(f"Error processing batch: {str(e)}\n")
+            f.write(traceback.format_exc())
+        
+        # Return error
+        return jsonify({
+            'status': 'error',
+            'error': f'Error processing batch: {str(e)}',
+            'has_more': False
         }), 500
     
 @club_management.route('/api/players', methods=['POST'])
@@ -2137,165 +2574,17 @@ def get_group_times(group_id):
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
     
-@club_management.route('/api/players/bulk-upload/<token>/process', methods=['POST'])
-@login_required
-@admin_required 
-def process_csv_chunk(token):
-    """Process a chunk of the uploaded CSV file"""
-    
-    # Get upload info from session
-    upload_info = session.get('upload_info')
-    if not upload_info or upload_info.get('token') != token:
-        return jsonify({'error': 'Invalid or expired upload token'}), 404
-    
-    # Verify club ownership
-    if upload_info['club_id'] != current_user.tennis_club_id:
-        return jsonify({'error': 'Unauthorized access'}), 403
-    
-    # Check if file exists
-    if not os.path.exists(upload_info['file_path']):
-        if 'upload_info' in session:
-            session.pop('upload_info')
-        return jsonify({'error': 'Upload file not found'}), 404
-    
-    try:
-        # Load CSV
-        try:
-            df = pd.read_csv(upload_info['file_path'], encoding='utf-8')
-        except UnicodeDecodeError:
-            df = pd.read_csv(upload_info['file_path'], encoding='latin-1')
-        
-        # Clean data
-        df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
-        df = df.replace('', pd.NA)
-        
-        # Determine batch size and indices
-        BATCH_SIZE = 25  # Process 25 rows at a time
-        start_idx = upload_info['processed_rows']
-        end_idx = min(start_idx + BATCH_SIZE, upload_info['total_rows'])
-        
-        # Check if already completed
-        if start_idx >= upload_info['total_rows']:
-            # Clean up file
-            if os.path.exists(upload_info['file_path']):
-                os.remove(upload_info['file_path'])
-            
-            # Get final results
-            result = {
-                'status': 'completed',
-                'processed_rows': upload_info['processed_rows'],
-                'total_rows': upload_info['total_rows'],
-                'students_created': upload_info['students_created'],
-                'players_created': upload_info['players_created'],
-                'progress_percentage': 100,
-                'warnings': upload_info['warnings'][-50:],  # Only keep the last 50 warnings
-                'errors': upload_info['errors'][-50:],      # Only keep the last 50 errors
-                'has_more': False,
-                'total_warnings': len(upload_info['warnings']),
-                'total_errors': len(upload_info['errors'])
-            }
-            
-            # Save complete errors and warnings to a file instead of keeping in session
-            error_log_file = os.path.join(os.path.dirname(upload_info['file_path']), f"errors_{token}.json")
-            with open(error_log_file, 'w') as f:
-                json.dump({
-                    'warnings': upload_info['warnings'],
-                    'errors': upload_info['errors']
-                }, f)
-            
-            # Clear session data
-            session.pop('upload_info')
-            
-            return jsonify(result)
-        
-        # Process this batch
-        batch_df = df.iloc[start_idx:end_idx]
-        
-        # Get cached data needed for this batch
-        club_id = upload_info['club_id']
-        teaching_period_id = upload_info['teaching_period_id']
-        
-        # Get coaches and groups
-        coaches = {coach.email.lower(): coach for coach in 
-                 User.query.filter_by(tennis_club_id=club_id).all()}
-        
-        groups = {group.name.lower(): group for group in 
-                 TennisGroup.query.filter_by(tennis_club_id=club_id).all()}
-        
-        # Get teaching period
-        teaching_period = TeachingPeriod.query.get(teaching_period_id)
-        
-        # Process batch with validation and database update
-        batch_results = process_batch(
-            batch_df, 
-            club_id, 
-            teaching_period, 
-            coaches, 
-            groups
-        )
-        
-        # Update progress
-        upload_info['processed_rows'] = end_idx
-        upload_info['students_created'] += batch_results['students_created']
-        upload_info['players_created'] += batch_results['players_created']
-        upload_info['warnings'].extend(batch_results['warnings'])
-        upload_info['errors'].extend(batch_results['errors'])
-        
-        # Calculate progress percentage
-        progress = int((end_idx / upload_info['total_rows']) * 100)
-        
-        # To prevent session overflow, only keep the most recent errors and warnings
-        if len(upload_info['warnings']) > 100:
-            upload_info['warnings'] = upload_info['warnings'][-100:]
-        if len(upload_info['errors']) > 100:
-            upload_info['errors'] = upload_info['errors'][-100:]
-        
-        # Update session
-        session['upload_info'] = upload_info
-        
-        # Return updated status
-        return jsonify({
-            'status': 'processing',
-            'processed_rows': end_idx,
-            'total_rows': upload_info['total_rows'],
-            'students_created': upload_info['students_created'],
-            'players_created': upload_info['players_created'],
-            'progress_percentage': progress,
-            'warnings': batch_results['warnings'],
-            'errors': batch_results['errors'],
-            'has_more': end_idx < upload_info['total_rows'],
-            'elapsed_time': round(time.time() - upload_info['start_time'])
-        })
-        
-    except Exception as e:
-        # Log error
-        current_app.logger.error(f"Error processing batch: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
-        
-        # Instead of storing in session, log to file
-        error_log_file = os.path.join(os.path.dirname(upload_info.get('file_path', '/tmp')), f"error_{token}.log")
-        with open(error_log_file, 'a') as f:
-            f.write(f"Error processing batch: {str(e)}\n")
-            f.write(traceback.format_exc())
-        
-        # Return error
-        return jsonify({
-            'status': 'error',
-            'error': f'Error processing batch: {str(e)}',
-            'has_more': False
-        }), 500
-    
 @club_management.route('/api/template/download')
 @login_required
 @admin_required
 def download_template():
-    """API endpoint for downloading the CSV template"""
+    """API endpoint for downloading the updated CSV template with Y/N walk_home format"""
     club = TennisClub.query.get_or_404(current_user.tennis_club_id)
     
     csv_content = [
         "student_name,date_of_birth,contact_email,contact_number,emergency_contact_number,medical_information,coach_email,group_name,day_of_week,start_time,end_time,walk_home,notes",
-        "John Smith,05-Nov-2013,parent@example.com,07123456789,07987654321,Asthma,coach@example.com,Red 1,Monday,16:00,17:00,true,Prefers to be called Johnny",
-        "Emma Jones,22-Mar-2014,emma.parent@example.com,07111222333,07444555666,,coach@example.com,Red 2,Tuesday,15:30,16:30,false,Left-handed player",
+        "John Smith,05-Nov-2013,parent@example.com,07123456789,07987654321,Asthma,coach@example.com,Red 1,Monday,16:00,17:00,Y,Prefers to be called Johnny",
+        "Emma Jones,22-Mar-2014,emma.parent@example.com,07111222333,07444555666,,coach@example.com,Red 2,Tuesday,15:30,16:30,N,Left-handed player",
         "Alex Brown,15-Jun-2012,alex.parent@example.com,07999888777,,,coach@example.com,Blue 1,Wednesday,17:00,18:00,,Has older sibling in Yellow group",
     ]
     
