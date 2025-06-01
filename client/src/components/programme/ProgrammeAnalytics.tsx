@@ -115,10 +115,30 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
     window.location.href = mailtoLink;
   };
 
+  const handleEmailGroup = (groupName: string) => {
+    // Get all players in this specific group with valid emails
+    const groupPlayers = players.filter(player => player.group_name === groupName);
+    const playersWithEmails = groupPlayers.filter(player => player.contact_email);
+    
+    if (playersWithEmails.length === 0) {
+      alert('No email addresses found for players in this group.');
+      return;
+    }
+
+    // Create mailto link
+    const emails = playersWithEmails.map(player => player.contact_email).join(',');
+    const subject = encodeURIComponent(`${groupName} - Group Communication`);
+    const mailtoLink = `mailto:?bcc=${emails}&subject=${subject}`;
+    
+    // Open email client
+    window.location.href = mailtoLink;
+  };
+
   const analytics = React.useMemo(() => {
     const summary = {
       totalPlayers: players.length,
       totalCapacity: 0,
+      totalPlayersWithCapacity: 0,
       groupBreakdown: {} as Record<string, number>,
       sessionBreakdown: {} as Record<string, SessionInfo>,
       groupCapacityBreakdown: {} as Record<string, GroupCapacityInfo>,
@@ -128,6 +148,7 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
     interface GroupCapacity {
       slots: number;
       capacity: number;
+      playersWithCapacity: number;
       [key: string]: number | boolean;
     }
     const groupCapacities: Record<string, GroupCapacity> = {};
@@ -138,7 +159,7 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
       const groupName = player.group_name;
       
       if (!groupCapacities[groupName]) {
-        groupCapacities[groupName] = { slots: 0, capacity: 0 } as GroupCapacity;
+        groupCapacities[groupName] = { slots: 0, capacity: 0, playersWithCapacity: 0 } as GroupCapacity;
       }
 
       summary.groupBreakdown[groupName] = 
@@ -162,8 +183,10 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
 
           if (!groupCapacities[groupName][timeSlotKey]) {
             groupCapacities[groupName].slots += 1;
-            groupCapacities[groupName].capacity += (player.time_slot.capacity || 0);
-            summary.totalCapacity += (player.time_slot.capacity || 0);
+            if (player.time_slot.capacity) {
+              groupCapacities[groupName].capacity += player.time_slot.capacity;
+              summary.totalCapacity += player.time_slot.capacity;
+            }
             groupCapacities[groupName][timeSlotKey] = true;
           }
         }
@@ -171,6 +194,12 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
         // Add player to the session
         summary.sessionBreakdown[sessionKey].count += 1;
         summary.sessionBreakdown[sessionKey].players.push(player);
+        
+        // Only count players in sessions with capacity
+        if (player.time_slot.capacity) {
+          groupCapacities[groupName].playersWithCapacity += 1;
+          summary.totalPlayersWithCapacity += 1;
+        }
       }
     });
 
@@ -178,7 +207,8 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
     Object.keys(summary.groupBreakdown).forEach(groupName => {
       const playerCount = summary.groupBreakdown[groupName];
       const totalCapacity = groupCapacities[groupName]?.capacity || 0;
-      const fillPercentage = totalCapacity > 0 ? (playerCount / totalCapacity) * 100 : 0;
+      const playersWithCapacity = groupCapacities[groupName]?.playersWithCapacity || 0;
+      const fillPercentage = totalCapacity > 0 ? (playersWithCapacity / totalCapacity) * 100 : 0;
 
       summary.groupCapacityBreakdown[groupName] = {
         name: groupName,
@@ -219,8 +249,6 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
   if (!players || players.length === 0) {
     return null;
   }
-
-  const duplicateCount = players.length - analytics.uniqueStudents.size;
 
   return (
     <div className="mb-8 bg-white border rounded-lg shadow-sm overflow-hidden">
@@ -263,7 +291,7 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
                   <div className="text-xs text-gray-500">Fill Rate</div>
                   <div className="text-lg font-semibold text-gray-900">
                     {analytics.totalCapacity > 0 
-                      ? `${Math.round((analytics.totalPlayers / analytics.totalCapacity) * 100)}%` 
+                      ? `${Math.round((analytics.totalPlayersWithCapacity / analytics.totalCapacity) * 100)}%` 
                       : 'N/A'}
                   </div>
                 </div>
@@ -283,26 +311,32 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
                         <div className="flex justify-between items-center text-xs">
                           <span className="font-medium text-gray-900">{group.name}</span>
                           <span className="text-gray-600">
-                            {group.playerCount}/{group.totalCapacity} ({Math.round(group.fillPercentage)}%)
+                            {group.totalCapacity > 0 ? (
+                              `${Math.round(group.fillPercentage)}% (${Math.round((group.fillPercentage / 100) * group.totalCapacity)}/${group.totalCapacity})`
+                            ) : (
+                              `${group.playerCount} players (no capacity)`
+                            )}
                           </span>
                         </div>
-                        <div className="w-full bg-gray-200 rounded-full h-1.5">
-                          <div 
-                            className={`h-1.5 rounded-full ${
-                              group.fillPercentage >= 95 ? 'bg-green-500' : 
-                              group.fillPercentage >= 80 ? 'bg-yellow-500' : 
-                              'bg-indigo-500'
-                            }`}
-                            style={{ width: `${Math.min(100, group.fillPercentage)}%` }}
-                          ></div>
-                        </div>
+                        {group.totalCapacity > 0 && (
+                          <div className="w-full bg-gray-200 rounded-full h-1.5">
+                            <div 
+                              className={`h-1.5 rounded-full ${
+                                group.fillPercentage >= 95 ? 'bg-green-500' : 
+                                group.fillPercentage >= 80 ? 'bg-yellow-500' : 
+                                'bg-indigo-500'
+                              }`}
+                              style={{ width: `${Math.min(100, group.fillPercentage)}%` }}
+                            ></div>
+                          </div>
+                        )}
                       </div>
                     ))}
                 </div>
               </div>
             </Card>
 
-            {/* Group Breakdown Card sorted by size */}
+            {/* Group Breakdown Card with email buttons */}
             <Card className="p-4 bg-white rounded-lg shadow">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-md font-medium text-gray-900">Group Breakdown</h3>
@@ -314,11 +348,22 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
                 {Object.entries(analytics.groupBreakdown)
                   .sort((a, b) => b[1] - a[1])
                   .map(([group, count]) => (
-                    <div key={group} className="bg-gray-50 rounded p-2 flex justify-between items-center">
-                      <span className="text-sm font-medium text-gray-900">{group}</span>
-                      <span className="text-sm font-semibold text-gray-900">
-                        {count}
-                      </span>
+                    <div key={group} className="bg-gray-50 rounded p-2">
+                      <div className="flex justify-between items-center">
+                        <div className="flex-1">
+                          <span className="text-sm font-medium text-gray-900">{group}</span>
+                          <div className="text-sm font-semibold text-gray-900">
+                            {count} player{count !== 1 ? 's' : ''}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleEmailGroup(group)}
+                          className="ml-2 p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                          title={`Email all players in ${group}`}
+                        >
+                          <Mail className="h-3 w-3" />
+                        </button>
+                      </div>
                     </div>
                   ))}
               </div>
@@ -398,17 +443,6 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
               </div>
             </Card>
           </div>
-
-          {/* Display info about duplicate students if any */}
-          {duplicateCount > 0 && (
-            <div className="mt-4 p-4 bg-yellow-50 border border-yellow-100 rounded-lg">
-              <h4 className="font-medium text-yellow-700 mb-2">Multiple Group Assignments</h4>
-              <p className="text-gray-700">
-                You have {duplicateCount} students who are registered in multiple groups or time slots.
-                This is normal if students attend multiple classes per week.
-              </p>
-            </div>
-          )}
         </div>
       )}
     </div>

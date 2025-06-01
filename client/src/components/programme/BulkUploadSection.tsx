@@ -11,7 +11,13 @@ import {
   ChevronDown, 
   ChevronUp,
   Calendar,
-  AlarmClock 
+  AlarmClock,
+  RefreshCw,
+  FileText,
+  Play,
+  RotateCcw,
+  Users,
+  UserCheck
 } from 'lucide-react';
 
 interface ChartData {
@@ -33,11 +39,25 @@ interface UploadError {
   errors?: string[];
 }
 
+interface ValidationResult {
+  validation_token: string;
+  total_rows: number;
+  filename: string;
+  file_size: number;
+  status: string;
+  is_valid: boolean;
+  errors: string[];
+  warnings: string[];
+  can_proceed: boolean;
+  message: string;
+}
+
 interface UploadSuccess {
   message: string;
   students_created: number;
   students_updated?: number;
   players_created: number;
+  players_updated?: number;
   warnings?: string[];
   errors?: string[];
   skipped_duplicates?: number;
@@ -53,6 +73,7 @@ interface UploadStatus {
   students_created: number;
   students_updated?: number;
   players_created: number;
+  players_updated?: number;
   progress_percentage: number;
   warnings: string[];
   errors: string[];
@@ -82,7 +103,8 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<UploadError | null>(null);
   const [success, setSuccess] = useState<UploadSuccess | null>(null);
-  const [uploadToken, setUploadToken] = useState<string | null>(null);
+  const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const [processingToken, setProcessingToken] = useState<string | null>(null);
   const [status, setStatus] = useState<UploadStatus | null>(null);
   const [processingBatch, setProcessingBatch] = useState(false);
   const [originalRowCount, setOriginalRowCount] = useState(0);
@@ -91,16 +113,18 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
   const [showWarnings, setShowWarnings] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const [showTimeSlotErrors, setShowTimeSlotErrors] = useState(false);
-  const [showDuplicateInfo, setShowDuplicateInfo] = useState(false);
+  const [showUpdateInfo, setShowUpdateInfo] = useState(false);
+  const [showValidationWarnings, setShowValidationWarnings] = useState(false);
+  const [showValidationErrors, setShowValidationErrors] = useState(false);
   const [timeSlotErrors, setTimeSlotErrors] = useState<TimeSlotError[]>([]);
   const [persistedErrors, setPersistedErrors] = useState<string[]>([]);
 
-  // When we get a token, start processing batches
+  // When we get a processing token, start processing batches
   useEffect(() => {
-    if (uploadToken && uploading && !processingBatch) {
+    if (processingToken && !processingBatch && !processingComplete) {
       processBatch();
     }
-  }, [uploadToken, uploading, processingBatch]);
+  }, [processingToken, processingBatch, processingComplete]);
 
   // Format elapsed time as mm:ss
   const formatTime = (seconds?: number): string => {
@@ -108,6 +132,16 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Format file size
+  const formatFileSize = (bytes: number): string => {
+    const kb = bytes / 1024;
+    if (kb < 1024) {
+      return `${kb.toFixed(1)} KB`;
+    }
+    const mb = kb / 1024;
+    return `${mb.toFixed(1)} MB`;
   };
 
   // Extract time slot errors from error messages
@@ -134,20 +168,36 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
     return { timeSlotErrors: extracted, remainingErrors };
   };
 
-  // Handle the initial file upload
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Reset all state
+  const resetState = () => {
+    setFile(null);
+    setUploading(false);
+    setError(null);
+    setSuccess(null);
+    setValidationResult(null);
+    setProcessingToken(null);
+    setStatus(null);
+    setProcessingBatch(false);
+    setOriginalRowCount(0);
+    setProcessingComplete(false);
+    setShowAnalytics(false);
+    setShowWarnings(false);
+    setShowErrors(false);
+    setShowTimeSlotErrors(false);
+    setShowUpdateInfo(false);
+    setShowValidationWarnings(false);
+    setShowValidationErrors(false);
+    setTimeSlotErrors([]);
+    setPersistedErrors([]);
+  };
+
+  // Handle the initial file upload and validation
+  const handleSubmit = async () => {
     if (!file || !periodId) return;
 
     setUploading(true);
     setError(null);
-    setSuccess(null);
-    setStatus(null);
-    setUploadToken(null);
-    setShowAnalytics(false);
-    setProcessingComplete(false);
-    setTimeSlotErrors([]);
-    setPersistedErrors([]);
+    setValidationResult(null);
 
     const formData = new FormData();
     formData.append('file', file);
@@ -159,8 +209,9 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
         body: formData,
       });
 
+      const result = await response.json();
+
       if (!response.ok) {
-        const result = await response.json();
         setError({
           error: result.error || 'Upload failed',
           details: result.details || '',
@@ -171,38 +222,10 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
         return;
       }
 
-      // Parse response
-      const result = await response.json();
+      // Validation completed - show results
+      setValidationResult(result);
+      setUploading(false);
       
-      if (result.token) {
-        // New chunked API - store token and initialize status
-        setUploadToken(result.token);
-        setOriginalRowCount(result.total_rows);
-        setStatus({
-          status: 'ready',
-          processed_rows: 0,
-          total_rows: result.total_rows,
-          students_created: 0,
-          players_created: 0,
-          progress_percentage: 0,
-          warnings: [],
-          errors: [],
-          has_more: true
-        });
-      } else {
-        // Old direct API - handle immediate response
-        setSuccess({
-          message: result.message || 'Upload successful',
-          students_created: result.students_created || 0,
-          players_created: result.players_created || 0,
-          warnings: result.warnings || [],
-          errors: result.errors || []
-        });
-        setUploading(false);
-        setOriginalRowCount(result.total_processed || 0);
-        setProcessingComplete(true);
-        setShowAnalytics(true);
-      }
     } catch (err) {
       console.error('Upload error:', err);
       setError({
@@ -213,19 +236,85 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
     }
   };
 
+  // Handle user decision to proceed with processing
+  const handleProceedWithProcessing = async () => {
+    if (!validationResult) return;
+
+    setUploading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/clubs/api/players/bulk-upload/${validationResult.validation_token}/start`, {
+        method: 'POST',
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setError({
+          error: result.error || 'Failed to start processing',
+          details: result.details || ''
+        });
+        setUploading(false);
+        return;
+      }
+
+      // Start processing
+      setProcessingToken(result.processing_token);
+      setOriginalRowCount(validationResult.total_rows);
+      setValidationResult(null); // Clear validation result
+      setStatus({
+        status: 'ready',
+        processed_rows: 0,
+        total_rows: validationResult.total_rows,
+        students_created: 0,
+        students_updated: 0,
+        players_created: 0,
+        players_updated: 0,
+        progress_percentage: 0,
+        warnings: validationResult.warnings || [],
+        errors: [],
+        has_more: true
+      });
+      
+    } catch (err) {
+      console.error('Processing start error:', err);
+      setError({
+        error: err instanceof Error ? err.message : 'Failed to start processing',
+        details: 'There was a problem communicating with the server.'
+      });
+      setUploading(false);
+    }
+  };
+
+  // Handle user decision to reject and re-upload
+  const handleRejectAndReupload = async () => {
+    if (!validationResult) return;
+
+    try {
+      await fetch(`/clubs/api/players/bulk-upload/${validationResult.validation_token}/reject`, {
+        method: 'POST',
+      });
+    } catch (err) {
+      console.error('Reject error:', err);
+    }
+
+    // Reset state regardless of API result
+    resetState();
+  };
+
   // Process a batch of rows
   const processBatch = async () => {
-    if (!uploadToken || !uploading || processingBatch) return;
+    if (!processingToken || processingBatch) return;
     
     setProcessingBatch(true);
     
     try {
-      const response = await fetch(`/clubs/api/players/bulk-upload/${uploadToken}/process`, {
+      const response = await fetch(`/clubs/api/players/bulk-upload/${processingToken}/process`, {
         method: 'POST',
       });
       
       if (!response.ok) {
-        // Handle error
         let errorData;
         try {
           errorData = await response.json();
@@ -248,13 +337,10 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
       setStatus(prev => {
         if (!prev) return result;
         
-        // Merge warnings and errors from previous state
         const mergedErrors = [...prev.errors, ...(result.errors || [])];
         
-        // Save errors as they come in to work around session cookie limitations
         setPersistedErrors(currentErrors => [...currentErrors, ...(result.errors || [])]);
         
-        // Extract time slot errors for special handling
         const { timeSlotErrors: newTimeSlotErrors } = extractTimeSlotErrors(result.errors || []);
         if (newTimeSlotErrors.length > 0) {
           setTimeSlotErrors(current => [...current, ...newTimeSlotErrors]);
@@ -269,20 +355,19 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
       
       // Check if processing is complete
       if (result.status === 'completed' || !result.has_more) {
-        // Processing complete
         setUploading(false);
         setProcessingComplete(true);
         
-        // Combine all persisted errors with the final result
         const finalSuccess = {
           message: 'Upload successful',
           students_created: result.students_created,
-          students_updated: result.students_updated,
+          students_updated: result.students_updated || 0,
           players_created: result.players_created,
+          players_updated: result.players_updated || 0,
           warnings: result.warnings || [],
-          errors: persistedErrors,  // Use our persisted errors instead
+          errors: persistedErrors,
           skipped_duplicates: result.skipped_duplicates || 0,
-          skipped_missing_time_slot: result.skipped_missing_time_slot || timeSlotErrors.length,  // Use our count if server's is 0
+          skipped_missing_time_slot: result.skipped_missing_time_slot || timeSlotErrors.length,
           skipped_validation_errors: result.skipped_validation_errors || 0,
           total_processed: result.total_processed || originalRowCount
         };
@@ -290,26 +375,23 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
         setSuccess(finalSuccess);
         setShowAnalytics(true);
         
-        // If we have time slot errors, auto-show that section
         if (timeSlotErrors.length > 0) {
           setShowTimeSlotErrors(true);
         }
         
-        // Don't auto-trigger onSuccess - wait for user to view analytics
+        if ((result.students_updated || 0) > 0 || (result.players_updated || 0) > 0) {
+          setShowUpdateInfo(true);
+        }
       } else {
-        // More batches to process
         setProcessingBatch(false);
       }
     } catch (err) {
       console.error('Batch processing error:', err);
       setProcessingBatch(false);
       
-      // Check status to decide whether to retry or fail
       if (status && status.processed_rows > 0) {
-        // We've made some progress, wait and retry
         setTimeout(() => setProcessingBatch(false), 2000);
       } else {
-        // Initial batch failed, give up
         setUploading(false);
         setError({
           error: err instanceof Error ? err.message : 'Failed to process data',
@@ -342,7 +424,6 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
   const renderList = (items: string[] = []) => {
     if (!items || items.length === 0) return null;
     
-    // Show up to 10 items
     const limit = 10;
     const displayItems = items.slice(0, limit);
     const hasMore = items.length > limit;
@@ -363,6 +444,210 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
     );
   };
 
+  // Render validation results
+  const renderValidationResults = () => {
+    if (!validationResult) return null;
+
+    const hasErrors = validationResult.errors.length > 0;
+    const hasWarnings = validationResult.warnings.length > 0;
+
+    return (
+      <div className="bg-white border rounded-lg shadow-sm p-6 mb-6">
+        <div className="flex items-center mb-4">
+          <FileText className="h-6 w-6 text-blue-500 mr-3" />
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">File Validation Results</h3>
+            <p className="text-sm text-gray-600">
+              {validationResult.filename} • {formatFileSize(validationResult.file_size)} • {validationResult.total_rows} rows
+            </p>
+          </div>
+        </div>
+
+        {/* Validation Summary */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className={`border rounded-lg p-4 ${hasErrors ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+            <div className="flex items-center">
+              {hasErrors ? (
+                <XCircle className="h-5 w-5 text-red-500 mr-2" />
+              ) : (
+                <CheckCircle className="h-5 w-5 text-green-500 mr-2" />
+              )}
+              <span className={`font-medium ${hasErrors ? 'text-red-800' : 'text-green-800'}`}>
+                Validation Status
+              </span>
+            </div>
+            <div className="mt-2">
+              <span className={`text-lg font-bold ${hasErrors ? 'text-red-700' : 'text-green-700'}`}>
+                {hasErrors ? 'Failed' : 'Passed'}
+              </span>
+            </div>
+          </div>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div className="flex items-center">
+              <AlertTriangle className="h-5 w-5 text-amber-500 mr-2" />
+              <span className="font-medium text-amber-800">Warnings</span>
+            </div>
+            <div className="mt-2">
+              <span className="text-lg font-bold text-amber-700">{validationResult.warnings.length}</span>
+              {validationResult.warnings.length > 0 && (
+                <button 
+                  onClick={() => setShowValidationWarnings(!showValidationWarnings)}
+                  className="text-amber-600 text-sm hover:underline ml-2"
+                >
+                  View
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-center">
+              <XCircle className="h-5 w-5 text-red-500 mr-2" />
+              <span className="font-medium text-red-800">Errors</span>
+            </div>
+            <div className="mt-2">
+              <span className="text-lg font-bold text-red-700">{validationResult.errors.length}</span>
+              {validationResult.errors.length > 0 && (
+                <button 
+                  onClick={() => setShowValidationErrors(!showValidationErrors)}
+                  className="text-red-600 text-sm hover:underline ml-2"
+                >
+                  View
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Collapsible validation warnings */}
+        {hasWarnings && showValidationWarnings && (
+          <div className="border border-amber-200 rounded-lg overflow-hidden mb-4">
+            <div 
+              className="flex justify-between items-center p-3 bg-amber-50 cursor-pointer"
+              onClick={() => setShowValidationWarnings(!showValidationWarnings)}
+            >
+              <div className="flex items-center">
+                <AlertTriangle className="h-5 w-5 text-amber-500 mr-2" />
+                <h4 className="font-medium text-amber-800">Validation Warnings ({validationResult.warnings.length})</h4>
+              </div>
+              {showValidationWarnings ? (
+                <ChevronUp className="h-5 w-5 text-amber-500" />
+              ) : (
+                <ChevronDown className="h-5 w-5 text-amber-500" />
+              )}
+            </div>
+            
+            <div className="p-4 bg-white border-t border-amber-100">
+              <p className="mb-2 text-amber-700">The following warnings were found but won't prevent processing:</p>
+              {renderList(validationResult.warnings)}
+            </div>
+          </div>
+        )}
+
+        {/* Collapsible validation errors */}
+        {hasErrors && showValidationErrors && (
+          <div className="border border-red-200 rounded-lg overflow-hidden mb-4">
+            <div 
+              className="flex justify-between items-center p-3 bg-red-50 cursor-pointer"
+              onClick={() => setShowValidationErrors(!showValidationErrors)}
+            >
+              <div className="flex items-center">
+                <XCircle className="h-5 w-5 text-red-500 mr-2" />
+                <h4 className="font-medium text-red-800">Validation Errors ({validationResult.errors.length})</h4>
+              </div>
+              {showValidationErrors ? (
+                <ChevronUp className="h-5 w-5 text-red-500" />
+              ) : (
+                <ChevronDown className="h-5 w-5 text-red-500" />
+              )}
+            </div>
+            
+            <div className="p-4 bg-white border-t border-red-100">
+              <p className="mb-2 text-red-700">The following errors must be fixed before the file can be processed:</p>
+              {renderList(validationResult.errors)}
+            </div>
+          </div>
+        )}
+
+        {/* Show errors if any and not in collapsible view */}
+        {hasErrors && !showValidationErrors && (
+          <Alert variant="destructive" className="mb-4">
+            <XCircle className="h-4 w-4" />
+            <AlertTitle>Validation Errors Found</AlertTitle>
+            <AlertDescription>
+              <p className="mb-2">The following errors must be fixed before the file can be processed:</p>
+              {renderList(validationResult.errors.slice(0, 3))}
+              {validationResult.errors.length > 3 && (
+                <p className="text-sm italic mt-1">
+                  ...and {validationResult.errors.length - 3} more errors. 
+                  <button 
+                    onClick={() => setShowValidationErrors(true)}
+                    className="text-red-600 hover:underline ml-1"
+                  >
+                    View all
+                  </button>
+                </p>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Show warnings if any and not in collapsible view */}
+        {hasWarnings && !showValidationWarnings && (
+          <Alert className="mb-4 bg-yellow-50 border-yellow-200 text-yellow-800">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertTitle>Validation Warnings</AlertTitle>
+            <AlertDescription>
+              <p className="mb-2">The following warnings were found but won't prevent processing:</p>
+              {renderList(validationResult.warnings.slice(0, 3))}
+              {validationResult.warnings.length > 3 && (
+                <p className="text-sm italic mt-1">
+                  ...and {validationResult.warnings.length - 3} more warnings. 
+                  <button 
+                    onClick={() => setShowValidationWarnings(true)}
+                    className="text-yellow-600 hover:underline ml-1"
+                  >
+                    View all
+                  </button>
+                </p>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex justify-end space-x-3 pt-4 border-t">
+          <button
+            onClick={handleRejectAndReupload}
+            className="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+          >
+            <RotateCcw className="h-4 w-4 mr-2" />
+            Reject and Re-upload
+          </button>
+          
+          {validationResult.can_proceed ? (
+            <button
+              onClick={handleProceedWithProcessing}
+              className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+            >
+              <Play className="h-4 w-4 mr-2" />
+              Continue and Process File
+            </button>
+          ) : (
+            <button
+              disabled
+              className="inline-flex items-center px-4 py-2 bg-gray-300 text-gray-500 rounded-md cursor-not-allowed"
+            >
+              <XCircle className="h-4 w-4 mr-2" />
+              Cannot Process (Fix Errors First)
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // Render upload progress indicator
   const renderProgress = () => {
     if (!status) {
@@ -374,12 +659,11 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
           </div>
-          <span className="text-indigo-700">Uploading file...</span>
+          <span className="text-indigo-700">Starting processing...</span>
         </div>
       );
     }
     
-    // Determine status message
     let statusMessage = 'Processing data...';
     if (status.status === 'ready') {
       statusMessage = 'Preparing to process...';
@@ -418,9 +702,14 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
           </span>
         </div>
         
-        {status.students_created > 0 && (
+        {(status.students_created > 0 || status.players_created > 0) && (
           <div className="mt-1 text-sm text-gray-600">
             Created so far: {status.students_created} students, {status.players_created} player assignments
+            {((status.students_updated || 0) > 0 || (status.players_updated || 0) > 0) && (
+              <span className="ml-2">
+                | Updated: {status.students_updated || 0} students, {status.players_updated || 0} assignments
+              </span>
+            )}
           </div>
         )}
         
@@ -443,14 +732,12 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
 
   // Render pie chart with canvas
   const renderPieChart = (data: ChartData[], title: string) => {
-    // Simple canvas-based pie chart
     return (
       <div className="border rounded-lg p-4">
         <h4 className="font-medium text-gray-700 mb-3">{title}</h4>
         <div className="h-64">
           <div className="flex flex-col items-center">
             <div className="w-full h-48 relative rounded-full">
-              {/* Display as color blocks with percentages */}
               {data.map((item, index) => {
                 const totalValue = data.reduce((sum, item) => sum + item.value, 0);
                 const percentage = Math.round((item.value / totalValue) * 100);
@@ -481,40 +768,37 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
     const warningsCount = success.warnings?.length || 0;
     const errorsCount = success.errors?.length || 0;
     
-    // Enhanced analytics data
     const skippedDuplicates = success.skipped_duplicates || 0;
     const skippedMissingTimeSlot = success.skipped_missing_time_slot || timeSlotErrors.length;
     const skippedValidationErrors = success.skipped_validation_errors || 0;
     const studentsUpdated = success.students_updated || 0;
+    const playersUpdated = success.players_updated || 0;
     
-    // Calculate totals
     const skippedCount = originalRowCount - success.players_created;
     
-    // Pie chart data for player creation results
     const resultData: ChartData[] = [
       { name: 'Players Created', value: success.players_created },
+      { name: 'Players Updated', value: playersUpdated },
       { name: 'Duplicates', value: skippedDuplicates },
       { name: 'Missing Time Slots', value: skippedMissingTimeSlot },
       { name: 'Validation Errors', value: skippedValidationErrors }
     ].filter(item => item.value > 0);
 
-    // Pie chart for student record handling
     const studentData: ChartData[] = [
       { name: 'New Students', value: success.students_created },
       { name: 'Updated Records', value: studentsUpdated }
     ].filter(item => item.value > 0);
 
-    // Helper function to create percentage text
     const getPercentText = (value: number): string => {
       return originalRowCount > 0 ? `(${Math.round((value / originalRowCount) * 100)}%)` : '';
     };
 
-    // Create a formatted summary of the upload
     const getSummaryText = () => {
       const lines = [
         `Upload Summary for ${periodName}`,
         `Total rows: ${originalRowCount}`,
         `Players successfully created: ${success.players_created} ${getPercentText(success.players_created)}`,
+        `Players updated: ${playersUpdated} ${getPercentText(playersUpdated)}`,
         `New student records: ${success.students_created}`,
         `Updated student records: ${studentsUpdated}`,
         ``,
@@ -530,21 +814,19 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
       return lines;
     };
 
-    // Copy summary to clipboard
     const copySummary = () => {
       navigator.clipboard.writeText(getSummaryText())
         .then(() => alert('Summary copied to clipboard!'))
         .catch(err => console.error('Failed to copy text: ', err));
     };
 
-    // Handle download of detailed report
     const handleDownloadReport = () => {
       if (!success) return;
       
-      // Create CSV content
       const lines = [
         "Status,Details",
         `Success,${success.players_created} players created successfully`,
+        `Players Updated,${playersUpdated} existing player assignments updated`,
         `Students,${success.students_created} new student records created`,
         `Students Updated,${studentsUpdated} existing student records updated`,
         `Duplicates Skipped,${skippedDuplicates} duplicate players skipped`,
@@ -552,36 +834,32 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
         `Validation Errors,${skippedValidationErrors} players skipped due to validation errors`
       ];
       
-      // Add time slot errors in a more structured format
       if (timeSlotErrors.length > 0) {
-        lines.push(""); // Empty line as separator
+        lines.push("");
         lines.push("Missing Time Slots:");
         timeSlotErrors.forEach(error => {
           lines.push(`"${error.group}","${error.day}","${error.time}","Available times: ${error.availableTimes.join(', ')}"`);
         });
       }
       
-      // Add warnings
       if (success.warnings && success.warnings.length > 0) {
-        lines.push(""); // Empty line as separator
+        lines.push("");
         lines.push("Warnings:");
         success.warnings.forEach(warning => {
           lines.push(`Warning,"${warning.replace(/"/g, '""')}"`);
         });
       }
       
-      // Add other errors
       if (success.errors && success.errors.length > 0) {
-        lines.push(""); // Empty line as separator
+        lines.push("");
         lines.push("Errors:");
         success.errors.forEach(error => {
-          if (!error.includes("Group time slot not found")) { // Skip time slot errors already included
+          if (!error.includes("Group time slot not found")) {
             lines.push(`Error,"${error.replace(/"/g, '""')}"`);
           }
         });
       }
       
-      // Create blob and download
       const csvContent = lines.join('\n');
       const blob = new Blob([csvContent], { type: 'text/csv' });
       const url = URL.createObjectURL(blob);
@@ -594,7 +872,6 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
       document.body.removeChild(a);
     };
 
-    // The grouped time slot errors for display
     const groupedTimeSlotErrors = groupTimeSlotErrors();
 
     return (
@@ -644,7 +921,29 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
               <span className="text-green-600 ml-2">players</span>
             </div>
             <p className="text-sm text-green-600 mt-1">
-              New students: {success.students_created} | Updated: {studentsUpdated}
+              New students: {success.students_created}
+            </p>
+          </div>
+          
+          <div className="bg-blue-50 border border-blue-100 rounded-lg p-4">
+            <div className="flex items-center">
+              <RefreshCw className="h-5 w-5 text-blue-500 mr-2" />
+              <span className="font-medium text-blue-800">Updated</span>
+            </div>
+            <div className="mt-2">
+              <span className="text-2xl font-bold text-blue-700">{playersUpdated}</span>
+              <span className="text-blue-600 ml-2">assignments</span>
+              {(studentsUpdated > 0 || playersUpdated > 0) && (
+                <button 
+                  onClick={() => setShowUpdateInfo(!showUpdateInfo)}
+                  className="text-blue-600 text-sm hover:underline ml-2"
+                >
+                  Details
+                </button>
+              )}
+            </div>
+            <p className="text-sm text-blue-600 mt-1">
+              Updated students: {studentsUpdated}
             </p>
           </div>
           
@@ -656,12 +955,6 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
             <div className="mt-2">
               <span className="text-2xl font-bold text-amber-700">{skippedDuplicates}</span>
               <span className="text-amber-600 ml-2">duplicates</span>
-              <button 
-                onClick={() => setShowDuplicateInfo(!showDuplicateInfo)}
-                className="text-blue-600 text-sm hover:underline ml-2"
-              >
-                {showDuplicateInfo ? 'Hide info' : 'Why?'}
-              </button>
             </div>
             <p className="text-sm text-amber-600 mt-1">
               And {skippedMissingTimeSlot} missing time slots
@@ -697,23 +990,71 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
               )}
             </p>
           </div>
-          
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-            <div className="flex items-center">
-              <Info className="h-5 w-5 text-gray-500 mr-2" />
-              <span className="font-medium text-gray-800">Summary</span>
-            </div>
-            <div className="mt-2">
-              <span className="text-2xl font-bold text-gray-700">{originalRowCount}</span>
-              <span className="text-gray-600 ml-2">total rows</span>
-            </div>
-            <p className="text-sm text-gray-600 mt-1">
-              Success rate: {Math.round((success.players_created / originalRowCount) * 100)}%
-            </p>
-          </div>
         </div>
         
-        {/* Time Slot Errors Section - Always show if there are any */}
+        {/* Update Information Section */}
+        {(studentsUpdated > 0 || playersUpdated > 0) && (
+          <div className="border border-blue-200 rounded-lg overflow-hidden mb-6">
+            <div 
+              className="flex justify-between items-center p-3 bg-blue-50 cursor-pointer"
+              onClick={() => setShowUpdateInfo(!showUpdateInfo)}
+            >
+              <div className="flex items-center">
+                <RefreshCw className="h-5 w-5 text-blue-500 mr-2" />
+                <h4 className="font-medium text-blue-800">Update Details</h4>
+              </div>
+              {showUpdateInfo ? (
+                <ChevronUp className="h-5 w-5 text-blue-500" />
+              ) : (
+                <ChevronDown className="h-5 w-5 text-blue-500" />
+              )}
+            </div>
+            
+            {showUpdateInfo && (
+              <div className="p-4 bg-white border-t border-blue-100">
+                <p className="mb-3 text-gray-700">
+                  The upload process updated existing records when more recent information was provided in your CSV.
+                </p>
+                
+                <div className="space-y-3">
+                  {studentsUpdated > 0 && (
+                    <div className="bg-blue-50 p-3 rounded-md">
+                      <h5 className="font-medium text-blue-800 mb-1 flex items-center">
+                        <Users className="h-4 w-4 mr-1" />
+                        Student Records Updated: {studentsUpdated}
+                      </h5>
+                      <p className="text-sm text-gray-600">
+                        Updated contact information, medical details, and other student data where newer information was provided.
+                      </p>
+                    </div>
+                  )}
+                  
+                  {playersUpdated > 0 && (
+                    <div className="bg-blue-50 p-3 rounded-md">
+                      <h5 className="font-medium text-blue-800 mb-1 flex items-center">
+                        <UserCheck className="h-4 w-4 mr-1" />
+                        Player Assignments Updated: {playersUpdated}
+                      </h5>
+                      <p className="text-sm text-gray-600">
+                        Updated coach assignments, walk-home preferences, and notes for existing player assignments.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="mt-3 text-sm text-gray-600 px-4 py-2 bg-white rounded border">
+                  <p className="font-medium">Note:</p>
+                  <p className="mt-1">
+                    Updates only occur when uploading the same student to the same group and time slot in the same teaching period. 
+                    This allows you to make corrections or updates to existing data by re-uploading your CSV.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Time Slot Errors Section */}
         {timeSlotErrors.length > 0 && (
           <div className="border border-orange-200 rounded-lg overflow-hidden mb-6">
             <div 
@@ -786,25 +1127,6 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
             )}
           </div>
         )}
-        
-        {showDuplicateInfo && (
-          <div className="mb-6 p-4 bg-blue-50 border border-blue-100 rounded-lg">
-            <div className="flex items-start">
-              <Info className="h-5 w-5 text-blue-500 mt-0.5 mr-2 flex-shrink-0" />
-              <div>
-                <h4 className="font-medium text-blue-800">Why were some players skipped?</h4>
-                <ul className="list-disc pl-5 mt-2 text-sm text-blue-700 space-y-1">
-                  <li><strong>Duplicates ({skippedDuplicates}):</strong> Students already assigned to the same group and time slot in this teaching period</li>
-                  <li><strong>Missing time slots ({skippedMissingTimeSlot}):</strong> The specified day/time combination doesn't exist for that group</li>
-                  <li><strong>Validation errors ({skippedValidationErrors}):</strong> Issues with data format, missing required fields, etc.</li>
-                </ul>
-                <p className="mt-2 text-sm text-blue-700">
-                  Students can be in multiple groups or time slots, but each student can only be in each specific time slot once.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Charts showing breakdown of uploads */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -821,7 +1143,7 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
             >
               <div className="flex items-center">
                 <AlertTriangle className="h-5 w-5 text-yellow-500 mr-2" />
-                <h4 className="font-medium text-yellow-800">Warnings ({warningsCount})</h4>
+                <h4 className="font-medium text-yellow-800">Processing Warnings ({warningsCount})</h4>
               </div>
               {showWarnings ? (
                 <ChevronUp className="h-5 w-5 text-yellow-500" />
@@ -847,7 +1169,7 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
             >
               <div className="flex items-center">
                 <XCircle className="h-5 w-5 text-red-500 mr-2" />
-                <h4 className="font-medium text-red-800">Errors ({errorsCount})</h4>
+                <h4 className="font-medium text-red-800">Processing Errors ({errorsCount})</h4>
               </div>
               {showErrors ? (
                 <ChevronUp className="h-5 w-5 text-red-500" />
@@ -871,6 +1193,8 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
   const renderSimpleSuccess = () => {
     if (!success || showAnalytics) return null;
 
+    const hasUpdates = (success.students_updated || 0) > 0 || (success.players_updated || 0) > 0;
+
     return (
       <Alert variant={success.errors?.length ? "default" : "default"} className={`mb-4 ${success.errors?.length ? "bg-yellow-50 border-yellow-200 text-yellow-800" : "bg-green-50 border-green-200 text-green-800"}`}>
         {success.errors?.length ? (
@@ -882,6 +1206,11 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
         <AlertDescription>
           <p>
             Created {success.students_created} new students and {success.players_created} player assignments.
+            {hasUpdates && (
+              <span className="ml-1">
+                Updated {success.students_updated || 0} students and {success.players_updated || 0} assignments.
+              </span>
+            )}
           </p>
           
           {timeSlotErrors.length > 0 && (
@@ -926,7 +1255,7 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
             
             {error.errors && error.errors.length > 0 && (
               <>
-                <p className="font-medium mt-2">Errors:</p>
+                <p className="font-medium mt-2">Validation Errors:</p>
                 {renderList(error.errors)}
               </>
             )}
@@ -941,15 +1270,21 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
         </Alert>
       )}
       
+      {/* Show validation results */}
+      {validationResult && renderValidationResults()}
+      
+      {/* Show simple success message */}
       {renderSimpleSuccess()}
       
+      {/* Show analytics */}
       {showAnalytics && renderAnalytics()}
       
-      {uploading && renderProgress()}
+      {/* Show processing progress */}
+      {(uploading && processingToken) && renderProgress()}
       
-      {/* Only show the form if not showing analytics and not processing */}
-      {!showAnalytics && !processingComplete && (
-        <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Only show the upload section if we're not in validation or processing mode */}
+      {!validationResult && !showAnalytics && !processingComplete && !processingToken && (
+        <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Upload CSV File
@@ -993,10 +1328,10 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
                   </ul>
                   <p className="mt-2">Optional columns:</p>
                   <ul className="list-disc pl-5 mt-1">
-                    <li>contact_number</li>
+                    <li>contact_number (UK format with leading zero)</li>
                     <li>emergency_contact_number</li>
                     <li>medical_information</li>
-                    <li>walk_home (true/false)</li>
+                    <li>walk_home (Y, N, or blank)</li>
                     <li>notes</li>
                   </ul>
                   <div className="mt-2">
@@ -1009,8 +1344,15 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
                       Download CSV Template
                     </a>
                   </div>
-                  <div className="mt-2 text-amber-700 font-medium">
-                    For large files (400+ rows), consider splitting into multiple smaller files for reliable processing.
+                  <div className="mt-2 bg-amber-100 text-amber-800 p-2 rounded text-sm">
+                    <strong>✨ New Features:</strong>
+                    <ul className="mt-1 space-y-1">
+                      <li>• Pre-validation prevents upload if there are format errors</li>
+                      <li>• Review validation results before proceeding</li>
+                      <li>• Re-uploading will update existing player assignments</li>
+                      <li>• Walk home uses Y/N/Blank format</li>
+                      <li>• Phone numbers preserve leading zeros</li>
+                    </ul>
                   </div>
                 </div>
               </div>
@@ -1028,7 +1370,8 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
               Cancel
             </button>
             <button
-              type="submit"
+              type="button"
+              onClick={handleSubmit}
               disabled={!file || uploading}
               className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors
                       disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1043,14 +1386,14 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
                       d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                     />
                   </svg>
-                  Processing...
+                  Validating...
                 </>
               ) : (
-                'Upload Players'
+                'Validate and Upload'
               )}
             </button>
           </div>
-        </form>
+        </div>
       )}
     </div>
   );
