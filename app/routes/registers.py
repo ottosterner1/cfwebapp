@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify, current_app, render_template
 from flask_login import login_required, current_user
 from app.models import (
     Register, RegisterEntry, TeachingPeriod, TennisGroupTimes, 
-    ProgrammePlayers, AttendanceStatus, TennisGroup, Student, User, RegisterAssistantCoach
+    ProgrammePlayers, AttendanceStatus, TennisGroup, Student, User, RegisterAssistantCoach, DayOfWeek
 )
 from app import db
 from app.models.base import UserRole
@@ -11,6 +11,8 @@ from app.clubs.middleware import verify_club_access
 from sqlalchemy import and_, or_, func, case, distinct
 from datetime import datetime, timedelta, date
 import traceback
+from app.services.email_service import EmailService
+from sqlalchemy import desc
 
 # API routes for JSON data
 register_routes = Blueprint('registers', __name__, url_prefix='/api')
@@ -122,7 +124,6 @@ def get_registers():
                 query = query.filter(TennisGroupTimes.group_id == group_id)
                 
             if day_of_week:
-                from app.models.base import DayOfWeek
                 try:
                     # Try to match by enum name (uppercase input expected)
                     day_enum = DayOfWeek[day_of_week.upper()]
@@ -373,7 +374,7 @@ def create_register():
             )
             db.session.add(entry)
 
-        # NEW: Add makeup players if provided
+        # Add makeup players if provided
         makeup_player_ids = data.get('makeup_player_ids', [])
         if makeup_player_ids:
             current_app.logger.info(f"Adding {len(makeup_player_ids)} makeup players to register")
@@ -402,6 +403,7 @@ def create_register():
                 db.session.add(entry)
                 current_app.logger.info(f"Added makeup player: {makeup_player.student.name} from group {makeup_player.tennis_group.name}")
             
+        # Commit all changes to database
         db.session.commit()
         
         return jsonify({
@@ -543,8 +545,11 @@ def update_register_entries(register_id):
                     
                 updated_count += 1
         
-        # Now explicitly commit the changes
+        # Commit the changes to the database
         db.session.commit()
+        
+        # Check for consecutive absences and send notification emails
+        process_absence_notifications(register_id)
         
         return jsonify({
             'message': f'Updated {updated_count} entries successfully',
@@ -952,7 +957,6 @@ def get_coach_sessions():
         current_app.logger.info(f"Current user role: {current_user.role}, admin: {current_user.is_admin}, super admin: {current_user.is_super_admin}")
         
         # Convert day_of_week string to enum value for comparison
-        from app.models.base import DayOfWeek
         try:
             # Try to match by enum name (uppercase input expected)
             day_enum = DayOfWeek[day_of_week.upper()]
@@ -1103,7 +1107,6 @@ def get_groups_by_day():
         
         # Add day filter only if provided
         if day_of_week:
-            from app.models.base import DayOfWeek
             day_enum = None
             try:
                 day_enum = DayOfWeek[day_of_week.upper()]
@@ -1169,7 +1172,6 @@ def get_sessions():
         
         # Add day filter only if provided
         if day_of_week:
-            from app.models.base import DayOfWeek
             try:
                 day_enum = DayOfWeek[day_of_week.upper()]
                 query = query.filter(TennisGroupTimes.day_of_week == day_enum)
@@ -1275,7 +1277,6 @@ def get_all_register_notes():
                 query = query.filter(TennisGroupTimes.group_id == group_id)
                 
             if day_of_week:
-                from app.models.base import DayOfWeek
                 try:
                     day_enum = DayOfWeek[day_of_week.upper()]
                     query = query.filter(TennisGroupTimes.day_of_week == day_enum)
@@ -1540,3 +1541,177 @@ def search_makeup_players():
         current_app.logger.error(f"Error searching makeup players: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
+    
+
+
+# Add these new functions to registers.py
+
+def get_consecutive_absence_count(player_id, teaching_period_id, up_to_date=None):
+    """
+    Calculate the number of consecutive absences for a player.
+    Only 'absent' status counts - sick and away_with_notice break the streak.
+    
+    Args:
+        player_id: The programme player ID
+        teaching_period_id: The teaching period ID 
+        up_to_date: Count absences up to this date (inclusive). If None, uses all dates.
+    
+    Returns:
+        int: Number of consecutive absences from most recent backwards
+    """
+    try:
+        # Query register entries for this player in chronological order (newest first)
+        query = db.session.query(RegisterEntry, Register).join(
+            Register, RegisterEntry.register_id == Register.id
+        ).filter(
+            RegisterEntry.programme_player_id == player_id,
+            Register.teaching_period_id == teaching_period_id
+        )
+        
+        # Filter by date if specified
+        if up_to_date:
+            query = query.filter(Register.date <= up_to_date)
+            
+        # Order by date descending (most recent first)
+        register_entries = query.order_by(desc(Register.date)).all()
+        
+        # Count consecutive absences from the most recent entry backwards
+        consecutive_count = 0
+        for entry, register in register_entries:
+            if entry.attendance_status == AttendanceStatus.ABSENT:
+                consecutive_count += 1
+            else:
+                # Any non-absent status breaks the consecutive streak
+                break
+                
+        return consecutive_count
+        
+    except Exception as e:
+        current_app.logger.error(f"Error calculating consecutive absences: {str(e)}")
+        return 0
+
+def send_absence_notification_email(programme_player, register, absence_count):
+    """
+    Send email notification to parent/guardian about consecutive absences.
+    
+    Args:
+        programme_player: ProgrammePlayers object
+        register: Register object where the absence was recorded
+        absence_count: Number of consecutive absences
+    """
+    try:
+        student = programme_player.student
+        club = programme_player.tennis_club
+        group = programme_player.tennis_group
+        
+        # Verify we have an email address to send to
+        if not student.contact_email:
+            current_app.logger.warning(f"Cannot send absence email - no contact email for student {student.name}")
+            return False
+            
+        # Prepare email subject and content
+        email_subject = f"Attendance Notice for {student.name} - {group.name}"
+        
+        # Check if this is a Wilton club (contains "Wilton" in the name) for customized email content
+        if "wilton" in club.name.lower():
+            # Wilton-specific email content
+            email_html = f"""
+            <html>
+                <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto;">
+                        <div style="margin-bottom: 30px;">
+                            <p>Dear {student.name} or Parent/Guardian,</p>
+                            <p>We've noticed that <strong>{student.name}</strong> has missed the <strong>{group.name}</strong> session 3 times in a row.</p>
+                            <p>We wanted to check in to see if there were any issues with the session and whether you are planning on being there in future weeks.</p>
+                            <p>If there's anything you want to discuss, please get in contact with Marc using the following email: headcoach@wiltontennisclub.co.uk.</p>
+                            <p>Thanks,<br>Marc Beckles, Head Coach</p>
+                        </div>
+                        <div style="font-size: 0.9em; color: #666; border-top: 1px solid #eee; padding-top: 15px;">
+                            <p>This is an automated attendance notification from {club.name}.</p>
+                            <p>Please do not reply to this email.</p>
+                        </div>
+                    </div>
+                </body>
+            </html>
+            """
+        else:
+            # Generic email content for all other clubs
+            email_html = f"""
+            <html>
+                <body style="font-family: Arial, Helvetica, sans-serif; line-height: 1.6; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto;">
+                        <div style="margin-bottom: 30px;">
+                            <p>Dear {student.name} or Parent/Guardian,</p>
+                            <p>We've noticed that <strong>{student.name}</strong> has missed the <strong>{group.name}</strong> session 3 times in a row.</p>
+                            <p>We wanted to check in to see if there were any issues with the session and whether you are planning on being there in future weeks.</p>
+                            <p>If there's anything you want to discuss, please get in contact with the {club.name} coaching team.</p>
+                            <p>Thanks,<br>{club.name}</p>
+                        </div>
+                        <div style="font-size: 0.9em; color: #666; border-top: 1px solid #eee; padding-top: 15px;">
+                            <p>This is an automated attendance notification from {club.name}.</p>
+                            <p>Please do not reply to this email.</p>
+                        </div>
+                    </div>
+                </body>
+            </html>
+            """
+        
+        # Send email using the existing email service
+        email_service = EmailService()
+        success, result = email_service.send_generic_email(
+            recipient_email=student.contact_email,
+            subject=email_subject,
+            html_content=email_html,
+            sender_name=club.name
+        )
+        
+        if success:
+            current_app.logger.info(f"Absence notification email sent successfully to {student.contact_email} for {student.name}")
+            return True
+        else:
+            current_app.logger.error(f"Failed to send absence notification email: {result}")
+            return False
+            
+    except Exception as e:
+        current_app.logger.error(f"Error sending absence notification email: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return False
+
+def process_absence_notifications(register_id):
+    """
+    Check all absent players in a register and send emails for those with exactly 3 consecutive absences.
+    
+    Args:
+        register_id: ID of the register that was just created/updated
+    """
+    try:
+        register = Register.query.get(register_id)
+        if not register:
+            current_app.logger.warning(f"Register {register_id} not found for absence notification processing")
+            return
+            
+        # Find all entries in this register marked as absent
+        absent_entries = RegisterEntry.query.filter_by(
+            register_id=register_id,
+            attendance_status=AttendanceStatus.ABSENT
+        ).all()
+        
+        # Process each absent player
+        for entry in absent_entries:
+            # Count their consecutive absences up to this register's date
+            consecutive_absences = get_consecutive_absence_count(
+                entry.programme_player_id,
+                register.teaching_period_id,
+                register.date
+            )
+            # Send email only if this is exactly the 3rd consecutive absence
+            if consecutive_absences == 3:
+                programme_player = entry.programme_player
+                send_absence_notification_email(programme_player, register, consecutive_absences)
+                
+    except Exception as e:
+        current_app.logger.error(f"Error processing absence notifications for register {register_id}: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+
+
+ 
