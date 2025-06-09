@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Alert, AlertDescription } from '../../components/ui/alert';
-import { Download, PlusCircle, Pencil, Trash2, Search, FileDown } from 'lucide-react';
+import { Download, PlusCircle, Pencil, Trash2, Search, FileDown, Users, Mail, Phone, AlertTriangle, FileText, Home } from 'lucide-react';
 import BulkUploadSection from './BulkUploadSection';
 import ProgrammeAnalytics from './ProgrammeAnalytics';
 
@@ -25,6 +25,12 @@ interface Player {
   report_submitted: boolean;
   report_id: number | null;
   can_edit: boolean;
+  contact_email?: string;
+  contact_number?: string;
+  emergency_contact_number?: string;
+  medical_information?: string;
+  notes?: string;
+  walk_home?: boolean | null;
 }
 
 // PeriodFilter Component
@@ -83,6 +89,99 @@ const getTimeValue = (timeStr: string): number => {
   }
   
   return hours * 60 + minutes;
+};
+
+// Player Info Bar Component - Compact Version
+const PlayerInfoBar: React.FC<{ player: Player }> = ({ player }) => {
+  const hasInfo = player.contact_email || player.contact_number || player.emergency_contact_number || 
+                 player.medical_information || player.notes || player.walk_home !== null;
+
+  if (!hasInfo) {
+    return null;
+  }
+
+  const infoItems = [];
+
+  // Contact Email
+  if (player.contact_email) {
+    infoItems.push(
+      <span key="email" className="flex items-center text-gray-600">
+        <Mail className="h-3 w-3 mr-1" />
+        {player.contact_email}
+      </span>
+    );
+  }
+
+  // Contact Number
+  if (player.contact_number) {
+    infoItems.push(
+      <span key="phone" className="flex items-center text-gray-600">
+        <Phone className="h-3 w-3 mr-1" />
+        {player.contact_number}
+      </span>
+    );
+  }
+
+  // Emergency Contact
+  if (player.emergency_contact_number) {
+    infoItems.push(
+      <span key="emergency" className="flex items-center text-gray-600">
+        <AlertTriangle className="h-3 w-3 mr-1 text-orange-500" />
+        Emergency: {player.emergency_contact_number}
+      </span>
+    );
+  }
+
+  // Walk Home Status
+  if (player.walk_home !== null) {
+    infoItems.push(
+      <span key="walk-home" className="flex items-center">
+        <Home className="h-3 w-3 mr-1" />
+        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+          player.walk_home 
+            ? 'bg-green-100 text-green-700' 
+            : 'bg-red-100 text-red-700'
+        }`}>
+          {player.walk_home ? 'Can walk home' : 'No walk home'}
+        </span>
+      </span>
+    );
+  }
+
+  // Medical Information
+  if (player.medical_information) {
+    infoItems.push(
+      <span key="medical" className="flex items-center text-red-600 font-medium">
+        <AlertTriangle className="h-3 w-3 mr-1" />
+        Medical: {player.medical_information}
+      </span>
+    );
+  }
+
+  // Notes
+  if (player.notes) {
+    infoItems.push(
+      <span key="notes" className="flex items-center text-gray-600">
+        <FileText className="h-3 w-3 mr-1" />
+        {player.notes}
+      </span>
+    );
+  }
+
+  return (
+    <div className="mt-2 px-2 py-1 bg-gray-50 rounded text-xs">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        {infoItems.map((item, index) => (
+          <React.Fragment key={index}>
+            {item}
+            {index < infoItems.length - 1 && (
+              <span className="text-gray-300">•</span>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+    </div>
+  );
 };
 
 const PlayersList: React.FC<{
@@ -261,12 +360,75 @@ const PlayersList: React.FC<{
                   <h4 className="text-sm font-medium text-gray-700 mb-3">
                     {timeSlot.dayOfWeek} {formatTime(timeSlot.startTime)} - {formatTime(timeSlot.endTime)}
                   </h4>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {timeSlot.players.map(player => (
+                      <div key={player.id} className="bg-gray-50 rounded-lg p-3">
+                        <div
+                          id={`player-${player.id}`}
+                          className="flex items-center justify-between"
+                        >
+                          <div>
+                            <span className="font-medium text-gray-900">
+                              {player.student_name}
+                            </span>
+                            <span className="ml-2">
+                              {player.report_submitted ? (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                  Completed
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                  Pending
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                          {player.can_edit && (
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => {
+                                  saveScrollPosition(player.id);
+                                  window.location.href = `/clubs/manage/${clubId}/players/${player.id}/edit`;
+                                }}
+                                className="inline-flex items-center px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-md hover:bg-indigo-100 transition-colors"
+                              >
+                                <Pencil className="h-4 w-4 mr-1" />
+                                Edit
+                              </button>
+                              <button
+                                onClick={(e) => handleDelete(player.id, e)}
+                                disabled={deleteInProgress[player.id]}
+                                className="inline-flex items-center px-3 py-1.5 bg-red-50 text-red-700 rounded-md hover:bg-red-100 transition-colors"
+                              >
+                                {deleteInProgress[player.id] ? (
+                                  <div className="h-4 w-4 mr-1 animate-spin rounded-full border-2 border-t-transparent border-red-700"></div>
+                                ) : (
+                                  <Trash2 className="h-4 w-4 mr-1" />
+                                )}
+                                Delete
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        {/* Player Info Bar */}
+                        <PlayerInfoBar player={player} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+            {group.unassignedPlayers.length > 0 && (
+              <div className="p-4">
+                <h4 className="text-sm font-medium text-gray-700 mb-3">
+                  Unassigned Time Slot
+                </h4>
+                <div className="space-y-3">
+                  {group.unassignedPlayers.map(player => (
+                    <div key={player.id} className="bg-gray-50 rounded-lg p-3">
                       <div
-                        key={player.id}
                         id={`player-${player.id}`}
-                        className="flex items-center justify-between px-4 py-2 bg-gray-50 rounded-lg"
+                        className="flex items-center justify-between"
                       >
                         <div>
                           <span className="font-medium text-gray-900">
@@ -311,65 +473,8 @@ const PlayersList: React.FC<{
                           </div>
                         )}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-
-            {group.unassignedPlayers.length > 0 && (
-              <div className="p-4">
-                <h4 className="text-sm font-medium text-gray-700 mb-3">
-                  Unassigned Time Slot
-                </h4>
-                <div className="space-y-2">
-                  {group.unassignedPlayers.map(player => (
-                    <div
-                      key={player.id}
-                      id={`player-${player.id}`}
-                      className="flex items-center justify-between px-4 py-2 bg-gray-50 rounded-lg"
-                    >
-                      <div>
-                        <span className="font-medium text-gray-900">
-                          {player.student_name}
-                        </span>
-                        <span className="ml-2">
-                          {player.report_submitted ? (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                              Completed
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                              Pending
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      {player.can_edit && (
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => {
-                              saveScrollPosition(player.id);
-                              window.location.href = `/clubs/manage/${clubId}/players/${player.id}/edit`;
-                            }}
-                            className="inline-flex items-center px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-md hover:bg-indigo-100 transition-colors"
-                          >
-                            <Pencil className="h-4 w-4 mr-1" />
-                            Edit
-                          </button>
-                          <button
-                            onClick={(e) => handleDelete(player.id, e)}
-                            disabled={deleteInProgress[player.id]}
-                            className="inline-flex items-center px-3 py-1.5 bg-red-50 text-red-700 rounded-md hover:bg-red-100 transition-colors"
-                          >
-                            {deleteInProgress[player.id] ? (
-                              <div className="h-4 w-4 mr-1 animate-spin rounded-full border-2 border-t-transparent border-red-700"></div>
-                            ) : (
-                              <Trash2 className="h-4 w-4 mr-1" />
-                            )}
-                            Delete
-                          </button>
-                        </div>
-                      )}
+                      {/* Player Info Bar */}
+                      <PlayerInfoBar player={player} />
                     </div>
                   ))}
                 </div>
@@ -395,6 +500,9 @@ const ProgrammeManagement = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+
+  // Refs for scrolling
+  const playersListRef = useRef<HTMLDivElement>(null);
 
   // Fetch user data
   useEffect(() => {
@@ -547,6 +655,23 @@ const ProgrammeManagement = () => {
       alert('Failed to delete player. Please try again.');
     }
   };
+
+  // Handler for when a group is clicked from analytics
+  const handleGroupClick = (groupName: string) => {
+    setSelectedGroup(groupName);
+    setSearchQuery(''); // Clear search to avoid conflicts
+    setSelectedDay(null); // Clear day filter to show all sessions for the group
+    
+    // Scroll to the players list section
+    setTimeout(() => {
+      if (playersListRef.current) {
+        playersListRef.current.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'start' 
+        });
+      }
+    }, 100);
+  };
   
   // Get unique groups and days for filter options
   const { groups, days } = useMemo(() => {
@@ -647,7 +772,6 @@ const ProgrammeManagement = () => {
                 <Download className="h-5 w-5 mr-2" />
                 Download Template
               </button>
-              {/* New Export Button */}
               <button
                 onClick={handleExportData}
                 className="inline-flex items-center justify-center px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors"
@@ -670,10 +794,13 @@ const ProgrammeManagement = () => {
           )}
           
           {/* Analytics Section */}
-          <ProgrammeAnalytics players={players} />
+          <ProgrammeAnalytics 
+            players={players} 
+            onGroupClick={handleGroupClick}
+          />
 
-                    {/* Search and Filter Bar */}
-                    <div className="p-4 border rounded-lg bg-gray-50 mb-6">
+          {/* Search and Filter Bar */}
+          <div className="p-4 border rounded-lg bg-gray-50 mb-6">
             <div className="flex flex-col md:flex-row gap-3">
               {/* Search Input */}
               <div className="relative flex-grow">
@@ -721,19 +848,37 @@ const ProgrammeManagement = () => {
                 Clear Filters
               </button>
             </div>
+
+            {/* Filter Status Indicator */}
+            {selectedGroup && (
+              <div className="mt-3 flex items-center space-x-2">
+                <Users className="h-4 w-4 text-indigo-500" />
+                <span className="text-sm text-indigo-700">
+                  Showing group: <strong>{selectedGroup}</strong>
+                </span>
+                <button
+                  onClick={() => setSelectedGroup(null)}
+                  className="text-xs text-indigo-500 hover:text-indigo-700 underline"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Players List */}
-          <PlayersList
-            players={players}
-            filteredPlayers={filteredPlayers}
-            loading={loading}
-            clubId={clubId}
-            onDeletePlayer={handleDeletePlayer}
-            searchQuery={searchQuery}
-            selectedGroup={selectedGroup}
-            selectedDay={selectedDay}
-          />
+          {/* Players List - WITH REF FOR SCROLLING */}
+          <div ref={playersListRef}>
+            <PlayersList
+              players={players}
+              filteredPlayers={filteredPlayers}
+              loading={loading}
+              clubId={clubId}
+              onDeletePlayer={handleDeletePlayer}
+              searchQuery={searchQuery}
+              selectedGroup={selectedGroup}
+              selectedDay={selectedDay}
+            />
+          </div>
         </CardContent>
       </Card>
     </div>
