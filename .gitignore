@@ -5,7 +5,7 @@ tennis_coaching_db.backup
 
 # Environment variables
 .envrc
-.env
+.env 
 
 # Instance/Config files with sensitive data
 user-pool-config.json
