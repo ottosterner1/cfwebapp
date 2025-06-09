@@ -1713,5 +1713,320 @@ def process_absence_notifications(register_id):
         current_app.logger.error(f"Error processing absence notifications for register {register_id}: {str(e)}")
         current_app.logger.error(traceback.format_exc())
 
+@register_routes.route('/register-calendar')
+@login_required
+@verify_club_access()
+def get_register_calendar():
+    """Get calendar view of scheduled sessions and register status for current coach"""
+    try:
+        # Parse query parameters
+        teaching_period_id = request.args.get('period_id', type=int)
+        start_date = request.args.get('start_date')  # Optional date range
+        end_date = request.args.get('end_date')      # Optional date range
+        
+        # Get default teaching period if not specified
+        if not teaching_period_id:
+            current_period = TeachingPeriod.query.filter(
+                TeachingPeriod.tennis_club_id == current_user.tennis_club_id,
+                TeachingPeriod.start_date <= func.current_date(),
+                TeachingPeriod.end_date >= func.current_date()
+            ).order_by(TeachingPeriod.start_date.desc()).first()
+            
+            if current_period:
+                teaching_period_id = current_period.id
+            else:
+                return jsonify([])
+        
+        # Default to current week if no date range specified
+        if not start_date:
+            today = date.today()
+            # Get Monday of current week
+            days_since_monday = today.weekday()
+            monday = today - timedelta(days=days_since_monday)
+            start_date = monday.strftime('%Y-%m-%d')
+            
+        if not end_date:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+            sunday = start_date_obj + timedelta(days=6)
+            end_date = sunday.strftime('%Y-%m-%d')
+        
+        # Parse date strings
+        start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+        end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+        
+        # Get all group times that the coach is assigned to
+        coach_group_times_query = db.session.query(
+            TennisGroupTimes.id,
+            TennisGroupTimes.group_id,
+            TennisGroupTimes.day_of_week,
+            TennisGroupTimes.start_time,
+            TennisGroupTimes.end_time,
+            TennisGroup.name.label('group_name'),
+            func.count(ProgrammePlayers.id).label('student_count')
+        ).join(
+            TennisGroup, TennisGroupTimes.group_id == TennisGroup.id
+        ).join(
+            ProgrammePlayers, and_(
+                ProgrammePlayers.group_time_id == TennisGroupTimes.id,
+                ProgrammePlayers.teaching_period_id == teaching_period_id
+            )
+        ).filter(
+            TennisGroupTimes.tennis_club_id == current_user.tennis_club_id,
+            ProgrammePlayers.tennis_club_id == current_user.tennis_club_id
+        )
+        
+        # Filter by coach (admin can see all, coaches see only their own)
+        if not current_user.is_admin:
+            coach_group_times_query = coach_group_times_query.filter(
+                ProgrammePlayers.coach_id == current_user.id
+            )
+        
+        coach_group_times = coach_group_times_query.group_by(
+            TennisGroupTimes.id,
+            TennisGroupTimes.group_id,
+            TennisGroupTimes.day_of_week,
+            TennisGroupTimes.start_time,
+            TennisGroupTimes.end_time,
+            TennisGroup.name
+        ).all()
+        
+        # Generate all potential session dates within the range
+        sessions = []
+        current_date = start_date_obj
+        
+        # Map day names to Python weekday numbers (Monday = 0)
+        day_mapping = {
+            DayOfWeek.MONDAY: 0,
+            DayOfWeek.TUESDAY: 1,
+            DayOfWeek.WEDNESDAY: 2,
+            DayOfWeek.THURSDAY: 3,
+            DayOfWeek.FRIDAY: 4,
+            DayOfWeek.SATURDAY: 5,
+            DayOfWeek.SUNDAY: 6
+        }
+        
+        while current_date <= end_date_obj:
+            current_weekday = current_date.weekday()
+            
+            # Find group times that match this day
+            for group_time in coach_group_times:
+                if day_mapping.get(group_time.day_of_week) == current_weekday:
+                    # Check if a register exists for this session
+                    existing_register = Register.query.filter_by(
+                        group_time_id=group_time.id,
+                        date=current_date,
+                        teaching_period_id=teaching_period_id,
+                        tennis_club_id=current_user.tennis_club_id
+                    ).first()
+                    
+                    # Only include sessions for non-admin users that belong to them
+                    if not current_user.is_admin:
+                        if existing_register and existing_register.coach_id != current_user.id:
+                            continue
+                    
+                    session_data = {
+                        'id': f"{group_time.id}-{current_date.strftime('%Y%m%d')}",
+                        'date': current_date.strftime('%Y-%m-%d'),
+                        'day_of_week': group_time.day_of_week.value,
+                        'start_time': group_time.start_time.strftime('%H:%M'),
+                        'end_time': group_time.end_time.strftime('%H:%M'),
+                        'time_display': f"{group_time.start_time.strftime('%H:%M')}-{group_time.end_time.strftime('%H:%M')}",
+                        'group_id': group_time.group_id,
+                        'group_name': group_time.group_name,
+                        'group_time_id': group_time.id,
+                        'student_count': group_time.student_count,
+                        'has_register': existing_register is not None,
+                        'register_id': existing_register.id if existing_register else None,
+                        'teaching_period_id': teaching_period_id
+                    }
+                    
+                    sessions.append(session_data)
+            
+            current_date += timedelta(days=1)
+        
+        # Sort sessions by date and time
+        sessions.sort(key=lambda x: (x['date'], x['start_time']))
+        
+        return jsonify(sessions)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching register calendar: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
 
+
+@register_routes.route('/register-calendar/summary')
+@login_required
+@verify_club_access()
+def get_register_calendar_summary():
+    """Get summary statistics for register completion"""
+    try:
+        teaching_period_id = request.args.get('period_id', type=int)
+        
+        # Get default teaching period if not specified
+        if not teaching_period_id:
+            current_period = TeachingPeriod.query.filter(
+                TeachingPeriod.tennis_club_id == current_user.tennis_club_id,
+                TeachingPeriod.start_date <= func.current_date(),
+                TeachingPeriod.end_date >= func.current_date()
+            ).order_by(TeachingPeriod.start_date.desc()).first()
+            
+            if current_period:
+                teaching_period_id = current_period.id
+            else:
+                return jsonify({
+                    'total_sessions': 0,
+                    'completed_registers': 0,
+                    'missing_registers': 0,
+                    'overdue_registers': 0,
+                    'completion_rate': 0
+                })
+        
+        # Get current date for overdue calculation
+        today = date.today()
+        
+        # Count scheduled sessions for the coach
+        coach_sessions_query = db.session.query(
+            TennisGroupTimes.id,
+            TennisGroupTimes.day_of_week,
+            func.count(ProgrammePlayers.id).label('has_students')
+        ).join(
+            TennisGroup, TennisGroupTimes.group_id == TennisGroup.id
+        ).join(
+            ProgrammePlayers, and_(
+                ProgrammePlayers.group_time_id == TennisGroupTimes.id,
+                ProgrammePlayers.teaching_period_id == teaching_period_id
+            )
+        ).filter(
+            TennisGroupTimes.tennis_club_id == current_user.tennis_club_id,
+            ProgrammePlayers.tennis_club_id == current_user.tennis_club_id
+        )
+        
+        if not current_user.is_admin:
+            coach_sessions_query = coach_sessions_query.filter(
+                ProgrammePlayers.coach_id == current_user.id
+            )
+        
+        coach_sessions = coach_sessions_query.group_by(
+            TennisGroupTimes.id,
+            TennisGroupTimes.day_of_week
+        ).having(func.count(ProgrammePlayers.id) > 0).all()
+        
+        # Count registers for the teaching period
+        registers_query = Register.query.filter(
+            Register.teaching_period_id == teaching_period_id,
+            Register.tennis_club_id == current_user.tennis_club_id
+        )
+        
+        if not current_user.is_admin:
+            registers_query = registers_query.filter(
+                Register.coach_id == current_user.id
+            )
+        
+        total_registers = registers_query.count()
+        overdue_registers = registers_query.filter(
+            Register.date < today
+        ).count()
+        
+        # Calculate estimated total sessions (rough estimate)
+        # This is simplified - in practice you'd want to calculate based on term dates
+        teaching_period = TeachingPeriod.query.get(teaching_period_id)
+        if teaching_period:
+            term_weeks = ((teaching_period.end_date - teaching_period.start_date).days + 1) // 7
+            estimated_total_sessions = len(coach_sessions) * term_weeks
+        else:
+            estimated_total_sessions = 0
+        
+        completion_rate = (total_registers / estimated_total_sessions * 100) if estimated_total_sessions > 0 else 0
+        
+        return jsonify({
+            'total_sessions': estimated_total_sessions,
+            'completed_registers': total_registers,
+            'missing_registers': max(0, estimated_total_sessions - total_registers),
+            'overdue_registers': overdue_registers,
+            'completion_rate': round(completion_rate, 1),
+            'weekly_sessions': len(coach_sessions)
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching register summary: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@register_routes.route('/register-calendar/quick-create', methods=['POST'])
+@login_required
+@verify_club_access()
+def quick_create_register():
+    """Quick create a register from calendar view"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['group_time_id', 'date', 'teaching_period_id']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # Parse date
+        try:
+            register_date = datetime.strptime(data['date'], '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+        
+        # Check if register already exists
+        existing_register = Register.query.filter_by(
+            group_time_id=data['group_time_id'],
+            date=register_date,
+            teaching_period_id=data['teaching_period_id']
+        ).first()
+        
+        if existing_register:
+            return jsonify({
+                'error': 'Register already exists for this session',
+                'register_id': existing_register.id
+            }), 409
+        
+        # Create register
+        register = Register(
+            group_time_id=data['group_time_id'],
+            coach_id=current_user.id,
+            date=register_date,
+            teaching_period_id=data['teaching_period_id'],
+            notes=data.get('notes', ''),
+            tennis_club_id=current_user.tennis_club_id
+        )
+        
+        db.session.add(register)
+        db.session.flush()
+        
+        # Pre-populate with students from this group/time
+        players = ProgrammePlayers.query.filter_by(
+            group_time_id=data['group_time_id'],
+            teaching_period_id=data['teaching_period_id'],
+            tennis_club_id=current_user.tennis_club_id
+        ).all()
+        
+        for player in players:
+            entry = RegisterEntry(
+                register_id=register.id,
+                programme_player_id=player.id,
+                attendance_status=AttendanceStatus.ABSENT,  # Default to absent
+                predicted_attendance=False
+            )
+            db.session.add(entry)
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Register created successfully',
+            'register_id': register.id,
+            'student_count': len(players)
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error quick creating register: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
  
