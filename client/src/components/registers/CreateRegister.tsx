@@ -35,16 +35,29 @@ interface Player {
   notes: string;
   predicted_attendance: boolean;
   date_of_birth: string | null;
-  group_name?: string; // For makeup players
-  is_makeup?: boolean; // Flag to identify makeup players
+  group_name?: string;
+  is_makeup?: boolean;
+}
+
+// Interface for data passed from calendar
+interface CalendarSessionData {
+  group_time_id?: number;
+  date?: string;
+  teaching_period_id?: number;
+  group_name?: string;
+  group_id?: number;
+  time_display?: string;
+  start_time?: string;
+  end_time?: string;
+  day_of_week?: string;
 }
 
 interface CreateRegisterProps {
   onNavigate: (path: string) => void;
   onCreateSuccess: (registerId: string) => void;
+  initialData?: CalendarSessionData;
 }
 
-// API response types
 interface SessionResponse {
   id: number;
   day: string;
@@ -57,7 +70,11 @@ interface SessionResponse {
   [key: string]: any;
 }
 
-const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuccess }) => {
+const CreateRegister: React.FC<CreateRegisterProps> = ({ 
+  onNavigate, 
+  onCreateSuccess, 
+  initialData 
+}) => {
   // Core filter state
   const [teachingPeriods, setTeachingPeriods] = useState<TeachingPeriod[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState<number | ''>('');
@@ -69,14 +86,14 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
   const [selectedTimeSlotId, setSelectedTimeSlotId] = useState<number | ''>('');
   const [selectedDate, setSelectedDate] = useState<string>('');
   
-  // Existing state for assistant coaches
+  // Assistant coaches state
   const [availableCoaches, setAvailableCoaches] = useState<Coach[]>([]);
   const [selectedAssistantCoachIds, setSelectedAssistantCoachIds] = useState<number[]>([]);
   const [loadingCoaches, setLoadingCoaches] = useState<boolean>(false);
   const [isCoachDropdownOpen, setIsCoachDropdownOpen] = useState<boolean>(false);
   const coachDropdownRef = useRef<HTMLDivElement>(null);
   
-  // Existing state
+  // Session configuration state
   const [isMakeupClass, setIsMakeupClass] = useState<boolean>(false);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [showAllSessions, setShowAllSessions] = useState<boolean>(false);
@@ -85,7 +102,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
   const [players, setPlayers] = useState<Player[]>([]);
   const [notes, setNotes] = useState<string>('');
   
-  // NEW: Makeup players state
+  // Makeup players state
   const [makeupPlayers, setMakeupPlayers] = useState<Player[]>([]);
   const [makeupPlayerSearch, setMakeupPlayerSearch] = useState<string>('');
   const [availableMakeupPlayers, setAvailableMakeupPlayers] = useState<Player[]>([]);
@@ -106,8 +123,47 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [expandedPlayerInfo, setExpandedPlayerInfo] = useState<{[key: number]: boolean}>({});
   const [showAllPlayerInfo, setShowAllPlayerInfo] = useState<boolean>(true);
+  const [isInitialized, setIsInitialized] = useState<boolean>(false);
 
   const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  
+  // Initialize component with data from calendar if provided
+  useEffect(() => {
+    if (initialData && !isInitialized) {
+      console.log('Initializing CreateRegister with calendar data:', initialData);
+      
+      // Set all provided values immediately
+      if (initialData.teaching_period_id) {
+        setSelectedPeriodId(initialData.teaching_period_id);
+      }
+      
+      if (initialData.date) {
+        setSelectedDate(initialData.date);
+        
+        // If we have a specific date that might not be a regular session date, enable makeup mode
+        const sessionDate = new Date(initialData.date);
+        const dayOfWeek = sessionDate.toLocaleDateString('en-US', { weekday: 'long' });
+        
+        if (initialData.day_of_week && dayOfWeek !== initialData.day_of_week) {
+          setIsMakeupClass(true);
+        }
+      }
+      
+      if (initialData.day_of_week) {
+        setSelectedDay(initialData.day_of_week);
+      }
+      
+      if (initialData.group_id) {
+        setSelectedGroupId(initialData.group_id);
+      }
+      
+      if (initialData.group_time_id) {
+        setSelectedTimeSlotId(initialData.group_time_id);
+      }
+      
+      setIsInitialized(true);
+    }
+  }, [initialData, isInitialized]);
   
   // Handle clicking outside of coach dropdown to close it
   useEffect(() => {
@@ -135,15 +191,11 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         }
         
         const data = await response.json();
-        if (Array.isArray(data) && data.every(item => 
-          typeof item === 'object' && 
-          item !== null &&
-          'id' in item && 
-          'name' in item
-        )) {
+        if (Array.isArray(data)) {
           setTeachingPeriods(data as TeachingPeriod[]);
           
-          if (data.length > 0 && typeof data[0].id === 'number') {
+          // Only set default if no initial data provided and not already set
+          if (!initialData?.teaching_period_id && !selectedPeriodId && data.length > 0) {
             setSelectedPeriodId(data[0].id);
           }
         } else {
@@ -159,7 +211,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     };
     
     fetchTeachingPeriods();
-  }, []);
+  }, [initialData, selectedPeriodId]);
 
   // Fetch available coaches on component mount
   useEffect(() => {
@@ -178,8 +230,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         
         if (Array.isArray(data)) {
           setAvailableCoaches(data);
-        } else {
-          throw new Error('Invalid coach data received');
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
@@ -202,29 +252,17 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         setLoading(prev => ({ ...prev, days: true }));
         setError(null);
         
-        const today = new Date();
-        const currentDayIndex = today.getDay();
-        const adjustedCurrentDayIndex = currentDayIndex === 0 ? 6 : currentDayIndex - 1;
-        const currentDay = daysOfWeek[adjustedCurrentDayIndex];
-        
         const allDays = new Set<string>();
         const fetchPromises = daysOfWeek.map(day => 
           fetch(`/api/coach-sessions?day_of_week=${day}&teaching_period_id=${selectedPeriodId}&show_all=${showAllSessions}`)
-            .then(response => {
-              if (!response.ok) {
-                return [];
-              }
-              return response.json();
-            })
+            .then(response => response.ok ? response.json() : [])
             .then(data => {
               if (Array.isArray(data) && data.length > 0) {
                 allDays.add(day);
               }
               return data;
             })
-            .catch(() => {
-              return [];
-            })
+            .catch(() => [])
         );
         
         await Promise.all(fetchPromises);
@@ -235,19 +273,28 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         
         setAvailableDays(availableDaysList);
         
-        if (availableDaysList.includes(currentDay)) {
-          setSelectedDay(currentDay);
-        } else if (availableDaysList.length > 0) {
-          setSelectedDay(availableDaysList[0]);
-        } else {
-          setSelectedDay('');
+        // Only set default day if no initial data and not already set
+        if (!initialData?.day_of_week && !selectedDay && availableDaysList.length > 0) {
+          const today = new Date();
+          const currentDayIndex = today.getDay();
+          const adjustedCurrentDayIndex = currentDayIndex === 0 ? 6 : currentDayIndex - 1;
+          const currentDay = daysOfWeek[adjustedCurrentDayIndex];
+          
+          if (availableDaysList.includes(currentDay)) {
+            setSelectedDay(currentDay);
+          } else {
+            setSelectedDay(availableDaysList[0]);
+          }
         }
         
-        setSelectedGroupId('');
-        setSelectedTimeSlotId('');
-        setSelectedDate('');
-        setPlayers([]);
-        setMakeupPlayers([]); // Clear makeup players when changing period
+        // Only reset dependent fields if not initialized from calendar
+        if (!isInitialized) {
+          setSelectedGroupId('');
+          setSelectedTimeSlotId('');
+          setSelectedDate('');
+          setPlayers([]);
+          setMakeupPlayers([]);
+        }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
         setError(errorMessage);
@@ -258,7 +305,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     };
     
     fetchAvailableDays();
-  }, [selectedPeriodId, showAllSessions]);
+  }, [selectedPeriodId, showAllSessions, initialData, selectedDay, isInitialized]);
 
   // Fetch available groups when day changes
   useEffect(() => {
@@ -276,13 +323,12 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         }
         
         const data = await response.json();
-        
-        const sessions: SessionResponse[] = Array.isArray(data) ? data as SessionResponse[] : [];
+        const sessions: SessionResponse[] = Array.isArray(data) ? data : [];
         
         const uniqueGroups: Record<string, Group> = {};
         sessions.forEach(session => {
-          if (typeof session.group_name === 'string' && !uniqueGroups[session.group_name]) {
-            const groupId = typeof session.group_id === 'number' ? session.group_id : 0;
+          if (session.group_name && !uniqueGroups[session.group_name]) {
+            const groupId = session.group_id || 0;
             uniqueGroups[session.group_name] = {
               id: groupId,
               name: session.group_name
@@ -293,12 +339,14 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         const groups = Object.values(uniqueGroups);
         setAvailableGroups(groups);
         
-        setSelectedGroupId('');
-        
-        setSelectedTimeSlotId('');
-        setSelectedDate('');
-        setPlayers([]);
-        setMakeupPlayers([]); // Clear makeup players when changing group
+        // Only reset dependent fields if not initialized from calendar
+        if (!isInitialized) {
+          setSelectedGroupId('');
+          setSelectedTimeSlotId('');
+          setSelectedDate('');
+          setPlayers([]);
+          setMakeupPlayers([]);
+        }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
         setError(errorMessage);
@@ -309,7 +357,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     };
     
     fetchAvailableGroups();
-  }, [selectedPeriodId, selectedDay, showAllSessions]);
+  }, [selectedPeriodId, selectedDay, showAllSessions, isInitialized]);
 
   // Fetch available time slots when group changes
   useEffect(() => {
@@ -327,22 +375,16 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         }
         
         const data = await response.json();
-        
-        const sessions: SessionResponse[] = Array.isArray(data) ? data as SessionResponse[] : [];
+        const sessions: SessionResponse[] = Array.isArray(data) ? data : [];
         
         const timeSlots: TimeSlot[] = [];
         
         for (const session of sessions) {
-          const sessionGroupId = typeof session.group_id === 'number' ? session.group_id : 0;
+          const sessionGroupId = session.group_id || 0;
           const groupIdMatch = sessionGroupId === selectedGroupId;
-          const groupNameMatch = typeof session.group_name === 'string' && 
-                                session.group_name.includes(`ID: ${selectedGroupId}`);
+          const groupNameMatch = session.group_name?.includes(`ID: ${selectedGroupId}`);
           
-          if ((groupIdMatch || groupNameMatch) && 
-              typeof session.id === 'number' && 
-              typeof session.day === 'string' && 
-              typeof session.start_time === 'string' && 
-              typeof session.end_time === 'string') {
+          if ((groupIdMatch || groupNameMatch) && session.id && session.day && session.start_time && session.end_time) {
             timeSlots.push({
               id: session.id,
               day: session.day,
@@ -354,15 +396,15 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         
         setAvailableTimeSlots(timeSlots);
         
-        if (timeSlots.length === 1) {
+        // Only auto-select if not initialized from calendar and there's only one option
+        if (!isInitialized && timeSlots.length === 1) {
           setSelectedTimeSlotId(timeSlots[0].id);
-        } else {
+        } else if (!isInitialized) {
           setSelectedTimeSlotId('');
+          setSelectedDate('');
+          setPlayers([]);
+          setMakeupPlayers([]);
         }
-        
-        setSelectedDate('');
-        setPlayers([]);
-        setMakeupPlayers([]); // Clear makeup players when changing time slot
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
         setError(errorMessage);
@@ -373,7 +415,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     };
     
     fetchAvailableTimeSlots();
-  }, [selectedPeriodId, selectedDay, selectedGroupId, showAllSessions]);
+  }, [selectedPeriodId, selectedDay, selectedGroupId, showAllSessions, isInitialized]);
 
   // Generate available dates for the selected day of week
   useEffect(() => {
@@ -382,16 +424,9 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       return;
     }
 
-    const today = new Date();
-    
     const dayToIndex: {[key: string]: number} = {
-      'Monday': 1,
-      'Tuesday': 2, 
-      'Wednesday': 3, 
-      'Thursday': 4, 
-      'Friday': 5, 
-      'Saturday': 6, 
-      'Sunday': 0
+      'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 
+      'Friday': 5, 'Saturday': 6, 'Sunday': 0
     };
     
     const targetDayIndex = dayToIndex[selectedDay];
@@ -400,8 +435,10 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       return;
     }
     
+    const today = new Date();
     const matchingDates: string[] = [];
     
+    // Add previous week's date
     let previousDate = new Date(today);
     for (let i = 0; i < 7; i++) {
       previousDate = new Date(previousDate.getTime() - 24 * 60 * 60 * 1000);
@@ -411,9 +448,11 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       }
     }
     
+    // Add today if it matches
     if (today.getDay() === targetDayIndex) {
       matchingDates.push(today.toISOString().split('T')[0]);
     } else {
+      // Add next occurrence
       let nextDate = new Date(today);
       while (nextDate.getDay() !== targetDayIndex) {
         nextDate = new Date(nextDate.getTime() + 24 * 60 * 60 * 1000);
@@ -421,19 +460,18 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       matchingDates.push(nextDate.toISOString().split('T')[0]);
     }
     
+    // Add next week's date
     let futureDate = new Date(matchingDates[matchingDates.length - 1]);
-    for (let i = 0; i < 1; i++) {
-      futureDate = new Date(futureDate.getTime() + 7 * 24 * 60 * 60 * 1000);
-      matchingDates.push(futureDate.toISOString().split('T')[0]);
-    }
+    futureDate = new Date(futureDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+    matchingDates.push(futureDate.toISOString().split('T')[0]);
     
     matchingDates.sort();
     setAvailableDates(matchingDates);
-  }, [selectedDay, selectedTimeSlotId]);
+  }, [selectedDay]);
 
   // Fetch players when all required criteria are set
   useEffect(() => {
-    if (!selectedTimeSlotId || !selectedPeriodId || !selectedGroupId || !selectedDay) {
+    if (!selectedTimeSlotId || !selectedPeriodId) {
       setPlayers([]);
       return;
     }
@@ -451,10 +489,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         
         if (Array.isArray(data)) {
           const validatedPlayers = data.filter(player => 
-            typeof player === 'object' && 
-            player !== null &&
-            'id' in player &&
-            'student_name' in player
+            player && typeof player === 'object' && player.id && player.student_name
           ) as Player[];
           
           setPlayers(validatedPlayers);
@@ -464,8 +499,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
             expandedState[player.id] = showAllPlayerInfo;
           });
           setExpandedPlayerInfo(expandedState);
-        } else {
-          throw new Error('Invalid player data received');
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
@@ -477,9 +510,9 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     };
     
     fetchPlayers();
-  }, [selectedTimeSlotId, selectedPeriodId, selectedGroupId, selectedDay, showAllPlayerInfo]);
+  }, [selectedTimeSlotId, selectedPeriodId, showAllPlayerInfo]);
 
-  // NEW: Fetch available makeup players when teaching period and time slot are selected
+  // Fetch available makeup players
   useEffect(() => {
     const fetchMakeupPlayers = async () => {
       if (!selectedPeriodId || !selectedTimeSlotId) {
@@ -501,16 +534,12 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
         const data = await response.json();
         
         if (Array.isArray(data)) {
-          // Filter out players already added as makeup players
           const alreadyAddedIds = makeupPlayers.map(p => p.id);
           const filteredData = data.filter(player => !alreadyAddedIds.includes(player.id));
           setAvailableMakeupPlayers(filteredData);
-        } else {
-          throw new Error('Invalid makeup players data received');
         }
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'An error occurred';
-        console.error('Error fetching makeup players:', errorMessage);
+        console.error('Error fetching makeup players:', err);
         setAvailableMakeupPlayers([]);
       } finally {
         setLoadingMakeupPlayers(false);
@@ -520,21 +549,23 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     fetchMakeupPlayers();
   }, [selectedPeriodId, selectedTimeSlotId, makeupPlayerSearch, makeupPlayers]);
 
-  // Handle toggle show all sessions
+  // Handle form field changes
   const handleToggleShowAllSessions = () => {
     setShowAllSessions(prev => !prev);
-    setSelectedDay('');
-    setSelectedGroupId('');
-    setSelectedTimeSlotId('');
+    if (!isInitialized) {
+      setSelectedDay('');
+      setSelectedGroupId('');
+      setSelectedTimeSlotId('');
+    }
   };
 
-  // Handle makeup class toggle
   const handleMakeupClassToggle = () => {
     setIsMakeupClass(prev => !prev);
-    setSelectedDate('');
+    if (!isInitialized) {
+      setSelectedDate('');
+    }
   };
 
-  // Handle toggle all player info
   const handleToggleAllPlayerInfo = () => {
     const newShowAllValue = !showAllPlayerInfo;
     setShowAllPlayerInfo(newShowAllValue);
@@ -546,12 +577,11 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     setExpandedPlayerInfo(updatedExpandedState);
   };
 
-  // Toggle coach dropdown
+  // Coach dropdown handlers
   const toggleCoachDropdown = () => {
     setIsCoachDropdownOpen(!isCoachDropdownOpen);
   };
 
-  // Handle toggle assistant coach selection
   const toggleAssistantCoach = (coachId: number, e?: React.MouseEvent) => {
     if (e) {
       e.stopPropagation();
@@ -566,7 +596,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     });
   };
 
-  // Get selected coaches for display
   const getSelectedCoachDisplay = (): string => {
     if (selectedAssistantCoachIds.length === 0) {
       return "No assistant coaches";
@@ -585,49 +614,39 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     }
   };
 
-  // Handle updating player attendance status (works for both regular and makeup players)
+  // Player management handlers
   const updatePlayerAttendance = (playerId: number, status: 'present' | 'absent' | 'sick' | 'away_with_notice', isRegular: boolean = true) => {
     if (isRegular) {
       setPlayers(prevPlayers => 
         prevPlayers.map(player => 
-          player.id === playerId 
-            ? { ...player, attendance_status: status } 
-            : player
+          player.id === playerId ? { ...player, attendance_status: status } : player
         )
       );
     } else {
       setMakeupPlayers(prevPlayers => 
         prevPlayers.map(player => 
-          player.id === playerId 
-            ? { ...player, attendance_status: status } 
-            : player
+          player.id === playerId ? { ...player, attendance_status: status } : player
         )
       );
     }
   };
 
-  // Handle updating player notes (works for both regular and makeup players)
   const updatePlayerNotes = (playerId: number, notes: string, isRegular: boolean = true) => {
     if (isRegular) {
       setPlayers(prevPlayers => 
         prevPlayers.map(player => 
-          player.id === playerId 
-            ? { ...player, notes } 
-            : player
+          player.id === playerId ? { ...player, notes } : player
         )
       );
     } else {
       setMakeupPlayers(prevPlayers => 
         prevPlayers.map(player => 
-          player.id === playerId 
-            ? { ...player, notes } 
-            : player
+          player.id === playerId ? { ...player, notes } : player
         )
       );
     }
   };
 
-  // Toggle player info expansion
   const togglePlayerInfo = (playerId: number) => {
     setExpandedPlayerInfo(prev => ({
       ...prev,
@@ -635,7 +654,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     }));
   };
 
-  // Quick actions for attendance (applies to both regular and makeup players)
   const handleMarkAllPresent = () => {
     setPlayers(prevPlayers => 
       prevPlayers.map(player => ({ ...player, attendance_status: 'present' }))
@@ -654,36 +672,33 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     );
   };
 
-  // NEW: Add makeup player
+  // Makeup player handlers
   const addMakeupPlayer = (player: Player) => {
     const makeupPlayer = {
       ...player,
-      attendance_status: 'present' as const, // Default makeup players to present
+      attendance_status: 'present' as const,
       notes: '',
       is_makeup: true
     };
     
     setMakeupPlayers(prev => [...prev, makeupPlayer]);
     
-    // Add to expanded info
     setExpandedPlayerInfo(prev => ({
       ...prev,
       [player.id]: showAllPlayerInfo
     }));
   };
 
-  // NEW: Remove makeup player
   const removeMakeupPlayer = (playerId: number) => {
     setMakeupPlayers(prev => prev.filter(player => player.id !== playerId));
     
-    // Remove from expanded info
     setExpandedPlayerInfo(prev => {
       const { [playerId]: removed, ...rest } = prev;
       return rest;
     });
   };
 
-  // Handle form submission
+  // Form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -696,10 +711,8 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       setLoading(prev => ({ ...prev, creating: true }));
       setError(null);
       
-      // Combine regular players and makeup players for submission
       const allPlayers = [...players, ...makeupPlayers];
       
-      // First create the register
       const createResponse = await fetch('/api/registers', {
         method: 'POST',
         headers: {
@@ -711,13 +724,12 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
           date: selectedDate,
           notes: notes,
           assistant_coach_ids: selectedAssistantCoachIds,
-          makeup_player_ids: makeupPlayers.map(p => p.id) // NEW: Send makeup player IDs
+          makeup_player_ids: makeupPlayers.map(p => p.id)
         }),
       });
       
       const data = await createResponse.json();
       
-      // Handle conflict (register already exists)
       if (createResponse.status === 409 && data.register_id) {
         setLoading(prev => ({ ...prev, creating: false }));
         
@@ -737,7 +749,6 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
       
       const registerId = data.register_id;
       
-      // If we have players with attendance data, update the register entries
       if (allPlayers.length > 0) {
         try {
           await updateRegisterEntries(registerId, allPlayers);
@@ -767,14 +778,14 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     }
   };
 
-  // Update register entries with attendance data (modified to handle both regular and makeup players)
+  // Update register entries with attendance data
   const updateRegisterEntries = async (registerId: number, allPlayers: Player[]) => {
     const entries = allPlayers.map(player => ({
       player_id: player.id,
       attendance_status: player.attendance_status,
       notes: player.notes,
       predicted_attendance: player.predicted_attendance,
-      is_makeup: player.is_makeup || false // NEW: Flag for makeup players
+      is_makeup: player.is_makeup || false
     }));
     
     const response = await fetch(`/api/registers/${registerId}/entries`, {
@@ -793,7 +804,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
     return response.json();
   };
 
-  // NEW: Render player card (works for both regular and makeup players)
+  // Render player card component
   const renderPlayerCard = (player: Player, isRegular: boolean = true) => (
     <div key={`${isRegular ? 'regular' : 'makeup'}-${player.id}`} className="border rounded-md p-3">
       <div className="flex justify-between items-start">
@@ -935,7 +946,9 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center flex-wrap">
-        <h1 className="text-2xl font-bold">Create New Register</h1>
+        <h1 className="text-2xl font-bold">
+          Create New Register
+        </h1>
         <button
           onClick={() => onNavigate('/registers')}
           className="px-4 py-2 mt-2 sm:mt-0 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
@@ -1271,7 +1284,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({ onNavigate, onCreateSuc
             )}
           </div>
 
-          {/* NEW: Makeup Players Section */}
+          {/* Makeup Players Section */}
           {selectedPeriodId && selectedTimeSlotId && (
             <div className="mt-8 mb-6">
               <div className="flex justify-between items-center mb-4">
