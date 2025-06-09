@@ -284,11 +284,21 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
     setCurrentDayIndex(0); // Reset to first day when changing weeks
   };
 
-  // Navigate days (mobile) - improved with bounds checking
+  // Navigate days (mobile) - NOW WITH WEEK WRAPPING
   const navigateDay = (direction: number): void => {
     const weekSessions = getWeekSessions();
     const newIndex = currentDayIndex + direction;
-    if (newIndex >= 0 && newIndex < weekSessions.length) {
+    
+    if (newIndex < 0) {
+      // Going left from Monday (index 0) - go to previous week's Sunday (index 6)
+      navigateWeek(-1);
+      setCurrentDayIndex(6); // Sunday is index 6
+    } else if (newIndex >= weekSessions.length) {
+      // Going right from Sunday (index 6) - go to next week's Monday (index 0)
+      navigateWeek(1);
+      setCurrentDayIndex(0); // Monday is index 0
+    } else {
+      // Normal navigation within the week
       setCurrentDayIndex(newIndex);
     }
   };
@@ -401,7 +411,7 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
       </div>
 
       {/* Week Navigation */}
-      <div className="flex items-center justify-between bg-white p-4 rounded-lg border border-gray-200">
+      <div className="hidden sm:flex items-center justify-between bg-white p-4 rounded-lg border border-gray-200">
         <button
           onClick={() => navigateWeek(-1)}
           className="p-2 hover:bg-gray-100 rounded-md transition-colors"
@@ -439,31 +449,62 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
         </button>
       </div>
 
-      {/* Mobile Day Navigation - Improved */}
+      {/* Mobile Day Navigation - WITH WEEK WRAPPING */}
       <div className="sm:hidden bg-white rounded-lg border border-gray-200 overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <button
             onClick={() => navigateDay(-1)}
-            disabled={currentDayIndex === 0}
-            className={`p-2 rounded-md transition-colors ${
-              currentDayIndex === 0 
-                ? 'text-gray-300 cursor-not-allowed' 
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
+            className="p-2 rounded-md transition-colors text-gray-600 hover:bg-gray-100 flex-shrink-0"
             aria-label="Previous day"
           >
             <ChevronLeft size={20} />
           </button>
           
-          <div className="flex space-x-1 overflow-x-auto max-w-xs">
-            {weekSessions.map((day, index) => (
+          <div className="flex-1 mx-4">
+            <div className="text-center">
+              <div className="text-sm font-medium text-gray-900">
+                Week of {weekSessions[0]?.date.toLocaleDateString('en-GB', { 
+                  day: 'numeric', 
+                  month: 'long',
+                  year: 'numeric'
+                })}
+              </div>
+              <div className="text-xs text-gray-600 mt-1">
+                {weekSessions[currentDayIndex]?.date.toLocaleDateString('en-GB', { 
+                  weekday: 'long',
+                  day: 'numeric', 
+                  month: 'long'
+                })}
+              </div>
+            </div>
+          </div>
+          
+          <button
+            onClick={() => navigateDay(1)}
+            className="p-2 rounded-md transition-colors text-gray-600 hover:bg-gray-100 flex-shrink-0"
+            aria-label="Next day"
+          >
+            <ChevronRight size={20} />
+          </button>
+        </div>
+        
+        <div className="flex">
+          {weekSessions.map((day, index) => {
+            const isToday = day.dateStr === new Date().toISOString().split('T')[0];
+            const hasSession = day.sessions.length > 0;
+            
+            return (
               <button
                 key={day.dateStr}
                 onClick={() => setCurrentDayIndex(index)}
-                className={`px-3 py-2 text-xs rounded-md transition-colors flex-shrink-0 ${
+                className={`flex-1 px-1 py-2 text-xs transition-colors ${
                   index === currentDayIndex
                     ? 'bg-blue-100 text-blue-700 font-medium'
-                    : 'text-gray-600 hover:bg-gray-100'
+                    : isToday
+                    ? 'bg-yellow-100 text-yellow-700 font-medium'
+                    : hasSession
+                    ? 'text-gray-600 hover:bg-gray-100'
+                    : 'text-gray-400 hover:bg-gray-50'
                 }`}
               >
                 <div className="text-center">
@@ -471,21 +512,8 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
                   <div className="text-xs">{day.date.getDate()}</div>
                 </div>
               </button>
-            ))}
-          </div>
-          
-          <button
-            onClick={() => navigateDay(1)}
-            disabled={currentDayIndex === weekSessions.length - 1}
-            className={`p-2 rounded-md transition-colors ${
-              currentDayIndex === weekSessions.length - 1 
-                ? 'text-gray-300 cursor-not-allowed' 
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-            aria-label="Next day"
-          >
-            <ChevronRight size={20} />
-          </button>
+            );
+          })}
         </div>
 
         {/* Mobile Single Day View */}
