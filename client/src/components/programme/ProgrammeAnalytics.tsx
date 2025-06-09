@@ -7,7 +7,8 @@ import {
   BarChart2, 
   ChevronDown, 
   ChevronUp,
-  Mail
+  Mail,
+  MousePointer
 } from 'lucide-react';
 
 interface TimeSlot {
@@ -32,6 +33,7 @@ interface Player {
 
 interface ProgrammeAnalyticsProps {
   players: Player[];
+  onGroupClick?: (groupName: string) => void; // NEW: Add click handler prop
 }
 
 interface SessionInfo {
@@ -52,7 +54,10 @@ interface GroupCapacityInfo {
   fillPercentage: number;
 }
 
-const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
+const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ 
+  players, 
+  onGroupClick // NEW: Accept the click handler
+}) => {
   const [expanded, setExpanded] = useState(true);
 
   // Helper function to get day order value - handles case and whitespace
@@ -97,7 +102,10 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
     }
   };
 
-  const handleEmailSession = (session: SessionInfo) => {
+  const handleEmailSession = (session: SessionInfo, event: React.MouseEvent) => {
+    // Prevent event bubbling to avoid triggering group click
+    event.stopPropagation();
+    
     // Get all players in this specific session with valid emails
     const playersWithEmails = session.players.filter(player => player.contact_email);
     
@@ -115,7 +123,10 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
     window.location.href = mailtoLink;
   };
 
-  const handleEmailGroup = (groupName: string) => {
+  const handleEmailGroup = (groupName: string, event: React.MouseEvent) => {
+    // Prevent event bubbling to avoid triggering group click
+    event.stopPropagation();
+    
     // Get all players in this specific group with valid emails
     const groupPlayers = players.filter(player => player.group_name === groupName);
     const playersWithEmails = groupPlayers.filter(player => player.contact_email);
@@ -132,6 +143,13 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
     
     // Open email client
     window.location.href = mailtoLink;
+  };
+
+  // NEW: Handle group click
+  const handleGroupClick = (groupName: string) => {
+    if (onGroupClick) {
+      onGroupClick(groupName);
+    }
   };
 
   const analytics = React.useMemo(() => {
@@ -336,19 +354,35 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
               </div>
             </Card>
 
-            {/* Group Breakdown Card with email buttons */}
+            {/* Group Breakdown Card with email buttons - NOW CLICKABLE */}
             <Card className="p-4 bg-white rounded-lg shadow">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-md font-medium text-gray-900">Group Breakdown</h3>
-                <div className="bg-purple-100 p-1.5 rounded-full">
-                  <PieChartIcon className="h-4 w-4 text-purple-600" />
+                <div className="flex items-center space-x-2">
+                  {onGroupClick && (
+                    <div className="text-xs text-indigo-600 flex items-center">
+                      <MousePointer className="h-3 w-3 mr-1" />
+                      click to filter
+                    </div>
+                  )}
+                  <div className="bg-purple-100 p-1.5 rounded-full">
+                    <PieChartIcon className="h-4 w-4 text-purple-600" />
+                  </div>
                 </div>
               </div>
               <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
                 {Object.entries(analytics.groupBreakdown)
                   .sort((a, b) => b[1] - a[1])
                   .map(([group, count]) => (
-                    <div key={group} className="bg-gray-50 rounded p-2">
+                    <div 
+                      key={group} 
+                      className={`bg-gray-50 rounded p-2 transition-all duration-200 ${
+                        onGroupClick 
+                          ? 'cursor-pointer hover:bg-indigo-50 hover:border-indigo-200 border border-transparent'
+                          : ''
+                      }`}
+                      onClick={() => handleGroupClick(group)}
+                    >
                       <div className="flex justify-between items-center">
                         <div className="flex-1">
                           <span className="text-sm font-medium text-gray-900">{group}</span>
@@ -357,7 +391,7 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
                           </div>
                         </div>
                         <button
-                          onClick={() => handleEmailGroup(group)}
+                          onClick={(e) => handleEmailGroup(group, e)}
                           className="ml-2 p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
                           title={`Email all players in ${group}`}
                         >
@@ -428,7 +462,7 @@ const ProgrammeAnalytics: React.FC<ProgrammeAnalyticsProps> = ({ players }) => {
                                   </div>
                                 </div>
                                 <button
-                                  onClick={() => handleEmailSession(session)}
+                                  onClick={(e) => handleEmailSession(session, e)}
                                   className="ml-2 p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
                                   title="Email players in this session"
                                 >
