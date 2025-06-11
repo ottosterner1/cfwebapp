@@ -44,7 +44,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
   useEffect(() => {
     const fetchGroups = async () => {
       try {
-        const response = await fetch('/api/groups');
+        const response = await fetch('/clubs/api/groups');
         if (!response.ok) throw new Error('Failed to fetch groups');
         const groups = await response.json();
         setAvailableGroups(groups);
