@@ -26,7 +26,7 @@ const ReportPreview: React.FC<ReportPreviewProps> = ({ report, template }) => {
   useEffect(() => {
     const fetchGroupName = async () => {
       try {
-        const response = await fetch('/api/groups');
+        const response = await fetch('/clubs/api/groups');
         if (response.ok) {
           const groups = await response.json();
           const group = groups.find((g: { id: number }) => g.id === report.recommendedGroupId);
