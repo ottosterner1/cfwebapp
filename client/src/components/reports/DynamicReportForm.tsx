@@ -90,7 +90,7 @@ const DynamicReportForm: React.FC<ExtendedDynamicReportFormProps> = (props) => {
   useEffect(() => {
     const fetchGroups = async () => {
       try {
-        const response = await fetch('/api/groups');
+        const response = await fetch('/clubs/api/groups');
         if (response.ok) {
           const data = await response.json();
           setGroups(data);
