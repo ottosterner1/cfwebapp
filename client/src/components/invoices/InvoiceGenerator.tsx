@@ -4,9 +4,10 @@ import { InvoiceMonthSummary, InvoiceGenerateResponse } from '../../types/invoic
 interface InvoiceGeneratorProps {
   onBack: () => void;
   onSuccess: (invoiceId: number) => void;
+  onSuccessEdit?: (invoiceId: number) => void; // Optional - for opening directly in edit mode
 }
 
-const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }) => {
+const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess, onSuccessEdit }) => {
   const [availableMonths, setAvailableMonths] = useState<InvoiceMonthSummary[]>([]);
   const [availableYears, setAvailableYears] = useState<number[]>([]);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
@@ -28,7 +29,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
         }
         
         const years = await response.json();
-        setAvailableYears(years);
+        setAvailableYears(years.length > 0 ? years : [new Date().getFullYear()]);
       } catch (err) {
         console.error('Error fetching years with invoices:', err);
         // Fallback to current year if fetch fails
@@ -73,7 +74,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
     };
     
     fetchMonthSummaries();
-  }, [selectedYear, selectedMonth]);
+  }, [selectedYear]);
   
   // Handle month selection
   const handleSelectMonth = (month: number) => {
@@ -86,6 +87,19 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
       setError('Please select a month first');
       return;
     }
+    
+    const selectedMonthData = availableMonths.find(m => m.month === selectedMonth);
+    const hasSessionData = selectedMonthData && 
+      ((selectedMonthData.total_lead_sessions || 0) > 0 || (selectedMonthData.total_assist_sessions || 0) > 0);
+    
+    console.log('Invoice generation:', {
+      hasSessionData,
+      hasOnSuccessEdit: !!onSuccessEdit,
+      selectedMonthData: selectedMonthData ? {
+        lead: selectedMonthData.total_lead_sessions,
+        assist: selectedMonthData.total_assist_sessions
+      } : null
+    });
     
     try {
       setGenerating(true);
@@ -105,14 +119,14 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
       
       const data: InvoiceGenerateResponse = await response.json();
       
-      // If invoice already exists, show message and navigate to it
-      if (data.message.includes('already exists')) {
-        onSuccess(data.invoice_id);
-        return;
-      }
+      console.log('Generated invoice:', data.invoice_id, 'Will open in:', hasSessionData ? 'view mode' : 'edit mode');
       
-      // Success - navigate to the new invoice
-      onSuccess(data.invoice_id);
+      // Always use edit mode for empty invoices if callback is available
+      if (!hasSessionData && onSuccessEdit) {
+        onSuccessEdit(data.invoice_id);
+      } else {
+        onSuccess(data.invoice_id);
+      }
     } catch (err) {
       console.error('Error generating invoice:', err);
       setError(err instanceof Error ? err.message : 'Failed to generate invoice');
@@ -202,7 +216,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
                 } else if (isSelected) {
                   buttonStyle = 'bg-blue-100 border-blue-500 text-blue-700';
                 } else if (!hasSessions) {
-                  buttonStyle = 'bg-gray-50 text-gray-500 hover:bg-gray-100'; // Changed to make it selectable
+                  buttonStyle = 'bg-gray-50 text-gray-500 hover:bg-gray-100';
                 } else {
                   buttonStyle = 'bg-white hover:bg-gray-50 text-gray-700';
                 }
@@ -223,7 +237,7 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
                           {month.total_lead_sessions || 0} lead / {month.total_assist_sessions || 0} assist
                         </span>
                       ) : (
-                        <span>No sessions</span>
+                        <span></span>
                       )}
                     </div>
                   </button>
@@ -239,10 +253,14 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
             <h3 className="font-medium text-gray-800 mb-2">
               Summary for {selectedMonthSummary.month_name} {selectedYear}
             </h3>
-            <ul className="text-sm space-y-1 mb-4">
-              <li>Lead sessions: {selectedMonthSummary.total_lead_sessions || 0}</li>
-              <li>Assistant sessions: {selectedMonthSummary.total_assist_sessions || 0}</li>
-            </ul>
+            
+            {/* Show detailed summary only if there are sessions */}
+            {((selectedMonthSummary.total_lead_sessions || 0) > 0 || (selectedMonthSummary.total_assist_sessions || 0) > 0) && (
+              <ul className="text-sm space-y-1 mb-4">
+                <li>Lead sessions: {selectedMonthSummary.total_lead_sessions || 0}</li>
+                <li>Assistant sessions: {selectedMonthSummary.total_assist_sessions || 0}</li>
+              </ul>
+            )}
             
             <button
               onClick={handleGenerateInvoice}
@@ -263,9 +281,16 @@ const InvoiceGenerator: React.FC<InvoiceGeneratorProps> = ({ onBack, onSuccess }
               )}
             </button>
             
-            {!selectedMonthSummary.total_lead_sessions && !selectedMonthSummary.total_assist_sessions && (
+            {!selectedMonthSummary.total_lead_sessions && !selectedMonthSummary.total_assist_sessions ? (
               <p className="text-sm text-gray-600 mt-2">
-                No coaching sessions found for this month. An empty invoice will be created.
+                {onSuccessEdit 
+                  ? "No registers found. Invoice will be created and opened for editing."
+                  : "No registers found. An empty invoice will be created."
+                }
+              </p>
+            ) : (
+              <p className="text-sm text-gray-600 mt-2">
+                Invoice will be pre-filled with register data.
               </p>
             )}
           </div>
