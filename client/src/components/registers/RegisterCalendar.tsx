@@ -67,6 +67,14 @@ interface RegisterCalendarProps {
 
 type SessionStatus = 'completed' | 'overdue' | 'today' | 'upcoming';
 
+// Helper function to get current day index (Monday = 0, Sunday = 6)
+const getCurrentDayIndex = (): number => {
+  const today = new Date();
+  const day = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+  // Convert to Monday-based index: Monday = 0, Sunday = 6
+  return day === 0 ? 6 : day - 1;
+};
+
 const RegisterCalendar: React.FC<RegisterCalendarProps> = ({ 
   onNavigate, 
   onCreateRegister, 
@@ -80,8 +88,8 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Mobile day view state
-  const [currentDayIndex, setCurrentDayIndex] = useState<number>(0);
+  // Mobile day view state - now defaults to current day
+  const [currentDayIndex, setCurrentDayIndex] = useState<number>(getCurrentDayIndex());
 
   // Fetch teaching periods
   useEffect(() => {
@@ -276,12 +284,25 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
     }
   };
 
-  // Navigate weeks
+  // Navigate weeks - Updated to try to maintain current day preference
   const navigateWeek = (direction: number): void => {
     const newDate = new Date(currentDate);
     newDate.setDate(currentDate.getDate() + (direction * 7));
     setCurrentDate(newDate);
-    setCurrentDayIndex(0); // Reset to first day when changing weeks
+    
+    // Try to keep the same day of week, but fall back to current day if not available
+    const targetDayIndex = getCurrentDayIndex();
+    
+    // After changing week, check if we should stay on current selection or go to today
+    setTimeout(() => {
+      const weekSessions = getWeekSessions();
+      if (weekSessions[targetDayIndex] && weekSessions[targetDayIndex].sessions.length > 0) {
+        setCurrentDayIndex(targetDayIndex);
+      } else {
+        // If current day has no sessions, stay on the current selection or default to today
+        setCurrentDayIndex(Math.min(currentDayIndex, weekSessions.length - 1));
+      }
+    }, 0);
   };
 
   // Navigate days (mobile) - NOW WITH WEEK WRAPPING
@@ -340,11 +361,11 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
     onCreateRegister(); // No session data - user will select manually
   };
 
-  // Reset day index when week changes
+  // Reset day index when week changes - Updated to prefer current day
   useEffect(() => {
     const weekSessions = getWeekSessions();
     if (currentDayIndex >= weekSessions.length) {
-      setCurrentDayIndex(0);
+      setCurrentDayIndex(getCurrentDayIndex());
     }
   }, [currentDate, sessions]);
 
