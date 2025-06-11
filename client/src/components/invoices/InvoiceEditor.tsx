@@ -1,5 +1,3 @@
-// src/components/invoices/InvoiceEditor.tsx
-
 import React, { useState, useEffect } from 'react';
 import { InvoiceDetail, InvoiceLineItem, CoachRate } from '../../types/invoice';
 
@@ -21,7 +19,7 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [coachRates, setCoachRates] = useState<CoachRate[]>([]);
-  const [selectedRate, setSelectedRate] = useState<number | null>(null); // Changed to null default
+  const [selectedRate, setSelectedRate] = useState<number | null>(null);
   
   // Fetch invoice details
   useEffect(() => {
@@ -62,8 +60,6 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
         
         const data = await response.json();
         setCoachRates(data);
-        
-        // Don't set a default rate - let user select
       } catch (err) {
         console.error('Error fetching coach rates:', err);
       }
@@ -125,12 +121,12 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
     const today = new Date().toISOString().split('T')[0];
     
     const newItem: InvoiceLineItem = {
-      item_type: '',  // Leave type blank for user to select
+      item_type: '',
       is_deduction: false,
-      description: '', // Leave description blank
+      description: '',
       date: today,
       hours: 1,
-      rate: selectedRate || 0, // Use selected rate or 0 if none selected
+      rate: selectedRate || 0,
       amount: (selectedRate || 0) * 1
     };
     
@@ -144,11 +140,11 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
     const newItem: InvoiceLineItem = {
       item_type: 'deduction',
       is_deduction: true,
-      description: '', // Leave description blank
+      description: '',
       date: today,
-      hours: 0, // Leave hours blank
-      rate: 0,  // Leave rate blank
-      amount: 0 // Will be calculated when user fills in hours and rate
+      hours: 0,
+      rate: 0,
+      amount: 0
     };
     
     setLineItems([...lineItems, newItem]);
@@ -229,23 +225,23 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
   const { subtotal, deductions, total } = calculateTotals();
   
   return (
-    <div className="bg-white p-6 rounded-lg shadow-sm">
+    <div className="bg-white p-4 sm:p-6 rounded-lg shadow-sm">
       {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-800">
           Edit Invoice #{invoice.invoice_number}
         </h1>
-        <div className="flex space-x-2">
+        <div className="flex space-x-2 w-full sm:w-auto">
           <button 
             onClick={onBack}
-            className="px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+            className="flex-1 sm:flex-none px-4 py-2 border border-gray-300 rounded hover:bg-gray-50 transition-colors"
           >
             Cancel
           </button>
           <button 
             onClick={handleSave}
             disabled={saving}
-            className={`px-4 py-2 rounded text-white ${
+            className={`flex-1 sm:flex-none px-4 py-2 rounded text-white ${
               saving ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
             } transition-colors`}
           >
@@ -255,38 +251,39 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
       </div>
       
       {/* Invoice details */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 p-4 bg-gray-50 rounded">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 rounded">
         <div>
           <p className="text-sm font-medium text-gray-700">Coach:</p>
-          <p className="text-lg">{invoice.coach_name}</p>
+          <p className="text-base sm:text-lg">{invoice.coach_name}</p>
         </div>
         <div>
           <p className="text-sm font-medium text-gray-700">Period:</p>
-          <p className="text-lg">{invoice.month_name} {invoice.year}</p>
+          <p className="text-base sm:text-lg">{invoice.month_name} {invoice.year}</p>
         </div>
         <div>
           <p className="text-sm font-medium text-gray-700">Status:</p>
-          <p className="text-lg capitalize">{invoice.status}</p>
+          <p className="text-base sm:text-lg capitalize">{invoice.status}</p>
         </div>
       </div>
       
-      {/* Line items */}
+      {/* Controls Section */}
       <div className="mb-6">
-        <div className="flex justify-between items-center mb-3">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
           <h2 className="text-lg font-semibold">Line Items</h2>
-          <div className="flex space-x-2">
+          
+          {/* Single responsive controls section */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
+            {/* Rate selector */}
             {coachRates.length > 0 && (
-              <div className="flex items-center">
-                <label htmlFor="rate" className="text-sm font-medium text-gray-700 mr-2">
+              <div className="flex items-center gap-2">
+                <label htmlFor="rate" className="text-sm font-medium text-gray-700 whitespace-nowrap">
                   Rate:
                 </label>
                 <select
                   id="rate"
                   value={selectedRate || ''}
                   onChange={(e) => setSelectedRate(e.target.value ? parseFloat(e.target.value) : null)}
-                  className={`px-3 py-1 border rounded ${
-                    selectedRate === null ? 'border-gray-300 text-gray-500' : 'border-gray-300'
-                  }`}
+                  className="px-3 py-2 border border-gray-300 rounded text-sm min-w-0 flex-1 sm:flex-none sm:min-w-[200px]"
                 >
                   <option value="">Select rate...</option>
                   {coachRates.map(rate => (
@@ -297,326 +294,246 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                 </select>
               </div>
             )}
-            <button
-              onClick={handleAddLineItem}
-              className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
-            >
-              Add Item
-            </button>
-            <button
-              onClick={handleAddDeduction}
-              className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-            >
-              Add Deduction
-            </button>
+            
+            {/* Action buttons */}
+            <div className="flex gap-2">
+              <button
+                onClick={handleAddLineItem}
+                className="flex-1 sm:flex-none px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-sm"
+              >
+                Add Item
+              </button>
+              <button
+                onClick={handleAddDeduction}
+                className="flex-1 sm:flex-none px-3 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors text-sm"
+              >
+                Add Deduction
+              </button>
+            </div>
           </div>
         </div>
         
         {/* Rate selection reminder */}
         {selectedRate === null && coachRates.length > 0 && (
-          <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
-            💡 Tip: Select a rate above before adding items. If no rate is selected, items will be added with £0.00 rate.
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
+            Select a rate above before adding items. If no rate is selected, items will be added with £0.00 rate.
           </div>
         )}
         
-        <div className="overflow-x-auto rounded border">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Type
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Description
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Hours
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Rate (£)
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount (£)
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+        {/* Responsive Line Items */}
+        {lineItems.length === 0 ? (
+          <div className="text-center py-8 text-gray-500 border border-gray-200 rounded">
+            No line items yet. Add an item using the buttons above.
+          </div>
+        ) : (
+          <>
+            {/* Desktop Table View - Hidden on Mobile */}
+            <div className="hidden lg:block overflow-x-auto rounded border">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hours</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rate (£)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount (£)</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {lineItems.map((item, index) => (
+                    <tr key={index} className={item.is_deduction ? 'bg-red-50' : ''}>
+                      <td className="px-4 py-2">
+                        <select
+                          value={item.is_deduction ? 'deduction' : item.item_type}
+                          onChange={(e) => {
+                            const isDeduction = e.target.value === 'deduction';
+                            handleUpdateLineItem(index, 'is_deduction', isDeduction);
+                            handleUpdateLineItem(index, 'item_type', isDeduction ? 'deduction' : e.target.value);
+                          }}
+                          className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
+                        >
+                          <option value="">Select Type</option>
+                          <option value="group">Group</option>
+                          <option value="camp">Camp</option>
+                          <option value="admin">Admin</option>
+                          <option value="other">Other</option>
+                          <option value="deduction">Deduction</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="text"
+                          value={item.description}
+                          onChange={(e) => handleUpdateLineItem(index, 'description', e.target.value)}
+                          className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
+                          placeholder="Enter description"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="date"
+                          value={item.date}
+                          onChange={(e) => handleUpdateLineItem(index, 'date', e.target.value)}
+                          className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="number"
+                          min="0.25"
+                          step="0.25"
+                          value={item.hours}
+                          onChange={(e) => handleUpdateLineItem(index, 'hours', parseFloat(e.target.value))}
+                          className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.rate}
+                          onChange={(e) => handleUpdateLineItem(index, 'rate', parseFloat(e.target.value))}
+                          className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
+                        />
+                      </td>
+                      <td className="px-4 py-2 font-medium text-sm">
+                        {item.is_deduction ? (
+                          <span className="text-red-600">-£{item.amount.toFixed(2)}</span>
+                        ) : (
+                          `£${item.amount.toFixed(2)}`
+                        )}
+                      </td>
+                      <td className="px-4 py-2">
+                        <button
+                          onClick={() => handleRemoveLineItem(index)}
+                          className="text-red-600 hover:text-red-800 transition-colors text-sm"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            {/* Mobile Card View - Shown on Mobile */}
+            <div className="lg:hidden space-y-4">
               {lineItems.map((item, index) => (
-                <tr key={index} className={item.is_deduction ? 'bg-amber-50' : ''}>
-                  <td className="px-4 py-2">
-                    <select
-                      value={item.is_deduction ? 'deduction' : item.item_type}
-                      onChange={(e) => {
-                        const isDeduction = e.target.value === 'deduction';
-                        handleUpdateLineItem(index, 'is_deduction', isDeduction);
-                        handleUpdateLineItem(
-                          index, 
-                          'item_type', 
-                          isDeduction ? 'deduction' : e.target.value
-                        );
-                      }}
-                      className="px-2 py-1 border border-gray-300 rounded w-full"
+                <div key={index} className={`border rounded-lg p-4 ${item.is_deduction ? 'bg-red-50 border-red-200' : 'bg-white'}`}>
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900 mb-1">
+                        {item.description || "Enter description..."}
+                      </div>
+                      <div className={`text-lg font-bold ${item.is_deduction ? 'text-red-600' : 'text-gray-900'}`}>
+                        {item.is_deduction ? '-' : ''}£{item.amount.toFixed(2)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleRemoveLineItem(index)}
+                      className="text-red-600 hover:text-red-800 transition-colors text-sm ml-2"
                     >
-                      <option value="">Select Type</option>
-                      <option value="group">Group</option>
-                      <option value="camp">Camp</option>
-                      <option value="admin">Admin</option>
-                      <option value="other">Other</option>
-                      <option value="deduction">Deduction</option>
-                    </select>
-                  </td>
-                  <td className="px-4 py-2">
+                      Remove
+                    </button>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
+                      <select
+                        value={item.is_deduction ? 'deduction' : item.item_type}
+                        onChange={(e) => {
+                          const isDeduction = e.target.value === 'deduction';
+                          handleUpdateLineItem(index, 'is_deduction', isDeduction);
+                          handleUpdateLineItem(index, 'item_type', isDeduction ? 'deduction' : e.target.value);
+                        }}
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                      >
+                        <option value="">Select Type</option>
+                        <option value="group">Group</option>
+                        <option value="camp">Camp</option>
+                        <option value="admin">Admin</option>
+                        <option value="other">Other</option>
+                        <option value="deduction">Deduction</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Date</label>
+                      <input
+                        type="date"
+                        value={item.date}
+                        onChange={(e) => handleUpdateLineItem(index, 'date', e.target.value)}
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Hours</label>
+                      <input
+                        type="number"
+                        min="0.25"
+                        step="0.25"
+                        value={item.hours}
+                        onChange={(e) => handleUpdateLineItem(index, 'hours', parseFloat(e.target.value))}
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Rate (£)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={item.rate}
+                        onChange={(e) => handleUpdateLineItem(index, 'rate', parseFloat(e.target.value))}
+                        className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Description</label>
                     <input
                       type="text"
                       value={item.description}
                       onChange={(e) => handleUpdateLineItem(index, 'description', e.target.value)}
-                      className="px-2 py-1 border border-gray-300 rounded w-full"
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-sm"
                       placeholder="Enter description"
                     />
-                  </td>
-                  <td className="px-4 py-2">
-                    <input
-                      type="date"
-                      value={item.date}
-                      onChange={(e) => handleUpdateLineItem(index, 'date', e.target.value)}
-                      className="px-2 py-1 border border-gray-300 rounded w-full"
-                    />
-                  </td>
-                  <td className="px-4 py-2">
-                    <input
-                      type="number"
-                      min="0.25"
-                      step="0.25"
-                      value={item.hours}
-                      onChange={(e) => handleUpdateLineItem(index, 'hours', parseFloat(e.target.value))}
-                      className="px-2 py-1 border border-gray-300 rounded w-full"
-                    />
-                  </td>
-                  <td className="px-4 py-2">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={item.rate}
-                      onChange={(e) => handleUpdateLineItem(index, 'rate', parseFloat(e.target.value))}
-                      className="px-2 py-1 border border-gray-300 rounded w-full"
-                    />
-                  </td>
-                  <td className="px-4 py-2 font-medium">
-                    {item.is_deduction ? (
-                      <span className="text-red-600">-{item.amount.toFixed(2)}</span>
-                    ) : (
-                      item.amount.toFixed(2)
-                    )}
-                  </td>
-                  <td className="px-4 py-2">
-                    <button
-                      onClick={() => handleRemoveLineItem(index)}
-                      className="text-red-600 hover:text-red-800 transition-colors"
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {lineItems.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-4 text-center text-gray-500">
-                    No line items yet. Add an item using the buttons above.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-            <tfoot className="bg-gray-100">
-              <tr>
-                <td colSpan={5} className="px-4 py-2 text-right font-medium">Subtotal:</td>
-                <td className="px-4 py-2 font-medium">{subtotal.toFixed(2)}</td>
-                <td></td>
-              </tr>
-              <tr>
-                <td colSpan={5} className="px-4 py-2 text-right font-medium">Deductions:</td>
-                <td className="px-4 py-2 font-medium text-red-600">{deductions.toFixed(2)}</td>
-                <td></td>
-              </tr>
-              <tr className="bg-gray-200">
-                <td colSpan={5} className="px-4 py-2 text-right font-bold">Total:</td>
-                <td className="px-4 py-2 font-bold">{total.toFixed(2)}</td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
-      
-      {/* Mobile-friendly view */}
-      <div className="md:hidden mt-8 space-y-4">
-        <h3 className="font-medium text-gray-700">Mobile View</h3>
-        
-        {/* Mobile rate selector */}
-        {coachRates.length > 0 && (
-          <div className="mb-3">
-            <label htmlFor="mobile-rate" className="block text-sm font-medium text-gray-700 mb-1">
-              Select Rate:
-            </label>
-            <select
-              id="mobile-rate"
-              value={selectedRate || ''}
-              onChange={(e) => setSelectedRate(e.target.value ? parseFloat(e.target.value) : null)}
-              className={`w-full px-3 py-2 border rounded ${
-                selectedRate === null ? 'border-gray-300 text-gray-500' : 'border-gray-300'
-              }`}
-            >
-              <option value="">Select rate...</option>
-              {coachRates.map(rate => (
-                <option key={rate.id} value={rate.hourly_rate}>
-                  {rate.rate_name}: £{rate.hourly_rate.toFixed(2)}/hr
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-        
-        {/* Rate selection reminder for mobile */}
-        {selectedRate === null && coachRates.length > 0 && (
-          <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
-            💡 Select a rate above before adding items. If no rate is selected, items will be added with £0.00 rate.
-          </div>
-        )}
-        
-        <div className="flex space-x-2 mb-3">
-          <button
-            onClick={handleAddLineItem}
-            className="flex-1 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
-          >
-            Add Item
-          </button>
-          <button
-            onClick={handleAddDeduction}
-            className="flex-1 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-          >
-            Add Deduction
-          </button>
-        </div>
-        
-        {lineItems.map((item, index) => (
-          <div key={index} className={`border rounded p-3 ${item.is_deduction ? 'bg-amber-50 border-amber-200' : 'bg-white'}`}>
-            <div className="flex justify-between mb-2">
-              <div className="font-medium">{item.description || "No description"}</div>
-              <button
-                onClick={() => handleRemoveLineItem(index)}
-                className="text-red-600 hover:text-red-800"
-              >
-                Remove
-              </button>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              <div>
-                <label className="block text-xs text-gray-500">Type</label>
-                <select
-                  value={item.is_deduction ? 'deduction' : item.item_type}
-                  onChange={(e) => {
-                    const isDeduction = e.target.value === 'deduction';
-                    handleUpdateLineItem(index, 'is_deduction', isDeduction);
-                    handleUpdateLineItem(
-                      index, 
-                      'item_type', 
-                      isDeduction ? 'deduction' : e.target.value
-                    );
-                  }}
-                  className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
-                >
-                  <option value="">Select Type</option>
-                  <option value="group">Group</option>
-                  <option value="camp">Camp</option>
-                  <option value="admin">Admin</option>
-                  <option value="other">Other</option>
-                  <option value="deduction">Deduction</option>
-                </select>
-              </div>
-              
-              <div>
-                <label className="block text-xs text-gray-500">Date</label>
-                <input
-                  type="date"
-                  value={item.date}
-                  onChange={(e) => handleUpdateLineItem(index, 'date', e.target.value)}
-                  className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
-                />
-              </div>
-            </div>
-            
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="block text-xs text-gray-500">Hours</label>
-                <input
-                  type="number"
-                  min="0.25"
-                  step="0.25"
-                  value={item.hours}
-                  onChange={(e) => handleUpdateLineItem(index, 'hours', parseFloat(e.target.value))}
-                  className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-xs text-gray-500">Rate (£)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={item.rate}
-                  onChange={(e) => handleUpdateLineItem(index, 'rate', parseFloat(e.target.value))}
-                  className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-xs text-gray-500">Amount (£)</label>
-                <div className={`font-medium text-sm py-1 ${item.is_deduction ? 'text-red-600' : ''}`}>
-                  {item.is_deduction ? '-' : ''}{item.amount.toFixed(2)}
+                  </div>
                 </div>
-              </div>
+              ))}
             </div>
-            
-            <div className="mt-2">
-              <label className="block text-xs text-gray-500">Description</label>
-              <input
-                type="text"
-                value={item.description}
-                onChange={(e) => handleUpdateLineItem(index, 'description', e.target.value)}
-                className="px-2 py-1 border border-gray-300 rounded w-full text-sm"
-                placeholder="Enter description"
-              />
-            </div>
-          </div>
-        ))}
+          </>
+        )}
         
-        {/* Mobile totals */}
-        <div className="mt-4 p-3 bg-gray-100 rounded-lg">
-          <div className="flex justify-between">
-            <span>Subtotal:</span>
-            <span className="font-medium">£{subtotal.toFixed(2)}</span>
+        {/* Totals Summary */}
+        {lineItems.length > 0 && (
+          <div className="mt-4 p-4 bg-gray-100 rounded-lg">
+            <div className="flex justify-between text-sm mb-1">
+              <span>Subtotal:</span>
+              <span className="font-medium">£{subtotal.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-sm mb-1">
+              <span>Deductions:</span>
+              <span className="font-medium text-red-600">-£{deductions.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-base font-bold pt-2 border-t border-gray-300">
+              <span>Total:</span>
+              <span>£{total.toFixed(2)}</span>
+            </div>
           </div>
-          <div className="flex justify-between mt-1">
-            <span>Deductions:</span>
-            <span className="font-medium text-red-600">-£{deductions.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between mt-2 pt-2 border-t border-gray-300 font-bold">
-            <span>Total:</span>
-            <span>£{total.toFixed(2)}</span>
-          </div>
-        </div>
+        )}
       </div>
       
       {/* Notes */}
-      <div className="mb-6 mt-6">
+      <div className="mb-6">
         <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
           Notes
         </label>
@@ -630,12 +547,12 @@ const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
         />
       </div>
       
-      {/* Save button (duplicated at bottom for convenience) */}
+      {/* Save button */}
       <div className="flex justify-end">
         <button 
           onClick={handleSave}
           disabled={saving}
-          className={`px-4 py-2 rounded text-white ${
+          className={`w-full sm:w-auto px-6 py-2 rounded text-white ${
             saving ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
           } transition-colors`}
         >
