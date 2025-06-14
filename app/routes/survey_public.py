@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, render_template, redirect, url_for, current_app
+from sqlalchemy import text
 from app.models import SurveyRecipient, SurveyTemplate, SurveyResponse, SurveyOptOut, SurveyCampaign
 from app import db
 from app.utils.survey_tokens import SurveyTokenManager
