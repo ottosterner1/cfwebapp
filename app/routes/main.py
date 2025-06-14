@@ -27,6 +27,13 @@ def utility_processor():
 def index():
     return render_template('pages/index.html')
 
+@main.route('/surveys')
+@login_required
+@admin_required
+def survey_dashboard():
+    club = current_user.tennis_club
+    return render_template('survey/dashboard.html', club=club)
+
 @main.route('/dashboard')
 @login_required
 @verify_club_access()

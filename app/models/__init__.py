@@ -29,6 +29,12 @@ from app.models.invoice import (
     CoachingRate, Invoice, InvoiceLineItem, InvoiceStatus, RateType
 )
 
+from app.models.survey import (
+    SurveyTemplate, SurveyQuestion, SurveyCampaign, SurveyRecipient,
+    SurveyResponse, SurveyOptOut, ClubComplianceStatus,
+    SurveyQuestionType, SurveyTriggerType, SurveyStatus
+)
+
 # This approach maintains backward compatibility
 # Old code can still import from app.models without changes
 # while new code can import specific models from their respective modules

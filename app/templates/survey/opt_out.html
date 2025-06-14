@@ -1,0 +1,209 @@
+<!-- app/templates/survey/opt_out.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Opt Out - {{ club_name }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 min-h-screen py-8">
+    <div class="max-w-2xl mx-auto px-4">
+        <div class="bg-white rounded-lg shadow-sm border p-8">
+            <!-- Header -->
+            <div class="text-center mb-8">
+                <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-yellow-100 mb-4">
+                    <svg class="h-8 w-8 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.268 15.5c-.77.833.192 2.5 1.732 2.5z"></path>
+                    </svg>
+                </div>
+                <h1 class="text-2xl font-bold text-gray-900 mb-2">Opt Out of Surveys</h1>
+                <p class="text-gray-600">{{ club_name }}</p>
+            </div>
+            
+            <!-- Information -->
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <div class="flex">
+                    <svg class="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <div class="ml-3">
+                        <h3 class="text-sm font-medium text-blue-800">Before you opt out</h3>
+                        <p class="text-sm text-blue-700 mt-1">
+                            If you opt out, you will no longer receive survey invitations from {{ club_name }}. 
+                            Your feedback helps us improve our programs, but we respect your choice.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Opt-out Form -->
+            <form id="opt-out-form" class="space-y-6">
+                <div>
+                    <label for="reason" class="block text-sm font-medium text-gray-700 mb-2">
+                        Why are you opting out? (Optional)
+                    </label>
+                    <select id="reason" name="reason" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <option value="">Please select a reason</option>
+                        <option value="too_frequent">Surveys are too frequent</option>
+                        <option value="not_relevant">Surveys are not relevant to me</option>
+                        <option value="privacy_concerns">Privacy concerns</option>
+                        <option value="no_longer_member">No longer a club member</option>
+                        <option value="prefer_direct_contact">Prefer to give feedback directly</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                
+                <div id="other-reason-container" class="hidden">
+                    <label for="other-reason" class="block text-sm font-medium text-gray-700 mb-2">
+                        Please tell us more
+                    </label>
+                    <textarea id="other-reason" 
+                              name="other_reason" 
+                              rows="3" 
+                              maxlength="500"
+                              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              placeholder="Help us understand your reasons (optional)"></textarea>
+                    <p class="text-xs text-gray-500 mt-1">Maximum 500 characters</p>
+                </div>
+                
+                <!-- Confirmation -->
+                <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div class="flex items-start">
+                        <input type="checkbox" 
+                               id="confirm-opt-out" 
+                               required
+                               class="mt-1 rounded border-gray-300 text-red-600 focus:ring-red-500">
+                        <label for="confirm-opt-out" class="ml-3 text-sm text-red-800">
+                            <strong>I confirm that I want to opt out</strong> of receiving survey emails from {{ club_name }}. 
+                            I understand I can contact the club directly if I want to opt back in later.
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Buttons -->
+                <div class="flex space-x-4">
+                    <button type="button" 
+                            onclick="window.close()" 
+                            class="flex-1 px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        Cancel
+                    </button>
+                    <button type="submit" 
+                            class="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            id="submit-button">
+                        Opt Out
+                    </button>
+                </div>
+            </form>
+            
+            <!-- Contact Info -->
+            <div class="mt-6 pt-6 border-t border-gray-200">
+                <h3 class="text-sm font-medium text-gray-900 mb-2">Need Help?</h3>
+                <p class="text-sm text-gray-600">
+                    If you have questions about our surveys or data practices, please contact {{ club_name }} directly.
+                </p>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+            <div class="bg-white rounded-lg p-6 flex items-center space-x-3">
+                <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-red-600"></div>
+                <span class="text-gray-900">Processing your request...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Show/hide other reason field
+        document.getElementById('reason').addEventListener('change', function() {
+            const otherContainer = document.getElementById('other-reason-container');
+            const otherInput = document.getElementById('other-reason');
+            
+            if (this.value === 'other') {
+                otherContainer.classList.remove('hidden');
+                otherInput.focus();
+            } else {
+                otherContainer.classList.add('hidden');
+                otherInput.value = '';
+            }
+        });
+
+        // Form submission
+        document.getElementById('opt-out-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const submitButton = document.getElementById('submit-button');
+            const loadingOverlay = document.getElementById('loading-overlay');
+            
+            // Show loading state
+            submitButton.disabled = true;
+            submitButton.textContent = 'Processing...';
+            loadingOverlay.classList.remove('hidden');
+            
+            // Collect form data
+            const reason = document.getElementById('reason').value;
+            const otherReason = document.getElementById('other-reason').value;
+            
+            const finalReason = reason === 'other' ? otherReason : reason;
+            
+            try {
+                const response = await fetch(`/survey/api/opt-out/{{ token }}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        reason: finalReason
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    // Show success message and redirect
+                    showSuccessMessage();
+                    setTimeout(() => {
+                        window.location.href = result.success_url || '/survey/opt-out-success';
+                    }, 1500);
+                } else {
+                    throw new Error(result.error || 'Failed to process opt-out');
+                }
+            } catch (error) {
+                console.error('Opt-out error:', error);
+                alert('There was an error processing your request. Please try again or contact us directly.');
+                
+                // Reset form state
+                submitButton.disabled = false;
+                submitButton.textContent = 'Opt Out';
+                loadingOverlay.classList.add('hidden');
+            }
+        });
+
+        function showSuccessMessage() {
+            const form = document.getElementById('opt-out-form');
+            form.innerHTML = `
+                <div class="text-center py-8">
+                    <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-green-100 mb-4">
+                        <svg class="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                    </div>
+                    <h2 class="text-xl font-semibold text-gray-900 mb-2">Successfully Opted Out</h2>
+                    <p class="text-gray-600">You will no longer receive survey emails from {{ club_name }}.</p>
+                </div>
+            `;
+        }
+
+        // Handle character count for other reason
+        document.getElementById('other-reason').addEventListener('input', function() {
+            const maxLength = 500;
+            const currentLength = this.value.length;
+            
+            if (currentLength > maxLength) {
+                this.value = this.value.substring(0, maxLength);
+            }
+        });
+    </script>
+</body>
+</html>

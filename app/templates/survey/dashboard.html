@@ -1,0 +1,35 @@
+<!-- app/templates/survey/dashboard.html -->
+{% extends "base.html" %}
+
+{% block title %}Survey Dashboard - {{ club.name }}{% endblock %}
+
+{% block content %}
+<div id="survey-dashboard-root" 
+     data-club-id="{{ club.id }}" 
+     data-club-name="{{ club.name }}"
+     class="w-full min-h-screen">
+    <!-- Loading while React initializes -->
+    <div class="flex justify-center items-center min-h-screen">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <span class="ml-3 text-gray-600">Loading Survey Dashboard...</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if config['DEBUG'] %}
+    <!-- Development mode with Vite -->
+    <script type="module">
+        import RefreshRuntime from 'http://localhost:5173/@react-refresh'
+        RefreshRuntime.injectIntoGlobalHook(window)
+        window.$RefreshReg$ = () => {}
+        window.$RefreshSig$ = () => (type) => type
+        window.__vite_plugin_react_preamble_installed__ = true
+    </script>
+    <script type="module" src="http://localhost:5173/@vite/client"></script>
+    <script type="module" src="http://localhost:5173/src/entry/survey_dashboard.tsx"></script>
+{% else %}
+    <!-- Production mode -->
+    <script type="module" src="{{ url_for('static', filename='dist/survey_dashboard.js') }}"></script>
+{% endif %}
+{% endblock %}
