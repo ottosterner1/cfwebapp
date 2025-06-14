@@ -271,6 +271,234 @@ class EmailService:
             current_app.logger.error(f"Error sending email: {error_msg}")
             current_app.logger.error(traceback.format_exc())
             return False, f"Failed to send email: {error_msg}", None
+
+    # ============================================================================
+    # SURVEY EMAIL METHODS (NEW)
+    # ============================================================================
+
+    def send_survey_invitation(self, recipient_email: str, survey_url: str, opt_out_url: str,
+                             club_name: str, recipient_name: str = None, student_name: str = None,
+                             template_name: str = None):
+        """Send survey invitation email using legitimate interests"""
+        try:
+            # Create personalized subject
+            if student_name:
+                subject = f"Quick feedback about {student_name}'s tennis coaching - {club_name}"
+            else:
+                subject = f"Your feedback would help us improve - {club_name}"
+            
+            # Create greeting
+            greeting = f"Dear {recipient_name}" if recipient_name else "Dear Parent/Guardian"
+            
+            # Template matching GDPR-compliant example
+            html_content = f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h3 style="color: #2c5aa0;">Help us improve our tennis coaching</h3>
+                    
+                    <p>{greeting},</p>
+                    
+                    <p>As part of our commitment to improving coaching quality, 
+                    we'd like your feedback on {student_name + "'s" if student_name else "your child's"} recent tennis sessions.</p>
+                    
+                    <p style="margin: 20px 0;">
+                        <a href="{survey_url}" style="background-color: #4CAF50; color: white; 
+                           padding: 12px 24px; text-decoration: none; border-radius: 4px; 
+                           display: inline-block; font-weight: bold;">
+                            Take 2-Minute Survey
+                        </a>
+                    </p>
+                    
+                    <p>We use this feedback to enhance our coaching methods and facilities.</p>
+                    
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    
+                    <div style="font-size: 0.9em; color: #666;">
+                        <p>If you prefer not to receive these surveys, you can 
+                        <a href="{opt_out_url}" style="color: #666;">opt out here</a>.</p>
+                        
+                        <p>This survey is part of our legitimate interest in service improvement, 
+                        as explained in our privacy policy. We respect your privacy and will only 
+                        use your feedback to improve our tennis coaching services.</p>
+                        
+                        <p>Thank you for helping us provide the best possible tennis coaching experience.</p>
+                        
+                        <p style="margin-top: 20px;">
+                            Best regards,<br>
+                            The {club_name} Team
+                        </p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+            
+            # Create plain text version
+            plain_text = f"""
+            {greeting},
+            
+            As part of our commitment to improving coaching quality, we'd like your feedback on {student_name + "'s" if student_name else "your child's"} recent tennis sessions.
+            
+            Please take our 2-minute survey: {survey_url}
+            
+            We use this feedback to enhance our coaching methods and facilities.
+            
+            If you prefer not to receive these surveys, you can opt out here: {opt_out_url}
+            
+            This survey is part of our legitimate interest in service improvement. We respect your privacy and will only use your feedback to improve our tennis coaching services.
+            
+            Thank you for helping us provide the best possible tennis coaching experience.
+            
+            Best regards,
+            The {club_name} Team
+            """
+            
+            return self.send_generic_email(
+                recipient_email=recipient_email,
+                subject=subject,
+                html_content=html_content,
+                text_content=plain_text,
+                sender_name=club_name
+            )
+            
+        except Exception as e:
+            current_app.logger.error(f"Error sending survey invitation: {str(e)}")
+            current_app.logger.error(traceback.format_exc())
+            return False, f"Failed to send survey invitation: {str(e)}"
+
+    def send_survey_reminder(self, recipient_email: str, survey_url: str, opt_out_url: str,
+                           club_name: str, recipient_name: str = None, student_name: str = None,
+                           days_remaining: int = 7):
+        """Send survey reminder email"""
+        try:
+            subject = f"Reminder: Your feedback requested - {club_name}"
+            greeting = f"Dear {recipient_name}" if recipient_name else "Dear Parent/Guardian"
+            
+            html_content = f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h3 style="color: #2c5aa0;">Reminder: Your feedback is still needed</h3>
+                    
+                    <p>{greeting},</p>
+                    
+                    <p>We sent you a brief survey about {student_name + "'s" if student_name else "your child's"} tennis coaching experience, 
+                    and we'd still love to hear from you.</p>
+                    
+                    <p>Your feedback helps us provide better coaching for all our students.</p>
+                    
+                    <p style="margin: 20px 0;">
+                        <a href="{survey_url}" style="background-color: #4CAF50; color: white; 
+                           padding: 12px 24px; text-decoration: none; border-radius: 4px; 
+                           display: inline-block; font-weight: bold;">
+                            Complete Survey (2 minutes)
+                        </a>
+                    </p>
+                    
+                    <p><small>This survey link will expire in {days_remaining} days.</small></p>
+                    
+                    <hr style="margin: 30px 0; border: none; border-top: 1px solid #eee;">
+                    
+                    <div style="font-size: 0.9em; color: #666;">
+                        <p>If you prefer not to receive these reminders, you can 
+                        <a href="{opt_out_url}" style="color: #666;">opt out here</a>.</p>
+                        
+                        <p>Thank you,<br>
+                        The {club_name} Team</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+            
+            plain_text = f"""
+            {greeting},
+            
+            We sent you a brief survey about {student_name + "'s" if student_name else "your child's"} tennis coaching experience, and we'd still love to hear from you.
+            
+            Your feedback helps us provide better coaching for all our students.
+            
+            Please take our 2-minute survey: {survey_url}
+            
+            This survey link will expire in {days_remaining} days.
+            
+            If you prefer not to receive these reminders, you can opt out here: {opt_out_url}
+            
+            Thank you,
+            The {club_name} Team
+            """
+            
+            return self.send_generic_email(
+                recipient_email=recipient_email,
+                subject=subject,
+                html_content=html_content,
+                text_content=plain_text,
+                sender_name=club_name
+            )
+            
+        except Exception as e:
+            current_app.logger.error(f"Error sending survey reminder: {str(e)}")
+            return False, f"Failed to send survey reminder: {str(e)}"
+
+    def send_opt_out_confirmation(self, recipient_email: str, club_name: str):
+        """Send confirmation email after opt-out"""
+        try:
+            subject = f"Unsubscribed from surveys - {club_name}"
+            
+            html_content = f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h3 style="color: #2c5aa0;">You've been unsubscribed</h3>
+                    
+                    <p>This confirms that you have been removed from our survey mailing list.</p>
+                    
+                    <p>You will no longer receive feedback surveys from {club_name}.</p>
+                    
+                    <p>You will continue to receive essential communications about your tennis coaching 
+                    (such as reports, schedule changes, and important updates).</p>
+                    
+                    <p>If you change your mind and would like to receive our surveys again in the future, 
+                    please contact us directly.</p>
+                    
+                    <p>Thank you,<br>
+                    The {club_name} Team</p>
+                </div>
+            </body>
+            </html>
+            """
+            
+            plain_text = f"""
+            You've been unsubscribed
+            
+            This confirms that you have been removed from our survey mailing list.
+            
+            You will no longer receive feedback surveys from {club_name}.
+            
+            You will continue to receive essential communications about your tennis coaching (such as reports, schedule changes, and important updates).
+            
+            If you change your mind and would like to receive our surveys again in the future, please contact us directly.
+            
+            Thank you,
+            The {club_name} Team
+            """
+            
+            return self.send_generic_email(
+                recipient_email=recipient_email,
+                subject=subject,
+                html_content=html_content,
+                text_content=plain_text,
+                sender_name=club_name
+            )
+            
+        except Exception as e:
+            current_app.logger.error(f"Error sending opt-out confirmation: {str(e)}")
+            return False, f"Failed to send opt-out confirmation: {str(e)}"
+
+    # ============================================================================
+    # EXISTING METHODS (UNCHANGED)
+    # ============================================================================
             
     def send_accreditation_reminder(self, email, coach_name, expiring_accreditations):
         """Send reminder email for expiring coaching accreditations"""

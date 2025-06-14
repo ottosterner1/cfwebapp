@@ -33,3 +33,12 @@ from app.models.invoice import (
 from app.models.cancellation import (
     Cancellation, CancellationType
 )
+from app.models.survey import (
+    SurveyTemplate, SurveyQuestion, SurveyCampaign, SurveyRecipient,
+    SurveyResponse, SurveyOptOut, ClubComplianceStatus,
+    SurveyQuestionType, SurveyTriggerType, SurveyStatus
+)
+
+# This approach maintains backward compatibility
+# Old code can still import from app.models without changes
+# while new code can import specific models from their respective modules

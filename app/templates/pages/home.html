@@ -71,7 +71,6 @@
         </a>
         {% endif %}
 
-        <!-- Add this to the grid after the registers section -->
         {% if current_user.tennis_club.has_feature('invoices') %}
         <a href="{{ url_for('invoice_views.invoice_list') }}" 
         class="block p-8 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
@@ -79,6 +78,18 @@
                 <div class="text-4xl mb-4 text-sky-500">💼</div>
                 <h2 class="text-xl font-bold mb-3 text-gray-800">Invoices</h2>
                 <p class="text-gray-600">Generate and manage coaching invoices</p>
+            </div>
+        </a>
+        {% endif %}
+
+        <!-- Add Survey Management card -->
+        {% if (current_user.is_admin or current_user.is_super_admin) and current_user.tennis_club.has_feature('surveys_basic') %}
+        <a href="{{ url_for('main.survey_dashboard') }}" 
+           class="block p-8 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+            <div class="text-center">
+                <div class="text-4xl mb-4 text-sky-500">📋</div>
+                <h2 class="text-xl font-bold mb-3 text-gray-800">Surveys</h2>
+                <p class="text-gray-600">Create and manage feedback forms</p>
             </div>
         </a>
         {% endif %}

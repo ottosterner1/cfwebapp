@@ -15,6 +15,18 @@ def register_routes(app):
     from app.routes.invoices_view import invoice_views
     from app.routes.invoicing import invoice_routes 
     from app.routes.cancellations import cancellation_routes
+
+    # Import survey blueprints
+    from app.routes.survey_compliance import survey_compliance_routes
+    from app.routes.survey_templates import survey_template_routes  
+    from app.routes.survey_campaigns import survey_campaign_routes
+    from app.routes.survey_public import survey_public_routes
+
+    # Register blueprints
+    app.register_blueprint(survey_compliance_routes)
+    app.register_blueprint(survey_template_routes)
+    app.register_blueprint(survey_campaign_routes) 
+    app.register_blueprint(survey_public_routes)
     
     # Register blueprints
     app.register_blueprint(main)

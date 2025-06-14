@@ -11,6 +11,8 @@ class FeatureType:
     LTA_ACCREDITATION = 'lta_accreditation'
     REGISTERS = 'registers'
     INVOICES = 'invoices'
+    SURVEYS_BASIC = 'surveys_basic'
+    SURVEYS_AUTOMATED = 'surveys_automated'
     
     @classmethod
     def get_all_features(cls):
@@ -49,5 +51,17 @@ class FeatureType:
                 'display_name': 'Invoice Management', 
                 'description': 'Create, manage and track invoices for coaching sessions',
                 'icon': '💰'
+            },
+            {
+                'name': cls.SURVEYS_BASIC,
+                'display_name': 'Survey Management',
+                'description': 'Create and manage feedback surveys',
+                'icon': '📋'
+            },
+            {
+                'name': cls.SURVEYS_AUTOMATED,
+                'display_name': 'Automated Surveys',
+                'description': 'Automated survey campaigns and triggers',
+                'icon': '🤖'
             }
         ]

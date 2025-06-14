@@ -1,0 +1,311 @@
+<!-- app/templates/survey/respond.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ template.name }} - {{ context.club_name }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .rating-input { 
+            width: 2rem; 
+            height: 2rem; 
+            border-radius: 50%; 
+            cursor: pointer; 
+            border: 2px solid #d1d5db;
+            appearance: none;
+            transition: all 0.2s;
+        }
+        .rating-input:checked { 
+            background-color: #3b82f6; 
+            border-color: #3b82f6; 
+        }
+        .rating-input:hover {
+            border-color: #3b82f6;
+        }
+        .nps-button { 
+            transition: all 0.2s;
+            border: 1px solid #d1d5db;
+        }
+        .nps-button:hover {
+            border-color: #3b82f6;
+            background-color: #f3f4f6;
+        }
+        .nps-button.selected { 
+            background-color: #3b82f6; 
+            color: white; 
+            border-color: #3b82f6;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="max-w-2xl mx-auto py-8 px-4">
+        <!-- Header -->
+        <div class="bg-white rounded-lg shadow-sm border p-6 mb-6">
+            <h1 class="text-2xl font-bold text-gray-900 mb-2">{{ template.name }}</h1>
+            {% if template.description %}
+            <p class="text-gray-600 mb-4">{{ template.description }}</p>
+            {% endif %}
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p class="text-sm text-blue-800">
+                    <strong>Dear {{ context.recipient_name or 'Parent/Guardian' }},</strong><br>
+                    {% if context.student_name %}
+                    We'd love your feedback about {{ context.student_name }}'s experience with {{ context.club_name }}.
+                    {% else %}
+                    We'd love your feedback about your experience with {{ context.club_name }}.
+                    {% endif %}
+                    Your responses help us improve our coaching and facilities.
+                </p>
+            </div>
+        </div>
+
+        <!-- Survey Form -->
+        <form id="survey-form" class="space-y-6">
+            {% for question in template.questions %}
+            <div class="bg-white rounded-lg shadow-sm border p-6">
+                <label class="block text-lg font-medium text-gray-900 mb-2">
+                    {{ question.question_text }}
+                    {% if question.is_required %}<span class="text-red-500">*</span>{% endif %}
+                </label>
+                {% if question.help_text %}
+                <p class="text-sm text-gray-500 mb-3">{{ question.help_text }}</p>
+                {% endif %}
+
+                {% if question.question_type == 'text' %}
+                    <input type="text" 
+                           name="question_{{ question.id }}" 
+                           class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                           {% if question.is_required %}required{% endif %}>
+
+                {% elif question.question_type == 'textarea' %}
+                    <textarea name="question_{{ question.id }}" 
+                              rows="4"
+                              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                              {% if question.is_required %}required{% endif %}></textarea>
+
+                {% elif question.question_type == 'rating' %}
+                    <div class="flex items-center space-x-4">
+                        {% set rating_min = question.options.min or 1 %}
+                        {% set rating_max = question.options.max or 5 %}
+                        {% for i in range(rating_min, rating_max + 1) %}
+                        <label class="flex flex-col items-center">
+                            <input type="radio" 
+                                   name="question_{{ question.id }}" 
+                                   value="{{ i }}" 
+                                   class="rating-input"
+                                   {% if question.is_required %}required{% endif %}>
+                            <span class="text-sm text-gray-600 mt-1">{{ i }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    {% if question.options and question.options.labels %}
+                    <div class="flex justify-between text-xs text-gray-500 mt-2">
+                        <span>{{ question.options.labels[0] }}</span>
+                        <span>{{ question.options.labels[-1] }}</span>
+                    </div>
+                    {% endif %}
+
+                {% elif question.question_type == 'multiple_choice' %}
+                    <div class="space-y-2">
+                        {% if question.options and question.options.options %}
+                        {% for option in question.options.options %}
+                        <label class="flex items-center">
+                            <input type="radio" 
+                                   name="question_{{ question.id }}" 
+                                   value="{{ option }}" 
+                                   class="mr-3 text-blue-600"
+                                   {% if question.is_required %}required{% endif %}>
+                            <span>{{ option }}</span>
+                        </label>
+                        {% endfor %}
+                        {% endif %}
+                    </div>
+
+                {% elif question.question_type == 'yes_no' %}
+                    <div class="flex space-x-6">
+                        <label class="flex items-center">
+                            <input type="radio" 
+                                   name="question_{{ question.id }}" 
+                                   value="Yes" 
+                                   class="mr-2 text-blue-600"
+                                   {% if question.is_required %}required{% endif %}>
+                            <span>Yes</span>
+                        </label>
+                        <label class="flex items-center">
+                            <input type="radio" 
+                                   name="question_{{ question.id }}" 
+                                   value="No" 
+                                   class="mr-2 text-blue-600"
+                                   {% if question.is_required %}required{% endif %}>
+                            <span>No</span>
+                        </label>
+                    </div>
+
+                {% elif question.question_type == 'nps' %}
+                    <div>
+                        <div class="flex space-x-1 mb-2">
+                            {% for i in range(0, 11) %}
+                            <button type="button" 
+                                    class="nps-button w-10 h-10 rounded text-sm font-medium"
+                                    data-question-id="{{ question.id }}"
+                                    data-value="{{ i }}"
+                                    onclick="selectNPS(this)">
+                                {{ i }}
+                            </button>
+                            {% endfor %}
+                        </div>
+                        <input type="hidden" 
+                               name="question_{{ question.id }}" 
+                               data-question-id="{{ question.id }}"
+                               {% if question.is_required %}required{% endif %}>
+                        <div class="flex justify-between text-xs text-gray-500 mt-2">
+                            <span>{{ (question.options and question.options.low_label) or 'Not likely' }}</span>
+                            <span>{{ (question.options and question.options.high_label) or 'Very likely' }}</span>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+
+            <!-- Submit -->
+            <div class="bg-white rounded-lg shadow-sm border p-6">
+                <div class="flex items-center justify-between">
+                    <div class="text-sm text-gray-500">
+                        <p>Your feedback is confidential and helps us improve.</p>
+                    </div>
+                    <button type="submit" 
+                            id="submit-button"
+                            class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Submit Survey
+                    </button>
+                </div>
+                
+                <!-- Opt-out link -->
+                <div class="mt-4 pt-4 border-t border-gray-200 text-center">
+                    <p class="text-xs text-gray-500 mb-2">
+                        Don't want to receive surveys anymore?
+                    </p>
+                    <a href="/survey/opt-out/{{ token }}" 
+                       class="text-xs text-gray-400 hover:text-gray-600 underline">
+                        Opt out of future surveys
+                    </a>
+                </div>
+            </div>
+        </form>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+            <div class="bg-white rounded-lg p-6 flex items-center space-x-3">
+                <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                <span class="text-gray-900">Submitting your responses...</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let startTime = Date.now();
+
+        // NPS Selection function - fixed JavaScript syntax
+        function selectNPS(button) {
+            const questionId = button.getAttribute('data-question-id');
+            const value = button.getAttribute('data-value');
+            
+            // Remove selection from all NPS buttons for this question
+            const questionContainer = button.parentElement;
+            questionContainer.querySelectorAll('.nps-button').forEach(btn => {
+                btn.classList.remove('selected');
+            });
+            
+            // Add selection to clicked button
+            button.classList.add('selected');
+            
+            // Set hidden input value
+            const hiddenInput = document.querySelector(`input[type="hidden"][data-question-id="${questionId}"]`);
+            if (hiddenInput) {
+                hiddenInput.value = value;
+            }
+        }
+
+        // Form submission handler
+        document.getElementById('survey-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const button = document.getElementById('submit-button');
+            const overlay = document.getElementById('loading-overlay');
+            
+            // Show loading state
+            button.disabled = true;
+            button.textContent = 'Submitting...';
+            overlay.classList.remove('hidden');
+            
+            // Collect form data
+            const formData = new FormData(this);
+            const responses = {};
+            
+            for (let [key, value] of formData.entries()) {
+                if (key.startsWith('question_')) {
+                    const questionId = key.replace('question_', '');
+                    // Convert numeric values properly
+                    if (!isNaN(value) && value.trim() !== '') {
+                        responses[questionId] = parseFloat(value);
+                    } else {
+                        responses[questionId] = value;
+                    }
+                }
+            }
+            
+            // Calculate completion time
+            const completionTimeSeconds = Math.round((Date.now() - startTime) / 1000);
+            
+            try {
+                const response = await fetch(`/survey/api/submit/{{ token }}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        responses: responses,
+                        completion_time_seconds: completionTimeSeconds,
+                        respondent_type: 'parent'
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    // Redirect to thank you page
+                    window.location.href = result.thank_you_url || '/survey/thank-you';
+                } else {
+                    throw new Error(result.error || 'Failed to submit survey');
+                }
+            } catch (error) {
+                console.error('Survey submission error:', error);
+                alert('There was an error submitting your survey. Please try again.');
+                
+                // Reset form state
+                button.disabled = false;
+                button.textContent = 'Submit Survey';
+                overlay.classList.add('hidden');
+            }
+        });
+
+        // Add validation for required NPS questions
+        document.addEventListener('DOMContentLoaded', function() {
+            const form = document.getElementById('survey-form');
+            
+            form.addEventListener('submit', function(e) {
+                // Check for required NPS questions
+                const requiredNPS = document.querySelectorAll('input[type="hidden"][required]');
+                
+                for (let input of requiredNPS) {
+                    if (!input.value) {
+                        e.preventDefault();
+                        alert('Please answer all required questions.');
+                        return false;
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
