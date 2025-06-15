@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Calendar, Clock, Users, AlertCircle, CheckCircle, Plus, ChevronLeft, ChevronRight, BarChart3 } from 'lucide-react';
+import { Calendar, Clock, Users, AlertCircle, CheckCircle, Plus, ChevronLeft, ChevronRight, BarChart3, X, User } from 'lucide-react';
 
 interface Session {
   id: string;
@@ -59,6 +59,24 @@ interface SessionData {
   day_of_week: string;
 }
 
+// Interface for overdue session (sessions that need registers)
+interface OverdueSession {
+  id: string;
+  date: string;
+  group_name: string;
+  group_id: number;
+  time_display: string;
+  start_time: string;
+  end_time: string;
+  day_of_week: string;
+  student_count: number;
+  group_time_id: number;
+  teaching_period_id: number;
+  days_overdue: number;
+  coach_name?: string;
+  coach_id?: number;
+}
+
 interface RegisterCalendarProps {
   onNavigate: (path: string, data?: any) => void;
   onCreateRegister: (sessionData?: SessionData) => void;
@@ -90,6 +108,11 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
   
   // Mobile day view state - now defaults to current day
   const [currentDayIndex, setCurrentDayIndex] = useState<number>(getCurrentDayIndex());
+
+  // New state for overdue sessions modal
+  const [showOverdueModal, setShowOverdueModal] = useState<boolean>(false);
+  const [overdueSessions, setOverdueSessions] = useState<OverdueSession[]>([]);
+  const [loadingOverdue, setLoadingOverdue] = useState<boolean>(false);
 
   // Fetch teaching periods
   useEffect(() => {
@@ -177,6 +200,62 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
     
     fetchSummary();
   }, [selectedPeriod]);
+
+  // Function to get overdue sessions (sessions that need registers created)
+  const getOverdueSessions = async (): Promise<OverdueSession[]> => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const overdueSessions = sessions
+      .filter(session => {
+        const sessionDate = new Date(session.date);
+        sessionDate.setHours(0, 0, 0, 0);
+        // Overdue if session is in the past and has no register
+        return sessionDate < today && !session.has_register;
+      })
+      .map(session => ({
+        ...session,
+        days_overdue: Math.floor((today.getTime() - new Date(session.date).getTime()) / (1000 * 60 * 60 * 24))
+      }));
+
+    // If we have overdue sessions, try to get coach information
+    if (overdueSessions.length > 0 && selectedPeriod) {
+      try {
+        const params = new URLSearchParams({
+          period_id: selectedPeriod.toString(),
+          start_date: getWeekSessions()[0]?.dateStr || '',
+          end_date: getWeekSessions()[6]?.dateStr || ''
+        });
+        
+        const response = await fetch(`/api/registers?${params}`);
+        if (response.ok) {
+          const registersData = await response.json();
+          
+          // Create a map of group_time_id + date to coach info
+          const coachMap = new Map();
+          registersData.forEach((register: any) => {
+            // This is for any existing registers, but we need coach info for missing ones
+            // We'll need to get this from a different endpoint or modify the session data
+          });
+        }
+      } catch (err) {
+        console.error('Error fetching coach info:', err);
+      }
+    }
+
+    return overdueSessions;
+  };
+
+  // Handle overdue button click
+  const handleOverdueClick = async (): Promise<void> => {
+    setShowOverdueModal(true);
+    setLoadingOverdue(true);
+    
+    // Get overdue sessions from current week's sessions
+    const overdueSessionsList = await getOverdueSessions();
+    setOverdueSessions(overdueSessionsList);
+    setLoadingOverdue(false);
+  };
 
   // Get sessions grouped by date
   const getWeekSessions = (): DaySession[] => {
@@ -361,6 +440,24 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
     onCreateRegister(); // No session data - user will select manually
   };
 
+  // Handle create register from overdue session
+  const handleCreateRegisterFromOverdue = (overdueSession: OverdueSession): void => {
+    const sessionData: SessionData = {
+      group_time_id: overdueSession.group_time_id,
+      date: overdueSession.date,
+      teaching_period_id: overdueSession.teaching_period_id,
+      group_name: overdueSession.group_name,
+      group_id: overdueSession.group_id,
+      time_display: overdueSession.time_display,
+      start_time: overdueSession.start_time,
+      end_time: overdueSession.end_time,
+      day_of_week: overdueSession.day_of_week
+    };
+    
+    setShowOverdueModal(false);
+    onCreateRegister(sessionData);
+  };
+
   // Reset day index when week changes - Updated to prefer current day
   useEffect(() => {
     const weekSessions = getWeekSessions();
@@ -421,7 +518,10 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
           <div className="text-2xl font-bold text-green-600">{weeklyStats.completed_sessions}</div>
           <div className="text-sm text-gray-600">Completed</div>
         </div>
-        <div className="bg-white p-4 rounded-lg border border-gray-200">
+        <div 
+          className="bg-white p-4 rounded-lg border border-gray-200 cursor-pointer hover:bg-red-50 transition-colors"
+          onClick={handleOverdueClick}
+        >
           <div className="text-2xl font-bold text-red-600">{weeklyStats.overdue_sessions}</div>
           <div className="text-sm text-gray-600">Overdue</div>
         </div>
@@ -430,6 +530,119 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
           <div className="text-sm text-gray-600">Week Completion</div>
         </div>
       </div>
+
+      {/* Overdue Sessions Modal */}
+      {showOverdueModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] flex flex-col">
+            {/* Fixed Header */}
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Sessions Needing Registers</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  Week of {weekSessions[0]?.date.toLocaleDateString('en-GB', { 
+                    day: 'numeric', 
+                    month: 'long',
+                    year: 'numeric'
+                  })} • {overdueSessions.length} session{overdueSessions.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowOverdueModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors flex-shrink-0"
+              >
+                <X size={20} className="text-gray-500" />
+              </button>
+            </div>
+            
+            {/* Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-4" style={{ maxHeight: 'calc(90vh - 140px)' }}>
+              {loadingOverdue ? (
+                <div className="flex justify-center items-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                </div>
+              ) : overdueSessions.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <CheckCircle size={48} className="mx-auto mb-4 opacity-50" />
+                  <p className="font-medium">No overdue sessions this week!</p>
+                  <p className="text-sm">All sessions for this week have registers created.</p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {overdueSessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className="bg-red-50 border border-red-200 rounded-lg p-3 hover:bg-red-100 transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2">
+                            <AlertCircle size={14} className="text-red-600 flex-shrink-0" />
+                            <h3 className="font-medium text-red-900 truncate">{session.group_name}</h3>
+                            <span className="text-xs text-red-600 font-medium bg-red-100 px-2 py-1 rounded flex-shrink-0">
+                              {session.days_overdue} day{session.days_overdue !== 1 ? 's' : ''} overdue
+                            </span>
+                          </div>
+                          
+                          <div className="flex items-center gap-6 text-sm text-gray-600 mb-3">
+                            <div className="flex items-center gap-1">
+                              <Calendar size={14} className="flex-shrink-0" />
+                              <span>
+                                {new Date(session.date).toLocaleDateString('en-GB', {
+                                  weekday: 'short',
+                                  day: 'numeric',
+                                  month: 'short'
+                                })}
+                              </span>
+                            </div>
+                            
+                            <div className="flex items-center gap-1">
+                              <Clock size={14} className="flex-shrink-0" />
+                              <span>{session.time_display}</span>
+                            </div>
+                            
+                            <div className="flex items-center gap-1">
+                              <Users size={14} className="flex-shrink-0" />
+                              <span>{session.student_count} student{session.student_count !== 1 ? 's' : ''}</span>
+                            </div>
+
+                            {session.coach_name && (
+                              <div className="flex items-center gap-1">
+                                <User size={14} className="flex-shrink-0" />
+                                <span className="truncate">{session.coach_name}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <button
+                          onClick={() => handleCreateRegisterFromOverdue(session)}
+                          className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 transition-colors flex-shrink-0 ml-3"
+                        >
+                          Create Register
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            
+            {/* Sticky Footer */}
+            <div className="px-4 py-3 border-t border-gray-200 bg-gray-50 flex-shrink-0 flex justify-between items-center">
+              <span className="text-sm text-gray-600">
+                {overdueSessions.length} session{overdueSessions.length !== 1 ? 's' : ''} need{overdueSessions.length === 1 ? 's' : ''} register{overdueSessions.length !== 1 ? 's' : ''}
+              </span>
+              <button
+                onClick={() => setShowOverdueModal(false)}
+                className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Week Navigation */}
       <div className="hidden sm:flex items-center justify-between bg-white p-4 rounded-lg border border-gray-200">
