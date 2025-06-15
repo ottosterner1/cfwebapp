@@ -186,12 +186,24 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
     return session.coach.id !== null && session.coach.id === userInfo.id;
   };
 
-  const canUserCancelDay = (): boolean => {
-    return isUserAdmin();
+  const canUserCancelDay = (date: Date): boolean => {
+    if (!isUserAdmin()) return false;
+    
+    // Check if any session on this day has a register
+    const dateStr = date.toISOString().split('T')[0];
+    const daySessions = sessions.filter(s => s.date === dateStr);
+    const hasAnyRegister = daySessions.some(s => s.has_register);
+    
+    return !hasAnyRegister;
   };
 
   const canUserCancelWeek = (): boolean => {
-    return isUserAdmin();
+    if (!isUserAdmin()) return false;
+    
+    // Check if any session in the week has a register
+    const hasAnyRegister = sessions.some(s => s.has_register);
+    
+    return !hasAnyRegister;
   };
 
   const canUserReinstateDay = (): boolean => {
@@ -428,8 +440,8 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
   };
 
   const handleCancelDay = (date: Date): void => {
-    if (!canUserCancelDay()) {
-      alert('Only administrators can cancel entire days');
+    if (!canUserCancelDay(date)) {
+      alert('Cannot cancel day: Only administrators can cancel days, and no registers can exist for that day');
       return;
     }
     
@@ -474,7 +486,7 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
 
   const handleCancelWeek = (): void => {
     if (!canUserCancelWeek()) {
-      alert('Only administrators can cancel entire weeks');
+      alert('Cannot cancel week: Only administrators can cancel weeks, and no registers can exist');
       return;
     }
     
@@ -1259,7 +1271,7 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
             Manage your session registers and view weekly schedule
             {userInfo && !isUserAdmin() && (
               <span className="block text-sm text-blue-600 mt-1">
-                💡 You can cancel sessions that you coach (except those with registers)
+                💡 You can cancel sessions that you coach (but not if registers are already created)
               </span>
             )}
           </p>
@@ -1425,7 +1437,7 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
 
         {/* Mobile Single Day View */}
         <div className="p-4">
-          {canUserCancelDay() && weekSessions[currentDayIndex] && (
+          {canUserCancelDay(weekSessions[currentDayIndex].date) && weekSessions[currentDayIndex] && (
             <div className="mb-4 text-center flex gap-2 justify-center">
               {!isDayCancelled(weekSessions[currentDayIndex].date) ? (
                 <button
@@ -1560,7 +1572,7 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
             <div key={day} className="p-3 bg-gray-50 text-center text-sm font-medium text-gray-900 border-r border-gray-200 last:border-r-0 relative">
               <div className="flex items-center justify-center gap-2">
                 <span>{day}</span>
-                {canUserCancelDay() && weekSessions[index] && (
+                {canUserCancelDay(weekSessions[index].date) && weekSessions[index] && (
                   !isDayCancelled(weekSessions[index].date) ? (
                     <button
                       onClick={() => handleCancelDay(weekSessions[index].date)}
@@ -1866,7 +1878,7 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
         <div className="mt-3 text-xs text-gray-500">
           <p>💡 <strong>Tip:</strong> Click on any session to view details and manage it. Right-click for quick actions.</p>
           {userInfo && isUserAdmin() ? (
-            <p>🔧 <strong>Admin:</strong> You can cancel/reinstate individual sessions, entire days, or weeks.</p>
+            <p>🔧 <strong>Admin:</strong> You can cancel/reinstate individual sessions, entire days, or weeks (if no registers exist).</p>
           ) : (
             <p>👨‍🏫 <strong>Coach:</strong> You can cancel/reinstate sessions that you coach (except those with registers).</p>
           )}
