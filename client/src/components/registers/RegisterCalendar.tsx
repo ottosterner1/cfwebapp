@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Calendar, Clock, Users, AlertCircle, CheckCircle, Plus, ChevronLeft, ChevronRight, BarChart3, X, User, Ban, Eye } from 'lucide-react';
+import { Calendar, Clock, Users, AlertCircle, CheckCircle, Plus, ChevronLeft, ChevronRight, BarChart3, X, User, Ban, Eye, RotateCcw } from 'lucide-react';
 
 interface Session {
   id: string;
@@ -124,6 +124,7 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
   const [showSessionModal, setShowSessionModal] = useState<boolean>(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [showCancelModal, setShowCancelModal] = useState<boolean>(false);
+  const [showReinstateModal, setShowReinstateModal] = useState<boolean>(false);
   const [showOverdueModal, setShowOverdueModal] = useState<boolean>(false);
   const [overdueSessions, setOverdueSessions] = useState<OverdueSession[]>([]);
   const [loadingOverdue, setLoadingOverdue] = useState<boolean>(false);
@@ -137,6 +138,15 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
   } | null>(null);
   const [cancellationReason, setCancellationReason] = useState<string>('');
   const [submittingCancellation, setSubmittingCancellation] = useState<boolean>(false);
+
+  // Reinstate states
+  const [reinstateModalData, setReinstateModalData] = useState<{
+    type: 'session' | 'day' | 'week';
+    title: string;
+    description: string;
+    data: any;
+  } | null>(null);
+  const [submittingReinstate, setSubmittingReinstate] = useState<boolean>(false);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -157,12 +167,22 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
   };
 
   const canUserCancelSession = (session: Session): boolean => {
-    if (!userInfo || session.is_cancelled) return false;
+    if (!userInfo || session.is_cancelled || session.has_register) return false;
     
-    // Admins can cancel any session
+    // Admins can cancel any session (except those with registers)
     if (isUserAdmin()) return true;
     
-    // Coaches can cancel sessions they are assigned to
+    // Coaches can cancel sessions they are assigned to (except those with registers)
+    return session.coach.id !== null && session.coach.id === userInfo.id;
+  };
+
+  const canUserReinstateSession = (session: Session): boolean => {
+    if (!userInfo || !session.is_cancelled) return false;
+    
+    // Admins can reinstate any session
+    if (isUserAdmin()) return true;
+    
+    // Coaches can reinstate sessions they are assigned to
     return session.coach.id !== null && session.coach.id === userInfo.id;
   };
 
@@ -171,6 +191,14 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
   };
 
   const canUserCancelWeek = (): boolean => {
+    return isUserAdmin();
+  };
+
+  const canUserReinstateDay = (): boolean => {
+    return isUserAdmin();
+  };
+
+  const canUserReinstateWeek = (): boolean => {
     return isUserAdmin();
   };
 
@@ -292,6 +320,54 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
     }
   };
 
+  // Reinstate API call
+  const removeCancellation = async (session: Session, type: 'session' | 'day' | 'week', dateInfo: any): Promise<boolean> => {
+    try {
+      console.log('Removing cancellation for:', { session, type, dateInfo });
+      
+      // Find the cancellation to deactivate
+      // This would require an API endpoint to find and deactivate cancellations
+      // For now, we'll use a simpler approach - you may need to adjust based on your backend
+      
+      let queryParams = new URLSearchParams();
+      
+      if (type === 'session') {
+        queryParams.append('type', 'session');
+        queryParams.append('group_time_id', session.group_time_id.toString());
+        queryParams.append('specific_date', session.date);
+      } else if (type === 'day') {
+        queryParams.append('type', 'day');
+        queryParams.append('specific_date', dateInfo.date.toISOString().split('T')[0]);
+      } else if (type === 'week') {
+        queryParams.append('type', 'week');
+        queryParams.append('week_start_date', dateInfo.startDate.toISOString().split('T')[0]);
+        queryParams.append('week_end_date', dateInfo.endDate.toISOString().split('T')[0]);
+      }
+
+      const response = await fetch(`/api/cancellations/deactivate?${queryParams}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      console.log('Reinstate response status:', response.status);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Reinstate error:', errorData);
+        throw new Error(errorData.error || 'Failed to reinstate session');
+      }
+
+      console.log('Session reinstated successfully');
+      return true;
+    } catch (error) {
+      console.error('Error reinstating session:', error);
+      alert(`Failed to reinstate: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return false;
+    }
+  };
+
   // Session management functions
   const handleShowSessionDetails = (session: Session): void => {
     setSelectedSession(session);
@@ -299,7 +375,7 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
   };
 
   const handleCancelSession = (session: Session): void => {
-    if (session.is_cancelled) return;
+    if (session.is_cancelled || session.has_register) return;
     
     if (!canUserCancelSession(session)) {
       if (isUserAdmin()) {
@@ -325,6 +401,32 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
     setShowSessionModal(false);
   };
 
+  const handleReinstateSession = (session: Session): void => {
+    if (!session.is_cancelled) return;
+    
+    if (!canUserReinstateSession(session)) {
+      if (isUserAdmin()) {
+        alert('Unable to reinstate this session');
+      } else {
+        alert('You can only reinstate sessions that you are assigned to coach');
+      }
+      return;
+    }
+    
+    setReinstateModalData({
+      type: 'session',
+      title: 'Reinstate Session',
+      description: `Reinstate ${session.group_name} on ${new Date(session.date).toLocaleDateString('en-GB', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long'
+      })} at ${session.time_display}?`,
+      data: session
+    });
+    setShowReinstateModal(true);
+    setShowSessionModal(false);
+  };
+
   const handleCancelDay = (date: Date): void => {
     if (!canUserCancelDay()) {
       alert('Only administrators can cancel entire days');
@@ -346,6 +448,28 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
     });
     setCancellationReason('');
     setShowCancelModal(true);
+  };
+
+  const handleReinstateDay = (date: Date): void => {
+    if (!canUserReinstateDay()) {
+      alert('Only administrators can reinstate entire days');
+      return;
+    }
+    
+    const dayStr = date.toLocaleDateString('en-GB', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+    
+    setReinstateModalData({
+      type: 'day',
+      title: 'Reinstate Day',
+      description: `Reinstate all sessions on ${dayStr}?`,
+      data: { date }
+    });
+    setShowReinstateModal(true);
   };
 
   const handleCancelWeek = (): void => {
@@ -377,6 +501,36 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
     });
     setCancellationReason('');
     setShowCancelModal(true);
+  };
+
+  const handleReinstateWeek = (): void => {
+    if (!canUserReinstateWeek()) {
+      alert('Only administrators can reinstate entire weeks');
+      return;
+    }
+    
+    const weekSessions = getWeekSessions();
+    const startDate = weekSessions[0]?.date;
+    const endDate = weekSessions[6]?.date;
+    
+    if (!startDate || !endDate) return;
+    
+    const weekStr = `${startDate.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long'
+    })} - ${endDate.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    })}`;
+    
+    setReinstateModalData({
+      type: 'week',
+      title: 'Reinstate Week',
+      description: `Reinstate all sessions for the week of ${weekStr}?`,
+      data: { startDate, endDate }
+    });
+    setShowReinstateModal(true);
   };
 
   const submitCancellation = async (): Promise<void> => {
@@ -437,6 +591,31 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
     }
   };
 
+  const submitReinstate = async (): Promise<void> => {
+    if (!reinstateModalData) return;
+
+    setSubmittingReinstate(true);
+
+    try {
+      const success = await removeCancellation(
+        reinstateModalData.data,
+        reinstateModalData.type,
+        reinstateModalData.data
+      );
+      
+      if (success) {
+        await refreshSessions();
+        setShowReinstateModal(false);
+        setReinstateModalData(null);
+      }
+    } catch (error) {
+      console.error('Error submitting reinstate:', error);
+      alert(`Failed to reinstate: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setSubmittingReinstate(false);
+    }
+  };
+
   // Register management functions
   const handleCreateRegister = (session: Session): void => {
     if (session.is_cancelled) {
@@ -466,6 +645,18 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
 
   const handleGeneralCreateRegister = (): void => {
     onCreateRegister();
+  };
+
+  // Check if a day has any cancelled sessions
+  const isDayCancelled = (date: Date): boolean => {
+    const dateStr = date.toISOString().split('T')[0];
+    const daySessions = sessions.filter(s => s.date === dateStr);
+    return daySessions.length > 0 && daySessions.every(s => s.is_cancelled);
+  };
+
+  // Check if the current week has any cancelled sessions
+  const isWeekCancelled = (): boolean => {
+    return sessions.length > 0 && sessions.every(s => s.is_cancelled);
   };
 
   // Overdue sessions functionality
@@ -741,18 +932,19 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
           }}
           onClick={(e) => e.stopPropagation()}
         >
+          <button
+            onClick={() => {
+              handleShowSessionDetails(contextMenu.session!);
+              setContextMenu(prev => ({ ...prev, show: false }));
+            }}
+            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+          >
+            <Eye size={14} />
+            View Details
+          </button>
+          
           {!contextMenu.session.is_cancelled ? (
             <>
-              <button
-                onClick={() => {
-                  handleShowSessionDetails(contextMenu.session!);
-                  setContextMenu(prev => ({ ...prev, show: false }));
-                }}
-                className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
-              >
-                <Eye size={14} />
-                View Details
-              </button>
               {contextMenu.session.has_register && contextMenu.session.register_id && (
                 <button
                   onClick={() => {
@@ -791,14 +983,28 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
               )}
             </>
           ) : (
-            <div className="px-4 py-2 text-sm text-gray-500">
-              Session Cancelled
-              {contextMenu.session.cancellation_reason && (
-                <div className="text-xs mt-1 italic">
-                  Reason: {contextMenu.session.cancellation_reason}
-                </div>
+            <>
+              <div className="px-4 py-2 text-sm text-gray-500 border-b border-gray-200">
+                Session Cancelled
+                {contextMenu.session.cancellation_reason && (
+                  <div className="text-xs mt-1 italic">
+                    Reason: {contextMenu.session.cancellation_reason}
+                  </div>
+                )}
+              </div>
+              {canUserReinstateSession(contextMenu.session) && (
+                <button
+                  onClick={() => {
+                    handleReinstateSession(contextMenu.session!);
+                    setContextMenu(prev => ({ ...prev, show: false }));
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 text-green-600 flex items-center gap-2"
+                >
+                  <RotateCcw size={14} />
+                  Reinstate Session
+                </button>
               )}
-            </div>
+            </>
           )}
         </div>
       )}
@@ -888,7 +1094,17 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
                 Close
               </button>
               
-              {!selectedSession.is_cancelled && (
+              {selectedSession.is_cancelled ? (
+                canUserReinstateSession(selectedSession) && (
+                  <button
+                    onClick={() => handleReinstateSession(selectedSession)}
+                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 flex items-center gap-2"
+                  >
+                    <RotateCcw size={16} />
+                    Reinstate Session
+                  </button>
+                )
+              ) : (
                 <>
                   {selectedSession.has_register && selectedSession.register_id ? (
                     <button
@@ -987,6 +1203,54 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
         </div>
       )}
 
+      {/* Reinstate Modal */}
+      {showReinstateModal && reinstateModalData && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+            <div className="p-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">{reinstateModalData.title}</h2>
+              <p className="text-sm text-gray-600 mt-1">{reinstateModalData.description}</p>
+            </div>
+            
+            <div className="p-4">
+              <p className="text-sm text-gray-600">
+                This will remove the cancellation and restore the session. Are you sure you want to continue?
+              </p>
+            </div>
+            
+            <div className="p-4 border-t border-gray-200 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowReinstateModal(false);
+                  setReinstateModalData(null);
+                }}
+                disabled={submittingReinstate}
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitReinstate}
+                disabled={submittingReinstate}
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {submittingReinstate ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Reinstating...
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw size={16} />
+                    Confirm Reinstate
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header Controls */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
@@ -995,7 +1259,7 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
             Manage your session registers and view weekly schedule
             {userInfo && !isUserAdmin() && (
               <span className="block text-sm text-blue-600 mt-1">
-                💡 You can cancel sessions that you coach
+                💡 You can cancel sessions that you coach (except those with registers)
               </span>
             )}
           </p>
@@ -1058,16 +1322,29 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
             })}
           </h3>
           
-          {canUserCancelWeek() && (
-            <button
-              onClick={handleCancelWeek}
-              className="px-3 py-1 bg-red-50 text-red-600 border border-red-200 rounded hover:bg-red-100 transition-colors text-sm flex items-center gap-1"
-              title="Cancel entire week"
-            >
-              <Ban size={14} />
-              Cancel Week
-            </button>
-          )}
+          <div className="flex gap-2">
+            {canUserCancelWeek() && !isWeekCancelled() && (
+              <button
+                onClick={handleCancelWeek}
+                className="px-3 py-1 bg-red-50 text-red-600 border border-red-200 rounded hover:bg-red-100 transition-colors text-sm flex items-center gap-1"
+                title="Cancel entire week"
+              >
+                <Ban size={14} />
+                Cancel Week
+              </button>
+            )}
+            
+            {canUserReinstateWeek() && isWeekCancelled() && (
+              <button
+                onClick={handleReinstateWeek}
+                className="px-3 py-1 bg-green-50 text-green-600 border border-green-200 rounded hover:bg-green-100 transition-colors text-sm flex items-center gap-1"
+                title="Reinstate entire week"
+              >
+                <RotateCcw size={14} />
+                Reinstate Week
+              </button>
+            )}
+          </div>
         </div>
         
         <button
@@ -1149,14 +1426,24 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
         {/* Mobile Single Day View */}
         <div className="p-4">
           {canUserCancelDay() && weekSessions[currentDayIndex] && (
-            <div className="mb-4 text-center">
-              <button
-                onClick={() => handleCancelDay(weekSessions[currentDayIndex].date)}
-                className="px-3 py-1 bg-red-50 text-red-600 border border-red-200 rounded hover:bg-red-100 transition-colors text-sm flex items-center gap-1 mx-auto"
-              >
-                <Ban size={14} />
-                Cancel Day
-              </button>
+            <div className="mb-4 text-center flex gap-2 justify-center">
+              {!isDayCancelled(weekSessions[currentDayIndex].date) ? (
+                <button
+                  onClick={() => handleCancelDay(weekSessions[currentDayIndex].date)}
+                  className="px-3 py-1 bg-red-50 text-red-600 border border-red-200 rounded hover:bg-red-100 transition-colors text-sm flex items-center gap-1"
+                >
+                  <Ban size={14} />
+                  Cancel Day
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleReinstateDay(weekSessions[currentDayIndex].date)}
+                  className="px-3 py-1 bg-green-50 text-green-600 border border-green-200 rounded hover:bg-green-100 transition-colors text-sm flex items-center gap-1"
+                >
+                  <RotateCcw size={14} />
+                  Reinstate Day
+                </button>
+              )}
             </div>
           )}
           
@@ -1171,7 +1458,6 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
                 const status = getSessionStatus(session);
                 const styling = getStatusStyling(status);
                 const icon = getStatusIcon(status);
-                const canCancel = canUserCancelSession(session);
                 
                 return (
                   <div
@@ -1257,19 +1543,6 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
                             <Calendar size={16} />
                           </button>
                         )}
-
-                        {canCancel && (
-                          <button
-                            onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-                              e.stopPropagation();
-                              handleCancelSession(session);
-                            }}
-                            className="p-2 bg-red-100 text-red-600 rounded-full hover:bg-red-200 transition-colors"
-                            title="Cancel session"
-                          >
-                            <Ban size={16} />
-                          </button>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -1288,13 +1561,23 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
               <div className="flex items-center justify-center gap-2">
                 <span>{day}</span>
                 {canUserCancelDay() && weekSessions[index] && (
-                  <button
-                    onClick={() => handleCancelDay(weekSessions[index].date)}
-                    className="p-1 text-red-500 hover:bg-red-100 rounded transition-colors"
-                    title="Cancel day"
-                  >
-                    <Ban size={12} />
-                  </button>
+                  !isDayCancelled(weekSessions[index].date) ? (
+                    <button
+                      onClick={() => handleCancelDay(weekSessions[index].date)}
+                      className="p-1 text-red-500 hover:bg-red-100 rounded transition-colors"
+                      title="Cancel day"
+                    >
+                      <Ban size={12} />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleReinstateDay(weekSessions[index].date)}
+                      className="p-1 text-green-500 hover:bg-green-100 rounded transition-colors"
+                      title="Reinstate day"
+                    >
+                      <RotateCcw size={12} />
+                    </button>
+                  )
                 )}
               </div>
             </div>
@@ -1319,7 +1602,6 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
                     const status = getSessionStatus(session);
                     const styling = getStatusStyling(status);
                     const icon = getStatusIcon(status);
-                    const canCancel = canUserCancelSession(session);
                     
                     return (
                       <div
@@ -1382,19 +1664,6 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
                                 title="Create register"
                               >
                                 <Plus size={10} />
-                              </button>
-                            )}
-                            
-                            {canCancel && (
-                              <button
-                                onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
-                                  e.stopPropagation();
-                                  handleCancelSession(session);
-                                }}
-                                className="p-1 bg-red-100 text-red-600 rounded-full hover:bg-red-200 transition-colors"
-                                title="Cancel session"
-                              >
-                                <Ban size={10} />
                               </button>
                             )}
                           </div>
@@ -1597,9 +1866,9 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
         <div className="mt-3 text-xs text-gray-500">
           <p>💡 <strong>Tip:</strong> Click on any session to view details and manage it. Right-click for quick actions.</p>
           {userInfo && isUserAdmin() ? (
-            <p>🔧 <strong>Admin:</strong> You can cancel individual sessions, entire days, or weeks.</p>
+            <p>🔧 <strong>Admin:</strong> You can cancel/reinstate individual sessions, entire days, or weeks.</p>
           ) : (
-            <p>👨‍🏫 <strong>Coach:</strong> You can cancel sessions that you are assigned to coach.</p>
+            <p>👨‍🏫 <strong>Coach:</strong> You can cancel/reinstate sessions that you coach (except those with registers).</p>
           )}
         </div>
       </div>

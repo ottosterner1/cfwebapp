@@ -423,3 +423,118 @@ def get_cancellations_in_range():
     except Exception as e:
         current_app.logger.error(f"Error getting cancellations in range: {str(e)}")
         return jsonify({'error': str(e)}), 500
+    
+@cancellation_routes.route('/cancellations/deactivate', methods=['POST'])
+@login_required
+@verify_club_access()
+def deactivate_cancellation():
+    """Deactivate (reinstate) a cancellation based on search criteria"""
+    try:
+        # Get query parameters
+        cancellation_type = request.args.get('type')
+        group_time_id = request.args.get('group_time_id', type=int)
+        specific_date = request.args.get('specific_date')
+        week_start_date = request.args.get('week_start_date')
+        week_end_date = request.args.get('week_end_date')
+        
+        if not cancellation_type:
+            return jsonify({'error': 'type parameter is required'}), 400
+        
+        # Parse cancellation type
+        try:
+            type_enum = CancellationType[cancellation_type.upper()]
+        except KeyError:
+            return jsonify({'error': f'Invalid cancellation type: {cancellation_type}'}), 400
+        
+        # Check permissions based on cancellation type
+        if type_enum in [CancellationType.DAY, CancellationType.WEEK]:
+            # Only admins can reinstate entire days or weeks
+            if not (current_user.is_admin or current_user.is_super_admin):
+                return jsonify({'error': 'Only administrators can reinstate entire days or weeks'}), 403
+        
+        # Build query to find the cancellation(s) to deactivate
+        query = Cancellation.query.filter_by(
+            tennis_club_id=current_user.tennis_club_id,
+            cancellation_type=type_enum,
+            is_active=True
+        )
+        
+        if type_enum == CancellationType.SESSION:
+            if not all([group_time_id, specific_date]):
+                return jsonify({'error': 'group_time_id and specific_date required for session reinstatement'}), 400
+            
+            # Parse specific date
+            try:
+                specific_date_obj = datetime.strptime(specific_date, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+            
+            # Verify group time belongs to this club
+            group_time = TennisGroupTimes.query.filter_by(
+                id=group_time_id,
+                tennis_club_id=current_user.tennis_club_id
+            ).first()
+            if not group_time:
+                return jsonify({'error': 'Invalid group time'}), 400
+            
+            # Check if user can reinstate this session (same logic as cancellation)
+            if not (current_user.is_admin or current_user.is_super_admin):
+                # For non-admins, check if they are the coach for this session
+                if hasattr(group_time, 'coach_id') and group_time.coach_id != current_user.id:
+                    return jsonify({'error': 'You can only reinstate sessions that you are assigned to coach'}), 403
+            
+            query = query.filter_by(
+                group_time_id=group_time_id,
+                specific_date=specific_date_obj
+            )
+        
+        elif type_enum == CancellationType.DAY:
+            if not specific_date:
+                return jsonify({'error': 'specific_date required for day reinstatement'}), 400
+            
+            try:
+                specific_date_obj = datetime.strptime(specific_date, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+            
+            query = query.filter_by(specific_date=specific_date_obj)
+        
+        elif type_enum == CancellationType.WEEK:
+            if not all([week_start_date, week_end_date]):
+                return jsonify({'error': 'week_start_date and week_end_date required for week reinstatement'}), 400
+            
+            try:
+                week_start_obj = datetime.strptime(week_start_date, '%Y-%m-%d').date()
+                week_end_obj = datetime.strptime(week_end_date, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+            
+            query = query.filter_by(
+                week_start_date=week_start_obj,
+                week_end_date=week_end_obj
+            )
+        
+        # Find matching cancellations
+        cancellations = query.all()
+        
+        if not cancellations:
+            return jsonify({'error': 'No matching active cancellations found'}), 404
+        
+        # Deactivate all matching cancellations
+        deactivated_count = 0
+        for cancellation in cancellations:
+            cancellation.is_active = False
+            deactivated_count += 1
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': f'Successfully reinstated {deactivated_count} cancellation(s)',
+            'deactivated_count': deactivated_count
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deactivating cancellation: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
