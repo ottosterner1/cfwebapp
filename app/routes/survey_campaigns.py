@@ -120,11 +120,21 @@ def create_survey_campaign(club_id):
         if not template:
             return jsonify({'error': 'Invalid template ID'}), 400
         
-        # Validate optional foreign keys
-        teaching_period_id = data.get('teaching_period_id')
-        group_id = data.get('group_id')
-        coach_id = data.get('coach_id')
+        # Convert empty strings to None for optional foreign keys
+        def clean_optional_id(value):
+            """Convert empty string or None to None, otherwise convert to int"""
+            if value is None or value == '' or value == 'null':
+                return None
+            try:
+                return int(value)
+            except (ValueError, TypeError):
+                return None
         
+        teaching_period_id = clean_optional_id(data.get('teaching_period_id'))
+        group_id = clean_optional_id(data.get('group_id'))
+        coach_id = clean_optional_id(data.get('coach_id'))
+        
+        # Validate optional foreign keys only if they're not None
         if teaching_period_id:
             period = TeachingPeriod.query.filter_by(
                 id=teaching_period_id,
