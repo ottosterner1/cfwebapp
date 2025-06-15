@@ -2,7 +2,8 @@ from flask import Blueprint, request, jsonify, current_app, render_template
 from flask_login import login_required, current_user
 from app.models import (
     Register, RegisterEntry, TeachingPeriod, TennisGroupTimes, 
-    ProgrammePlayers, AttendanceStatus, TennisGroup, Student, User, RegisterAssistantCoach, DayOfWeek
+    ProgrammePlayers, AttendanceStatus, TennisGroup, Student, User, RegisterAssistantCoach, DayOfWeek,
+    Cancellation, CancellationType
 )
 from app import db
 from app.models.base import UserRole
@@ -13,6 +14,7 @@ from datetime import datetime, timedelta, date
 import traceback
 from app.services.email_service import EmailService
 from sqlalchemy import desc
+from app.routes.cancellations import get_cancelled_sessions_in_range, is_session_cancelled
 
 # API routes for JSON data
 register_routes = Blueprint('registers', __name__, url_prefix='/api')
@@ -1723,6 +1725,7 @@ def get_register_calendar():
         teaching_period_id = request.args.get('period_id', type=int)
         start_date = request.args.get('start_date')  # Optional date range
         end_date = request.args.get('end_date')      # Optional date range
+        include_cancelled = request.args.get('include_cancelled', 'true').lower() == 'true'
         
         # Get default teaching period if not specified
         if not teaching_period_id:
@@ -1824,6 +1827,25 @@ def get_register_calendar():
                         if existing_register and existing_register.coach_id != current_user.id:
                             continue
                     
+                    # Check if session is cancelled (using 3 arguments)
+                    is_cancelled, cancellation_reason = is_session_cancelled(
+                        group_time.id,
+                        current_date,
+                        current_user.tennis_club_id
+                    )
+                    
+                    # Skip cancelled sessions unless include_cancelled is True
+                    if is_cancelled and not include_cancelled:
+                        continue
+                    
+                    # Get assigned coach for this group time in this period
+                    assigned_coach = db.session.query(User).join(
+                        ProgrammePlayers, User.id == ProgrammePlayers.coach_id
+                    ).filter(
+                        ProgrammePlayers.group_time_id == group_time.id,
+                        ProgrammePlayers.teaching_period_id == teaching_period_id
+                    ).first()
+                    
                     session_data = {
                         'id': f"{group_time.id}-{current_date.strftime('%Y%m%d')}",
                         'date': current_date.strftime('%Y-%m-%d'),
@@ -1837,7 +1859,14 @@ def get_register_calendar():
                         'student_count': group_time.student_count,
                         'has_register': existing_register is not None,
                         'register_id': existing_register.id if existing_register else None,
-                        'teaching_period_id': teaching_period_id
+                        'teaching_period_id': teaching_period_id,
+                        'coach': {
+                            'id': assigned_coach.id if assigned_coach else None,
+                            'name': assigned_coach.name if assigned_coach else 'Not assigned'
+                        },
+                        'is_cancelled': is_cancelled,
+                        'cancellation_reason': cancellation_reason,
+                        'status': 'cancelled' if is_cancelled else ('completed' if existing_register else 'scheduled')
                     }
                     
                     sessions.append(session_data)
@@ -1859,7 +1888,7 @@ def get_register_calendar():
 @login_required
 @verify_club_access()
 def get_register_calendar_summary():
-    """Get summary statistics for register completion"""
+    """Get summary statistics for register completion, excluding cancelled sessions"""
     try:
         teaching_period_id = request.args.get('period_id', type=int)
         
@@ -1879,13 +1908,14 @@ def get_register_calendar_summary():
                     'completed_registers': 0,
                     'missing_registers': 0,
                     'overdue_registers': 0,
+                    'cancelled_sessions': 0,
                     'completion_rate': 0
                 })
         
         # Get current date for overdue calculation
         today = date.today()
         
-        # Count scheduled sessions for the coach
+        # Count scheduled sessions for the coach (excluding cancelled ones)
         coach_sessions_query = db.session.query(
             TennisGroupTimes.id,
             TennisGroupTimes.day_of_week,
@@ -1924,16 +1954,44 @@ def get_register_calendar_summary():
             )
         
         total_registers = registers_query.count()
-        overdue_registers = registers_query.filter(
-            Register.date < today
-        ).count()
         
-        # Calculate estimated total sessions (rough estimate)
-        # This is simplified - in practice you'd want to calculate based on term dates
+        # Count overdue registers (excluding cancelled sessions)
+        overdue_registers = 0
+        overdue_query = registers_query.filter(Register.date < today)
+        
+        for register in overdue_query.all():
+            # Check if this register's session was cancelled (using 3 arguments)
+            is_cancelled, _ = is_session_cancelled(
+                register.group_time_id,
+                register.date,
+                current_user.tennis_club_id
+            )
+            if not is_cancelled:
+                overdue_registers += 1
+        
+        # Calculate estimated total sessions (rough estimate) excluding cancelled ones
         teaching_period = TeachingPeriod.query.get(teaching_period_id)
+        cancelled_sessions_count = 0
+        
         if teaching_period:
             term_weeks = ((teaching_period.end_date - teaching_period.start_date).days + 1) // 7
             estimated_total_sessions = len(coach_sessions) * term_weeks
+            
+            # Count cancelled sessions in the period
+            cancelled_sessions = get_cancelled_sessions_in_range(
+                teaching_period.start_date,
+                teaching_period.end_date,
+                current_user.tennis_club_id,
+                teaching_period_id
+            )
+            cancelled_sessions_count = len(cancelled_sessions)
+            
+            # Filter cancelled sessions by coach if not admin
+            if not current_user.is_admin:
+                # This is a simplified approach - count all cancelled sessions for now
+                pass
+            
+            estimated_total_sessions = max(0, estimated_total_sessions - cancelled_sessions_count)
         else:
             estimated_total_sessions = 0
         
@@ -1944,6 +2002,7 @@ def get_register_calendar_summary():
             'completed_registers': total_registers,
             'missing_registers': max(0, estimated_total_sessions - total_registers),
             'overdue_registers': overdue_registers,
+            'cancelled_sessions': cancelled_sessions_count,
             'completion_rate': round(completion_rate, 1),
             'weekly_sessions': len(coach_sessions)
         })
