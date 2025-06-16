@@ -1,123 +1,23 @@
 {% extends "base.html" %}
+
 {% block content %}
-<!-- Logo and Header Section -->
-<div class="bg-gradient-to-b from-sky-100 to-white pt-0 pb-16">
-    <div class="max-w-7xl mx-auto px-4">
-        <div class="flex flex-col items-center">
-            {% if current_user.tennis_club.logo_url %}
-            <div class="relative h-28 mb-4">
-                <!-- Loading placeholder -->
-                <div class="absolute inset-0 bg-gray-100 animate-pulse" id="logo-loading"></div>
-                <img src="{{ current_user.tennis_club.logo_presigned_url }}" 
-                     alt="{{ current_user.tennis_club.name }}" 
-                     class="h-28 w-auto"
-                     onload="this.previousElementSibling.style.display='none'"
-                     onerror="handleImageError(this)" />
-            </div>
-            {% endif %}
-            <h1 class="text-3xl font-semibold text-gray-800 mb-2">Welcome to {{ current_user.tennis_club.name }}</h1>
-        </div>
-    </div>
+<div id="react-root" class="w-full">
+    <!-- React app will render here -->
 </div>
+{% endblock %}
 
-<!-- Main Content -->
-<div class="max-w-7xl mx-auto px-4 -mt-8">
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <!-- Check permissions for each feature -->
-        
-        {% if current_user.tennis_club.has_feature('coaching_reports') %}
-        <a href="{{ url_for('main.dashboard') }}" 
-           class="block p-8 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
-            <div class="text-center">
-                <div class="text-4xl mb-4 text-sky-500">📊</div>
-                <h2 class="text-xl font-bold mb-3 text-gray-800">Coaching Reports</h2>
-                <p class="text-gray-600">View and manage player reports</p>
-            </div>
-        </a>
-        {% endif %}
-
-        {% if current_user.is_admin or current_user.is_super_admin %}
-            {% if current_user.tennis_club_id and current_user.tennis_club.has_feature('manage_programme') %}
-            <a href="{{ url_for('club_management.manage_players', club_id=current_user.tennis_club_id) }}" 
-               class="block p-8 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
-                <div class="text-center">
-                    <div class="text-4xl mb-4 text-sky-500">👥</div>
-                    <h2 class="text-xl font-bold mb-3 text-gray-800">Manage Programme</h2>
-                    <p class="text-gray-600">Assign players to coaches and groups</p>
-                </div>
-            </a>
-            {% endif %}
-        {% endif %}
-
-        {% if current_user.tennis_club_id and current_user.tennis_club.has_feature('lta_accreditation') %}
-        <a href="{{ url_for('main.lta_accreditation') }}" 
-           class="block p-8 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
-            <div class="text-center">
-                <div class="text-4xl mb-4 text-sky-500">📋</div>
-                <h2 class="text-xl font-bold mb-3 text-gray-800">LTA Accreditation</h2>
-                <p class="text-gray-600">Track coach qualifications and certifications</p>
-            </div>
-        </a>
-        {% endif %}
-
-        {% if current_user.tennis_club.has_feature('registers') %}
-        <a href="{{ url_for('register_views.register_list') }}" 
-            class="block p-8 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
-            <div class="text-center">
-                <div class="text-4xl mb-4 text-sky-500">📋</div>
-                <h2 class="text-xl font-bold mb-3 text-gray-800">Registers</h2>
-                <p class="text-gray-600">Track player attendance for groups</p>
-            </div>
-        </a>
-        {% endif %}
-
-        {% if current_user.tennis_club.has_feature('invoices') %}
-        <a href="{{ url_for('invoice_views.invoice_list') }}" 
-        class="block p-8 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
-            <div class="text-center">
-                <div class="text-4xl mb-4 text-sky-500">💼</div>
-                <h2 class="text-xl font-bold mb-3 text-gray-800">Invoices</h2>
-                <p class="text-gray-600">Generate and manage coaching invoices</p>
-            </div>
-        </a>
-        {% endif %}
-
-        <!-- Add Survey Management card -->
-        {% if (current_user.is_admin or current_user.is_super_admin) and current_user.tennis_club.has_feature('surveys_basic') %}
-        <a href="{{ url_for('main.survey_dashboard') }}" 
-           class="block p-8 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
-            <div class="text-center">
-                <div class="text-4xl mb-4 text-sky-500">📋</div>
-                <h2 class="text-xl font-bold mb-3 text-gray-800">Surveys</h2>
-                <p class="text-gray-600">Create and manage feedback forms</p>
-            </div>
-        </a>
-        {% endif %}
-    </div>
-</div>
-
-<script>
-    async function handleImageError(img) {
-        try {
-            const response = await fetch(`/api/clubs/{{ current_user.tennis_club_id }}/logo-url`);
-            if (response.ok) {
-                const data = await response.json();
-                if (data.url) {
-                    img.src = data.url;
-                }
-            }
-        } catch (error) {
-            console.error('Error refreshing logo URL:', error);
-            img.style.display = 'none';
-        }
-    }
-
-    // Refresh URL periodically before it expires
-    setInterval(async () => {
-        const img = document.querySelector('img[alt="{{ current_user.tennis_club.name }} logo"]');
-        if (img) {
-            await handleImageError(img);
-        }
-    }, 3000000); // Refresh every 50 minutes
-</script>
+{% block scripts %}
+{% if config['DEBUG'] %}
+    <script type="module">
+        import RefreshRuntime from 'http://localhost:5173/@react-refresh'
+        RefreshRuntime.injectIntoGlobalHook(window)
+        window.$RefreshReg$ = () => {}
+        window.$RefreshSig$ = () => (type) => type
+        window.__vite_plugin_react_preamble_installed__ = true
+    </script>
+    <script type="module" src="http://localhost:5173/@vite/client"></script>
+    <script type="module" src="http://localhost:5173/src/entry/home.tsx"></script>
+{% else %}
+    <script type="module" src="{{ url_for('static', filename='dist/' + get_asset_path('src/entry/home.tsx')) }}"></script>
+{% endif %}
 {% endblock %}

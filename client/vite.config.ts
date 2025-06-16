@@ -62,6 +62,7 @@ export default defineConfig({
         edit_register: path.resolve(__dirname, 'src/entry/edit_register.tsx'),
         view_register: path.resolve(__dirname, 'src/entry/view_register.tsx'),
         invoices: path.resolve(__dirname, 'src/entry/invoices.tsx'),
+        home: path.resolve(__dirname, 'src/entry/home.tsx'),
       },
       output: {
         manualChunks: (id) => {

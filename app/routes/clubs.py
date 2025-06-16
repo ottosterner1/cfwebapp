@@ -1773,10 +1773,6 @@ def invite_club():
 @club_management.route('/accept-club-invitation/<token>')
 def accept_club_invitation(token):
     """Handle a tennis club admin accepting an invitation"""
-    current_app.logger.info(f"Processing club invitation with token: {token}")
-    # Print debug info to confirm this route is even being hit
-    current_app.logger.info(f"Request URL: {request.url}")
-    current_app.logger.info(f"Request args: {request.args}")
     
     try:
         # Get invitation and validate

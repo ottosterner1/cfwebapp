@@ -54,25 +54,77 @@ def current_user_info():
     if not current_user.is_authenticated:
         return jsonify({'error': 'Not authenticated'}), 401
 
-    response = jsonify({
-        'id': current_user.id,
-        'name': current_user.name,
-        'tennis_club': {
-            'id': current_user.tennis_club_id,
-            'name': current_user.tennis_club.name if current_user.tennis_club else None
-        },
-        'is_admin': current_user.is_admin,
-        'is_super_admin': current_user.is_super_admin
-    })
+    try:
+        # Get logo URLs safely
+        logo_url = None
+        logo_presigned_url = None
+        
+        if current_user.tennis_club and current_user.tennis_club.logo_url:
+            logo_url = current_user.tennis_club.logo_url
+            # If you have a method for presigned URLs, add it here
+            try:
+                logo_presigned_url = current_user.tennis_club.logo_presigned_url
+            except (AttributeError, Exception):
+                logo_presigned_url = logo_url  # Fallback to regular URL
 
-    response.headers.update({
-        'Access-Control-Allow-Origin': request.headers.get('Origin', 'https://cfwebapp.local'),
-        'Access-Control-Allow-Credentials': 'true',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cookie, X-Requested-With'
-    })
-    
-    return response
+        # Build features object safely
+        features = {}
+        if current_user.tennis_club:
+            try:
+                features = {
+                    'coaching_reports': current_user.tennis_club.has_feature('coaching_reports'),
+                    'manage_programme': current_user.tennis_club.has_feature('manage_programme'),
+                    'lta_accreditation': current_user.tennis_club.has_feature('lta_accreditation'),
+                    'registers': current_user.tennis_club.has_feature('registers'),
+                    'invoices': current_user.tennis_club.has_feature('invoices'),
+                    'surveys_basic': current_user.tennis_club.has_feature('surveys_basic')
+                }
+            except (AttributeError, Exception) as e:
+                current_app.logger.error(f"Error getting features: {str(e)}")
+                # Fallback - assume all features are available if has_feature method doesn't exist
+                features = {
+                    'coaching_reports': True,
+                    'manage_programme': True,
+                    'lta_accreditation': True,
+                    'registers': True,
+                    'invoices': True,
+                    'surveys_basic': True
+                }
+
+        response_data = {
+            'id': current_user.id,
+            'name': current_user.name,
+            'email': current_user.email,  # Added email field
+            'is_admin': current_user.is_admin,
+            'is_super_admin': current_user.is_super_admin,
+            'tennis_club_id': current_user.tennis_club_id,
+            'tennis_club': {
+                'id': current_user.tennis_club_id,
+                'name': current_user.tennis_club.name if current_user.tennis_club else None,
+                'logo_url': logo_url,
+                'logo_presigned_url': logo_presigned_url,
+                'features': features
+            }
+        }
+
+        # Debug logging (remove in production)
+        current_app.logger.info(f"API Response for user {current_user.id}: {response_data}")
+
+        response = jsonify(response_data)
+
+        response.headers.update({
+            'Access-Control-Allow-Origin': request.headers.get('Origin', 'https://cfwebapp.local'),
+            'Access-Control-Allow-Credentials': 'true',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cookie, X-Requested-With'
+        })
+        
+        return response
+
+    except Exception as e:
+        current_app.logger.error(f"Error in current_user_info: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': 'Failed to load user data'}), 500
 
 @main.route('/api/current-user', methods=['OPTIONS'])
 def current_user_options():

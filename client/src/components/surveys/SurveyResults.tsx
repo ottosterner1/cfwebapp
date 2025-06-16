@@ -60,7 +60,7 @@ const SurveyResults: React.FC<SurveyResultsProps> = ({ clubId, campaignId }) => 
   const [selectedCampaign, setSelectedCampaign] = useState<number | null>(campaignId || null);
   const [responses, setResponses] = useState<Response[]>([]);
   const [questionAnalysis, setQuestionAnalysis] = useState<QuestionAnalysis[]>([]);
-  const [templateQuestions, setTemplateQuestions] = useState<TemplateQuestion[]>([]);
+  const [, setTemplateQuestions] = useState<TemplateQuestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -571,10 +571,6 @@ const SurveyResults: React.FC<SurveyResultsProps> = ({ clubId, campaignId }) => 
           {/* Question Analysis */}
           {viewMode === 'questions' && (
             <div className="space-y-6">
-              {/* Debug info */}
-              <div className="text-sm text-gray-500 bg-gray-50 p-3 rounded">
-                Debug: {responses.length} responses, {questionAnalysis.length} questions analyzed, {templateQuestions.length} template questions loaded
-              </div>
               
               {analyzing ? (
                 <div className="flex justify-center p-8">
