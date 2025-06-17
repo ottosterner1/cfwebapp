@@ -5,6 +5,7 @@ from app.models import (
     ReportTemplate, TemplateSection, TemplateField, FieldType, TennisGroupTimes, User
 )
 from app import db
+from app.models.core import TennisClub
 from app.utils.auth import admin_required
 from app.clubs.middleware import verify_club_access
 from sqlalchemy import and_, or_, func, case
@@ -761,12 +762,12 @@ def manage_templates():
             template = ReportTemplate(
                 name=data['name'],
                 description=data.get('description'),
-                tennis_club_id=current_user.tennis_club_id,
+                organisation_id=current_user.tennis_club.organisation_id,  # CHANGED: use organisation_id
                 created_by_id=current_user.id,
                 is_active=True
             )
             
-            # Add sections and fields
+            # Add sections and fields (rest remains the same)
             for section_data in data['sections']:
                 section = TemplateSection(
                     name=section_data['name'],
@@ -808,9 +809,9 @@ def manage_templates():
             current_app.logger.error(f"Error creating template: {str(e)}")
             return jsonify({'error': str(e)}), 400
     
-    # GET - Return all templates with their group assignments
+    # GET - Return all templates for the organisation
     templates = ReportTemplate.query.filter_by(
-        tennis_club_id=current_user.tennis_club_id,
+        organisation_id=current_user.tennis_club.organisation_id,  # CHANGED: use organisation_id
         is_active=True
     ).all()
     
@@ -838,13 +839,14 @@ def manage_templates():
         } for s in t.sections]
     } for t in templates])
 
+
 @report_routes.route('/report-templates/<int:template_id>', methods=['GET', 'PUT', 'DELETE'])
 @login_required
 @admin_required
 def manage_template(template_id):
     template = ReportTemplate.query.filter_by(
         id=template_id,
-        tennis_club_id=current_user.tennis_club_id
+        organisation_id=current_user.tennis_club.organisation_id  # CHANGED: use organisation_id
     ).first_or_404()
     
     if request.method == 'PUT':
@@ -936,6 +938,7 @@ def manage_template(template_id):
             } for f in s.fields]
         } for s in template.sections]
     })
+
 
 @report_routes.route('/templates/group-assignments', methods=['GET', 'POST', 'DELETE'])
 @login_required
@@ -1114,3 +1117,37 @@ def edit_report_page(report_id):
         return redirect(url_for('main.dashboard'))
         
     return render_template('pages/edit_report.html', report_id=report_id)
+
+@report_routes.route('/organisation-groups', methods=['GET'])
+@login_required
+@admin_required
+def get_organisation_groups():
+    """Get all groups across all clubs in the current user's organisation"""
+    try:
+        organisation_id = current_user.tennis_club.organisation_id
+        
+        # Get all clubs in the organisation
+        clubs = TennisClub.query.filter_by(organisation_id=organisation_id).all()
+        
+        # Get all groups from these clubs
+        groups = []
+        for club in clubs:
+            club_groups = TennisGroup.query.filter_by(tennis_club_id=club.id).all()
+            for group in club_groups:
+                groups.append({
+                    'id': group.id,
+                    'name': group.name,
+                    'description': group.description,
+                    'club_name': club.name,
+                    'club_id': club.id
+                })
+        
+        # Sort by club name, then group name
+        groups.sort(key=lambda x: (x['club_name'], x['name']))
+        
+        return jsonify(groups)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching organisation groups: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500

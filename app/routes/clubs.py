@@ -601,7 +601,64 @@ def parse_date(date_str):
         current_app.logger.error(f"Date parsing failed for '{date_str}': {str(e)}")
         raise ValueError(f"Invalid date format: '{date_str}'. Please use YYYY-MM-DD or DD-MMM-YYYY format.")
 
+def get_or_create_default_organisation(club_name):
+    """Get or create a default organisation for a new club"""
+    from app.models import Organisation
+    
+    # Create a unique organisation slug based on club name
+    base_slug = club_name.lower().replace(' ', '-').replace('_', '-')
+    
+    # Remove non-alphanumeric characters except hyphens
+    import re
+    base_slug = re.sub(r'[^a-z0-9-]', '', base_slug)
+    
+    # Ensure slug is unique
+    slug = base_slug
+    counter = 1
+    while Organisation.query.filter_by(slug=slug).first():
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+    
+    # Create new organisation
+    organisation = Organisation(
+        name=f"{club_name} Organisation",
+        slug=slug
+    )
+    
+    db.session.add(organisation)
+    db.session.flush()  # Get the ID
+    
+    current_app.logger.info(f"Created default organisation: {organisation.name} (slug: {organisation.slug})")
+    
+    return organisation
+
 # Routes:
+
+@club_management.route('/api/organisation-clubs', methods=['GET'])
+@login_required
+@admin_required
+def get_organisation_clubs():
+    """Get all clubs in the current user's organisation"""
+    try:
+        organisation_id = current_user.tennis_club.organisation_id
+        
+        clubs = TennisClub.query.filter_by(
+            organisation_id=organisation_id
+        ).order_by(TennisClub.name).all()
+        
+        return jsonify([{
+            'id': club.id,
+            'name': club.name,
+            'subdomain': club.subdomain,
+            'is_current': club.id == current_user.tennis_club_id,
+            'user_count': club.users.count(),
+            'group_count': club.groups.count()
+        } for club in clubs])
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching organisation clubs: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
 
 @club_management.route('/onboard', methods=['GET', 'POST'])
 def onboard_club():
@@ -648,15 +705,19 @@ def onboard_club():
         if existing_club:
             flash(f'Subdomain "{subdomain}" is already in use. Please choose another.', 'error')
             return redirect(url_for('club_management.onboard_club'))
+        
+        # CHANGED: Get or create a default organisation for single-club organisations
+        organisation = get_or_create_default_organisation(club_name)
             
         club = TennisClub(
             name=club_name,
-            subdomain=subdomain
+            subdomain=subdomain,
+            organisation_id=organisation.id  # CHANGED: assign to organisation
         )
         db.session.add(club)
         db.session.flush()  # Get club ID
 
-        # Create admin user based on available info
+        # Create admin user based on available info (rest remains the same)
         if temp_user_info:
             # Create admin user using the Google auth info
             admin = User(
@@ -742,8 +803,16 @@ def manage_club(club_id):
        except Exception as e:
            db.session.rollback()
            flash(f'Error updating club: {str(e)}', 'error')
+   
+   # CHANGED: Pass organisation info to template
+   organisation_clubs = TennisClub.query.filter_by(
+       organisation_id=club.organisation_id
+   ).order_by(TennisClub.name).all()
            
-   return render_template('admin/manage_club.html', club=club)
+   return render_template('admin/manage_club.html', 
+                         club=club, 
+                         organisation=club.organisation,
+                         organisation_clubs=organisation_clubs)
 
 @club_management.route('/manage/<int:club_id>/teaching-periods', methods=['GET', 'POST'])
 @login_required
@@ -1624,18 +1693,32 @@ def super_admin_dashboard():
 @club_management.route('/api/clubs', methods=['GET'])
 @login_required
 def get_all_clubs():
-    """API endpoint to get all tennis clubs for super admin"""
+    """API endpoint to get all tennis clubs for super admin with organisation info"""
     current_app.logger.info(f"get_all_clubs called, super_admin: {current_user.is_super_admin}")
     
     if not current_user.is_super_admin:
         return jsonify({'error': 'Unauthorized'}), 403
     
     try:
-        clubs = TennisClub.query.order_by(TennisClub.name).all()
+        # CHANGED: Join with Organisation to get organisation info
+        from app.models import Organisation
+        
+        clubs = (TennisClub.query
+                .outerjoin(Organisation, TennisClub.organisation_id == Organisation.id)
+                .order_by(Organisation.name.nullslast(), TennisClub.name)
+                .all())
+        
         result = [{
             'id': club.id,
             'name': club.name,
-            'subdomain': club.subdomain
+            'subdomain': club.subdomain,
+            'organisation': {
+                'id': club.organisation.id,
+                'name': club.organisation.name,
+                'slug': club.organisation.slug
+            } if club.organisation else None,
+            'user_count': club.users.count(),
+            'group_count': club.groups.count()
         } for club in clubs]
         
         # Set explicit content type
@@ -1681,6 +1764,104 @@ def switch_club_api():
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error switching club: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+    
+@club_management.route('/api/switch-club', methods=['POST'])
+@login_required
+@admin_required
+def switch_club_context():
+    """Permanently switch user's club assignment"""
+    try:
+        data = request.get_json()
+        club_id = data.get('club_id')
+        
+        if not club_id:
+            return jsonify({'error': 'Club ID is required'}), 400
+        
+        # Verify user has access to this club
+        accessible_clubs = current_user.get_accessible_clubs()
+        target_club = None
+        
+        for club in accessible_clubs:
+            if club.id == club_id:
+                target_club = club
+                break
+        
+        if not target_club:
+            return jsonify({'error': 'Access denied to this club'}), 403
+        
+        # CHANGED: Permanently update the user's club assignment
+        current_user.tennis_club_id = club_id
+        db.session.commit()
+        
+        current_app.logger.info(f"User {current_user.id} permanently switched to club {club_id} ({target_club.name})")
+        
+        return jsonify({
+            'message': f'Successfully switched to {target_club.name}',
+            'club': {
+                'id': target_club.id,
+                'name': target_club.name,
+                'subdomain': target_club.subdomain
+            }
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error switching club: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+@club_management.route('/api/switch-clubs', methods=['POST'])
+@login_required
+@admin_required
+def cycle_clubs():
+    """Permanently cycle to the next available club"""
+    try:
+        # Get user's accessible clubs
+        accessible_clubs = current_user.get_accessible_clubs()
+        
+        if len(accessible_clubs) <= 1:
+            return jsonify({'error': 'No other clubs available to switch to'}), 400
+        
+        # Get current club ID (user's actual tennis_club_id, not session-based)
+        current_club_id = current_user.tennis_club_id
+        
+        # Find current club index in accessible clubs
+        current_index = -1
+        for i, club in enumerate(accessible_clubs):
+            if club.id == current_club_id:
+                current_index = i
+                break
+        
+        # If current club not found in accessible clubs, start from first club
+        if current_index == -1:
+            next_index = 0
+        else:
+            # Calculate next club index (cycle to beginning if at end)
+            next_index = (current_index + 1) % len(accessible_clubs)
+        
+        next_club = accessible_clubs[next_index]
+        
+        # CHANGED: Permanently update the user's club assignment
+        current_user.tennis_club_id = next_club.id
+        db.session.commit()
+        
+        current_app.logger.info(f"User {current_user.id} permanently cycled to club {next_club.id} ({next_club.name})")
+        
+        return jsonify({
+            'message': f'Successfully switched to {next_club.name}',
+            'club': {
+                'id': next_club.id,
+                'name': next_club.name,
+                'subdomain': next_club.subdomain
+            }
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error cycling clubs: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
@@ -2680,5 +2861,81 @@ def export_players(teaching_period_id):
         
     except Exception as e:
         current_app.logger.error(f"Error exporting players: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+    
+@club_management.route('/api/super-admin/create-club', methods=['POST'])
+@login_required
+def create_club():
+    """API endpoint for super admins to create new tennis clubs"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized. Super admin privileges required.'}), 403
+    
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+            
+        # Validate required fields
+        name = data.get('name', '').strip()
+        subdomain = data.get('subdomain', '').strip()
+        organisation_id = data.get('organisation_id')
+        
+        if not name:
+            return jsonify({'error': 'Club name is required'}), 400
+        if not subdomain:
+            return jsonify({'error': 'Subdomain is required'}), 400
+        if not organisation_id:
+            return jsonify({'error': 'Organization is required'}), 400
+            
+        # Validate subdomain format
+        import re
+        if not re.match(r'^[a-z0-9-]+$', subdomain):
+            return jsonify({'error': 'Subdomain can only contain lowercase letters, numbers, and hyphens'}), 400
+        
+        # Check if subdomain already exists
+        existing_club = TennisClub.query.filter_by(subdomain=subdomain).first()
+        if existing_club:
+            return jsonify({'error': f'Subdomain "{subdomain}" is already in use'}), 400
+        
+        # Verify organisation exists
+        from app.models import Organisation
+        organisation = Organisation.query.get(organisation_id)
+        if not organisation:
+            return jsonify({'error': 'Invalid organization selected'}), 400
+        
+        # Create the new club
+        club = TennisClub(
+            name=name,
+            subdomain=subdomain,
+            organisation_id=organisation_id
+        )
+        
+        db.session.add(club)
+        db.session.flush()  # Get the club ID
+        
+        # Create initial teaching period
+        setup_initial_teaching_period(club.id)
+        
+        db.session.commit()
+        
+        current_app.logger.info(f"Created new club: {club.name} (ID: {club.id}) in organization: {organisation.name}")
+        
+        return jsonify({
+            'message': f'Tennis club "{club.name}" created successfully in "{organisation.name}"',
+            'club': {
+                'id': club.id,
+                'name': club.name,
+                'subdomain': club.subdomain,
+                'organisation': {
+                    'id': organisation.id,
+                    'name': organisation.name
+                }
+            }
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error creating tennis club: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500

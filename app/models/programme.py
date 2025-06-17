@@ -201,13 +201,13 @@ class ReportTemplate(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
-    tennis_club_id = db.Column(db.Integer, db.ForeignKey('tennis_club.id'), nullable=False)
+    organisation_id = db.Column(db.Integer, db.ForeignKey('organisation.id'), nullable=False)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
     created_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     
     # Relationships
-    tennis_club = db.relationship('TennisClub', backref='report_templates')
+    organisation = db.relationship('Organisation', back_populates='report_templates')
     created_by = db.relationship('User', backref='created_templates')
     sections = db.relationship('TemplateSection', back_populates='template', cascade='all, delete-orphan')
     reports = db.relationship('Report', back_populates='template')
