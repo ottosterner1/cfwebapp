@@ -41,31 +41,57 @@ def lta_accreditation():
 
 @main.route('/api/current-user')
 @login_required
-@verify_club_access()
 def current_user_info():
+    """Get current user information including accessible clubs"""
     
     if not current_user.is_authenticated:
         return jsonify({'error': 'Not authenticated'}), 401
 
-    response = jsonify({
-        'id': current_user.id,
-        'name': current_user.name,
-        'tennis_club': {
-            'id': current_user.tennis_club_id,
-            'name': current_user.tennis_club.name if current_user.tennis_club else None
-        },
-        'is_admin': current_user.is_admin,
-        'is_super_admin': current_user.is_super_admin
-    })
+    try:
+        # Get accessible clubs for this user
+        accessible_clubs = current_user.get_accessible_clubs()
+        current_club = current_user.get_active_club()
+        
+        response_data = {
+            'id': current_user.id,
+            'name': current_user.name,
+            'email': current_user.email,  # Added email
+            'is_admin': current_user.is_admin,
+            'is_super_admin': current_user.is_super_admin,
+            'tennis_club': {
+                'id': current_user.tennis_club.id,
+                'name': current_user.tennis_club.name,
+                'subdomain': current_user.tennis_club.subdomain,
+                'organisation': {
+                    'id': current_user.tennis_club.organisation.id,
+                    'name': current_user.tennis_club.organisation.name,
+                    'slug': current_user.tennis_club.organisation.slug
+                } if current_user.tennis_club.organisation else None
+            } if current_user.tennis_club else None,
+            'tennis_club_id': current_user.tennis_club_id,
+            'accessible_clubs': [{
+                'id': club.id,
+                'name': club.name,
+                'subdomain': club.subdomain
+            } for club in accessible_clubs],
+            'current_club_id': current_club.id if current_club else current_user.tennis_club_id
+        }
 
-    response.headers.update({
-        'Access-Control-Allow-Origin': request.headers.get('Origin', 'https://cfwebapp.local'),
-        'Access-Control-Allow-Credentials': 'true',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cookie, X-Requested-With'
-    })
-    
-    return response
+        response = jsonify(response_data)
+
+        response.headers.update({
+            'Access-Control-Allow-Origin': request.headers.get('Origin', 'https://cfwebapp.local'),
+            'Access-Control-Allow-Credentials': 'true',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, Cookie, X-Requested-With'
+        })
+        
+        return response
+        
+    except Exception as e:
+        current_app.logger.error(f"Error getting current user info: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': 'Failed to get user information'}), 500
 
 @main.route('/api/current-user', methods=['OPTIONS'])
 def current_user_options():

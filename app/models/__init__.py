@@ -33,3 +33,7 @@ from app.models.invoice import (
 from app.models.cancellation import (
     Cancellation, CancellationType
 )
+
+from app.models.organisation import (
+    Organisation
+)

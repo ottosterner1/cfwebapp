@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app, abort, make_response
 from flask_login import login_required, current_user
+from sqlalchemy import distinct
 from app.models import TennisClub, TennisGroup, TennisGroupTimes, DayOfWeek
 from app import db
 import pandas as pd
@@ -8,6 +9,7 @@ import os
 import traceback
 from datetime import datetime
 from app.models.club_feature import ClubFeature
+from app.models.core import User
 from app.utils.feature_types import FeatureType
 
 super_admin_routes = Blueprint('super_admin', __name__, url_prefix='/clubs/api/super-admin')
@@ -288,7 +290,21 @@ def get_club_features(club_id):
             'is_enabled': features_map.get(feature['name'], True)  # Default to True if not found
         })
     
-    return jsonify(result)
+    # CHANGED: Add organization context
+    response_data = {
+        'features': result,
+        'club': {
+            'id': club.id,
+            'name': club.name,
+            'organisation': {
+                'id': club.organisation.id,
+                'name': club.organisation.name,
+                'slug': club.organisation.slug
+            } if club.organisation else None
+        }
+    }
+    
+    return jsonify(response_data)
 
 @super_admin_routes.route('/clubs/<int:club_id>/features', methods=['PUT'])
 @login_required
@@ -336,4 +352,112 @@ def update_club_features(club_id):
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error updating features: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+    
+@super_admin_routes.route('/organisations/stats', methods=['GET'])
+@login_required
+def get_organisation_stats():
+    """Get organisation statistics for super admin dashboard"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    try:
+        from app.models import Organisation, ReportTemplate
+        from sqlalchemy import func
+        
+        # Get organisation statistics
+        org_stats = (db.session.query(
+            Organisation.id,
+            Organisation.name,
+            Organisation.slug,
+            func.count(TennisClub.id).label('club_count'),
+            func.count(distinct(User.id)).label('user_count')
+        )
+        .outerjoin(TennisClub, Organisation.id == TennisClub.organisation_id)
+        .outerjoin(User, TennisClub.id == User.tennis_club_id)
+        .group_by(Organisation.id, Organisation.name, Organisation.slug)
+        .order_by(Organisation.name)
+        .all())
+        
+        # Get template counts per organisation
+        template_counts = (db.session.query(
+            Organisation.id,
+            func.count(ReportTemplate.id).label('template_count')
+        )
+        .outerjoin(ReportTemplate, Organisation.id == ReportTemplate.organisation_id)
+        .filter(ReportTemplate.is_active == True)
+        .group_by(Organisation.id)
+        .all())
+        
+        template_count_dict = {t[0]: t[1] for t in template_counts}
+        
+        # Get clubs without organisation
+        clubs_without_org = TennisClub.query.filter_by(organisation_id=None).count()
+        
+        result = {
+            'organisations': [{
+                'id': org.id,
+                'name': org.name,
+                'slug': org.slug,
+                'club_count': org.club_count,
+                'user_count': org.user_count,
+                'template_count': template_count_dict.get(org.id, 0)
+            } for org in org_stats],
+            'clubs_without_organisation': clubs_without_org,
+            'total_organisations': len(org_stats)
+        }
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching organisation stats: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+# 3. Add route to assign clubs to organisations
+@super_admin_routes.route('/clubs/<int:club_id>/assign-organisation', methods=['PUT'])
+@login_required
+def assign_club_to_organisation(club_id):
+    """Assign a club to an organisation"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    try:
+        from app.models import Organisation
+        
+        club = TennisClub.query.get_or_404(club_id)
+        data = request.get_json()
+        
+        if not data or 'organisation_id' not in data:
+            return jsonify({'error': 'Organisation ID is required'}), 400
+        
+        organisation_id = data['organisation_id']
+        
+        # Verify organisation exists
+        organisation = Organisation.query.get_or_404(organisation_id)
+        
+        old_org_name = club.organisation.name if club.organisation else 'None'
+        club.organisation_id = organisation_id
+        
+        db.session.commit()
+        
+        current_app.logger.info(f"Assigned club {club.name} from {old_org_name} to {organisation.name}")
+        
+        return jsonify({
+            'message': f'Club "{club.name}" assigned to organisation "{organisation.name}"',
+            'club': {
+                'id': club.id,
+                'name': club.name,
+                'organisation': {
+                    'id': organisation.id,
+                    'name': organisation.name,
+                    'slug': organisation.slug
+                }
+            }
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error assigning club to organisation: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500

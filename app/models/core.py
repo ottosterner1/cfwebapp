@@ -17,12 +17,14 @@ class TennisClub(db.Model):
     )
 
     id = db.Column(db.Integer, primary_key=True)
+    organisation_id = db.Column(db.Integer, db.ForeignKey('organisation.id'), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     subdomain = db.Column(db.String(50), nullable=False)
     logo_url = db.Column(db.String(255))
     created_at = db.Column(db.DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
 
     # Relationships
+    organisation = db.relationship('Organisation', back_populates='clubs')
     users = db.relationship('User', back_populates='tennis_club', lazy='dynamic')
     groups = db.relationship('TennisGroup', back_populates='tennis_club', lazy='dynamic')
     teaching_periods = db.relationship('TeachingPeriod', back_populates='tennis_club', lazy='dynamic')
@@ -123,6 +125,37 @@ class User(UserMixin, db.Model):
     @property
     def is_super_admin(self):
         return self.role == UserRole.SUPER_ADMIN
+    
+    def get_accessible_clubs(self):
+        """Get clubs this user can access"""
+        if self.is_super_admin:
+            return TennisClub.query.all()
+        
+        if self.is_admin:
+            # Admins can access all clubs in their organisation
+            return TennisClub.query.filter_by(
+                organisation_id=self.tennis_club.organisation_id
+            ).all()
+    
+        # Regular coaches only access their home club
+        return [self.tennis_club]
+    
+    def get_active_club(self):
+        """Get the club the user is currently viewing/managing"""
+        from flask import session
+        
+        # Check if user has switched to a different club (stored in session)
+        current_club_id = session.get('current_club_id')
+        
+        if current_club_id:
+            # Verify user has access to this club
+            accessible_clubs = self.get_accessible_clubs()
+            for club in accessible_clubs:
+                if club.id == current_club_id:
+                    return club
+        
+        # Default to their home club
+        return self.tennis_club
 
 class CoachDetails(db.Model):
     __tablename__ = 'coach_details'
