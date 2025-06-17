@@ -10,6 +10,15 @@ interface TemplateEditorProps {
   onCancel: () => void;
 }
 
+// Updated interface to include club info
+interface OrganisationGroup {
+  id: number;
+  name: string;
+  description?: string;
+  club_name: string;
+  club_id: number;
+}
+
 const FIELD_TYPES = [
   { value: 'text', label: 'Short Text' },
   { value: 'textarea', label: 'Long Text' },
@@ -37,19 +46,22 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
   const [selectedGroups, setSelectedGroups] = useState<number[]>(
     template?.assignedGroups?.map(g => g.id) || []
   );
-  const [availableGroups, setAvailableGroups] = useState<Array<{ id: number, name: string }>>([]);
+  // CHANGED: Updated to use OrganisationGroup interface
+  const [availableGroups, setAvailableGroups] = useState<OrganisationGroup[]>([]);
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
   const [loadingGroups, setLoadingGroups] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     const fetchGroups = async () => {
       try {
-        const response = await fetch('/clubs/api/groups');
+        // CHANGED: Updated API endpoint to fetch organization-wide groups
+        const response = await fetch('/api/organisation-groups');
         if (!response.ok) throw new Error('Failed to fetch groups');
         const groups = await response.json();
         setAvailableGroups(groups);
       } catch (error) {
         console.error('Error fetching groups:', error);
+        setErrors(prev => [...prev, 'Failed to load groups. Please refresh the page.']);
       }
     };
     fetchGroups();
@@ -161,9 +173,6 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
     const newErrors: string[] = [];
     if (!name.trim()) newErrors.push('Please provide a template name');
     
-    // Removed the validation that requires at least one section
-    // if (sections.length === 0) newErrors.push('Add at least one section');
-    
     sections.forEach((section, sIndex) => {
       if (!section.name.trim()) {
         newErrors.push(`Section ${sIndex + 1} needs a name`);
@@ -183,6 +192,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
       return;
     }
 
+    // CHANGED: Updated to handle organization-wide groups
     onSave({
       id: template?.id,
       name,
@@ -195,12 +205,25 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
           order: fIndex
         }))
       })),
-      assignedGroups: selectedGroups.map(groupId => 
-        availableGroups.find(g => g.id === groupId)!
-      ),
+      assignedGroups: selectedGroups.map(groupId => {
+        const group = availableGroups.find(g => g.id === groupId);
+        return {
+          id: group!.id,
+          name: group!.name
+        };
+      }),
       isActive: true
     });
   };
+
+  // CHANGED: Group clubs by club name for better organization
+  const groupsByClub = availableGroups.reduce((acc, group) => {
+    if (!acc[group.club_name]) {
+      acc[group.club_name] = [];
+    }
+    acc[group.club_name].push(group);
+    return acc;
+  }, {} as Record<string, OrganisationGroup[]>);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
@@ -248,32 +271,73 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Assign Groups
+            {/* CHANGED: Added helper text for organization-wide groups */}
+            <span className="block text-xs text-gray-500 mt-1">
+              Select groups from across all clubs in your organization
+            </span>
           </label>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {availableGroups.map(group => (
-              <label
-                key={group.id}
-                className={`flex items-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer ${
-                  loadingGroups.has(group.id) ? 'opacity-50' : ''
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedGroups.includes(group.id)}
-                  onChange={(e) => handleGroupToggle(group.id, e.target.checked)}
-                  disabled={loadingGroups.has(group.id)}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="ml-3 text-sm">{group.name}</span>
-                {loadingGroups.has(group.id) && (
-                  <span className="ml-2 text-sm text-gray-500">Updating...</span>
-                )}
-              </label>
-            ))}
-          </div>
+          
+          {/* CHANGED: Group selection organized by club */}
+          {Object.keys(groupsByClub).length > 1 ? (
+            // Multi-club organization: group by club
+            <div className="space-y-4">
+              {Object.entries(groupsByClub).map(([clubName, groups]) => (
+                <div key={clubName} className="border border-gray-200 rounded-lg p-4">
+                  <h4 className="font-medium text-gray-900 mb-3">{clubName}</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {groups.map(group => (
+                      <label
+                        key={group.id}
+                        className={`flex items-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer ${
+                          loadingGroups.has(group.id) ? 'opacity-50' : ''
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedGroups.includes(group.id)}
+                          onChange={(e) => handleGroupToggle(group.id, e.target.checked)}
+                          disabled={loadingGroups.has(group.id)}
+                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="ml-3 text-sm">{group.name}</span>
+                        {loadingGroups.has(group.id) && (
+                          <span className="ml-2 text-sm text-gray-500">Updating...</span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            // Single club: display normally
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {availableGroups.map(group => (
+                <label
+                  key={group.id}
+                  className={`flex items-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer ${
+                    loadingGroups.has(group.id) ? 'opacity-50' : ''
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedGroups.includes(group.id)}
+                    onChange={(e) => handleGroupToggle(group.id, e.target.checked)}
+                    disabled={loadingGroups.has(group.id)}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="ml-3 text-sm">{group.name}</span>
+                  {loadingGroups.has(group.id) && (
+                    <span className="ml-2 text-sm text-gray-500">Updating...</span>
+                  )}
+                </label>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
+      {/* Rest of the component remains the same */}
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>

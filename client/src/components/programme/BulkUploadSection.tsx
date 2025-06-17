@@ -401,7 +401,7 @@ const BulkUploadSection: React.FC<BulkUploadSectionProps> = ({
     }
   };
 
-  // Group time slot errors by group and day for better organization
+  // Group time slot errors by group and day for better organisation
   const groupTimeSlotErrors = () => {
     const grouped: Record<string, Record<string, TimeSlotError[]>> = {};
     
