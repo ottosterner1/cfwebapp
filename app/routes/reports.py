@@ -352,7 +352,7 @@ def submit_report(player_id):
         if recommended_group_id:
             recommended_group = TennisGroup.query.filter_by(
                 id=recommended_group_id,
-                tennis_club_id=player.tennis_club_id
+                organisation_id=current_user.tennis_club.organisation_id
             ).first()
             
             if not recommended_group:
@@ -953,10 +953,10 @@ def manage_group_templates():
             if not template_id or not group_id:
                 return jsonify({'error': 'Template ID and Group ID are required'}), 400
             
-            # Verify group and template belong to user's tennis club
+            # Verify group and template belong to user's organisation
             group = TennisGroup.query.filter_by(
                 id=group_id, 
-                tennis_club_id=current_user.tennis_club_id
+                organisation_id=current_user.tennis_club.organisation_id
             ).first_or_404()
             
             template = ReportTemplate.query.filter_by(
@@ -986,7 +986,7 @@ def manage_group_templates():
             
             # Return updated assignments
             assignments = GroupTemplate.query.join(TennisGroup).filter(
-                TennisGroup.tennis_club_id == current_user.tennis_club_id,
+                TennisGroup.organisation_id == current_user.tennis_club.organisation_id,
                 GroupTemplate.is_active == True
             ).all()
             
@@ -1012,10 +1012,10 @@ def manage_group_templates():
             if not group_id:
                 return jsonify({'error': 'Group ID is required'}), 400
             
-            # Verify group belongs to user's tennis club
+            # Verify group belongs to user's organisation
             group = TennisGroup.query.filter_by(
                 id=group_id, 
-                tennis_club_id=current_user.tennis_club_id
+                organisation_id=current_user.tennis_club.organisation_id
             ).first_or_404()
             
             # Find and deactivate the assignment
@@ -1044,7 +1044,7 @@ def manage_group_templates():
     # GET - Return all group-template assignments
     try:
         assignments = GroupTemplate.query.join(TennisGroup).filter(
-            TennisGroup.tennis_club_id == current_user.tennis_club_id,
+            TennisGroup.organisation_id == current_user.tennis_club.organisation_id,
             GroupTemplate.is_active == True
         ).all()
         
@@ -1122,30 +1122,39 @@ def edit_report_page(report_id):
 @login_required
 @admin_required
 def get_organisation_groups():
-    """Get all groups across all clubs in the current user's organisation"""
+    """Get all groups across the organisation with club time slot info"""
     try:
         organisation_id = current_user.tennis_club.organisation_id
         
-        # Get all clubs in the organisation
+        #Get groups directly by organisation_id 
+        groups = TennisGroup.query.filter_by(organisation_id=organisation_id).all()
+        
+        # Get all clubs in the organisation for reference
         clubs = TennisClub.query.filter_by(organisation_id=organisation_id).all()
+        club_map = {club.id: club.name for club in clubs}
         
-        # Get all groups from these clubs
-        groups = []
-        for club in clubs:
-            club_groups = TennisGroup.query.filter_by(tennis_club_id=club.id).all()
-            for group in club_groups:
-                groups.append({
-                    'id': group.id,
-                    'name': group.name,
-                    'description': group.description,
-                    'club_name': club.name,
-                    'club_id': club.id
-                })
+        result = []
+        for group in groups:
+            # Find which clubs have time slots for this group
+            clubs_with_times = (db.session.query(TennisGroupTimes.tennis_club_id)
+                .filter_by(group_id=group.id)
+                .distinct()
+                .all())
+            
+            club_names = [club_map.get(club_id[0]) for club_id in clubs_with_times if club_map.get(club_id[0])]
+            
+            result.append({
+                'id': group.id,
+                'name': group.name,
+                'description': group.description,
+                'club_names': club_names,
+                'clubs_with_times': len(club_names) 
+            })
         
-        # Sort by club name, then group name
-        groups.sort(key=lambda x: (x['club_name'], x['name']))
+        # Sort by group name
+        result.sort(key=lambda x: x['name'])
         
-        return jsonify(groups)
+        return jsonify(result)
         
     except Exception as e:
         current_app.logger.error(f"Error fetching organisation groups: {str(e)}")
