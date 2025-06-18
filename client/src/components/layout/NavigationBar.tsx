@@ -229,7 +229,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ currentUser, onClubSwitch
       { href: `/clubs/manage/${currentClubId}/teaching-periods`, label: 'Terms' },
       { href: `/clubs/manage/${currentClubId}/groups`, label: 'Groups' },
       { href: `/clubs/manage/${currentClubId}/coaches`, label: 'Coaches' },
-      { href: `/clubs/manage/${currentClubId}/report-templates`, label: 'Templates' },
+      { href: `/clubs/manage/${currentClubId}/report-templates`, label: 'Report Templates' },
     ];
 
     if (currentUser.is_super_admin) {
