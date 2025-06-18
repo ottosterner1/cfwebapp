@@ -26,7 +26,6 @@ class TennisClub(db.Model):
     # Relationships
     organisation = db.relationship('Organisation', back_populates='clubs')
     users = db.relationship('User', back_populates='tennis_club', lazy='dynamic')
-    groups = db.relationship('TennisGroup', back_populates='tennis_club', lazy='dynamic')
     teaching_periods = db.relationship('TeachingPeriod', back_populates='tennis_club', lazy='dynamic')
     students = db.relationship('Student', back_populates='tennis_club', lazy='dynamic')
     programme_players = db.relationship('ProgrammePlayers', back_populates='tennis_club', lazy='dynamic')
@@ -95,6 +94,13 @@ class TennisClub(db.Model):
             return True
             
         return feature.is_enabled
+    
+    @property
+    def groups(self):
+        """Get groups for this club through the organisation"""
+        if self.organisation:
+            return self.organisation.groups
+        return []
 
 class User(UserMixin, db.Model):
     __tablename__ = 'user'

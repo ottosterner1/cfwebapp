@@ -77,9 +77,12 @@
 
                     <!-- Time Slots -->
                     <div class="px-4 sm:px-6 py-4">
-                        {% if group.group_times %}
+                        <!-- CHANGED: Use group_times_dict instead of group.group_times -->
+                        {% set club_times = group_times_dict.get(group.id, []) %}
+                        {% if club_times %}
                             <div class="space-y-3">
-                                {% for time in group.group_times|sort(attribute='day_of_week.value') %}
+                                <!-- CHANGED: Use club_times instead of group.group_times -->
+                                {% for time in club_times|sort(attribute='day_of_week.value') %}
                                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
                                     <div class="flex flex-col sm:flex-row sm:items-center sm:space-x-4 mb-2 sm:mb-0">
                                         <span class="font-medium w-full sm:w-24 mb-1 sm:mb-0">{{ time.day_of_week.value }}</span>
@@ -131,7 +134,7 @@
                                 {% endfor %}
                             </div>
                         {% else %}
-                            <p class="text-gray-500 italic text-center py-3">No time slots configured</p>
+                            <p class="text-gray-500 italic text-center py-3">No time slots configured for this club</p>
                         {% endif %}
                     </div>
                 </div>

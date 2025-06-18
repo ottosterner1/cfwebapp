@@ -474,7 +474,9 @@ def update_profile_details():
 @login_required
 def upload():
     # Get groups and periods specific to the user's tennis club
-    groups = TennisGroup.query.filter_by(tennis_club_id=current_user.tennis_club_id).all()
+    groups = TennisGroup.query.filter_by(
+                organisation_id=current_user.tennis_club.organisation_id
+            ).order_by(TennisGroup.name).all()
     periods = TeachingPeriod.query.filter_by(tennis_club_id=current_user.tennis_club_id).order_by(TeachingPeriod.start_date.desc()).all()
 
     if request.method == 'POST':
@@ -519,7 +521,10 @@ def upload():
                 reports_created = 0
                 
                 # Verify group and term belong to user's tennis club
-                group = TennisGroup.query.filter_by(id=group_id, tennis_club_id=current_user.tennis_club_id).first()
+                group = TennisGroup.query.filter_by(
+                    id=group_id,
+                    organisation_id=current_user.tennis_club.organisation_id
+                ).first()
                 term = TeachingPeriod.query.filter_by(id=teaching_period_id, tennis_club_id=current_user.tennis_club_id).first()
                 
                 if not group or not term:
