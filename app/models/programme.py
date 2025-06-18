@@ -11,10 +11,10 @@ class TennisGroup(db.Model):
     name = db.Column(db.String(50), nullable=False)
     description = db.Column(db.String(200))
     created_at = db.Column(db.DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
-    tennis_club_id = db.Column(db.Integer, db.ForeignKey('tennis_club.id'), nullable=False)
+    organisation_id = db.Column(db.Integer, db.ForeignKey('organisation.id'), nullable=False)
 
     # Relationships
-    tennis_club = db.relationship('TennisClub', back_populates='groups')
+    organisation = db.relationship('Organisation', back_populates='groups')
     reports = db.relationship('Report', foreign_keys='Report.group_id', back_populates='tennis_group')
     recommended_in_reports = db.relationship('Report', foreign_keys='Report.recommended_group_id', backref='recommended_group')
     programme_players = db.relationship('ProgrammePlayers', back_populates='tennis_group', lazy='dynamic')

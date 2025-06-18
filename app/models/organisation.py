@@ -16,6 +16,7 @@ class Organisation(db.Model):
     
     # Relationships
     clubs = db.relationship('TennisClub', back_populates='organisation')
+    groups = db.relationship('TennisGroup', back_populates='organisation')
     report_templates = db.relationship('ReportTemplate', back_populates='organisation')
     
     def get_admin_users(self):

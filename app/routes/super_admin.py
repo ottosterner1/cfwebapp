@@ -42,6 +42,10 @@ def import_groups():
         if not club:
             return jsonify({'error': 'Tennis club not found'}), 404
         
+        # ADDED: Verify club has an organisation
+        if not club.organisation_id:
+            return jsonify({'error': 'Club must be assigned to an organisation first'}), 400
+        
         # Get the uploaded file
         if 'file' not in request.files:
             return jsonify({'error': 'No file uploaded'}), 400
@@ -108,18 +112,18 @@ def import_groups():
                         # Use the already created/found group
                         group = processed_groups[group_name]
                     else:
-                        # Check if group already exists
+                        # CHANGED: Check if group already exists in the organisation
                         group = TennisGroup.query.filter_by(
                             name=group_name,
-                            tennis_club_id=club_id
+                            organisation_id=club.organisation_id  # CHANGED: Use club.organisation_id
                         ).first()
                         
                         if not group:
-                            # Create a new group
+                            # CHANGED: Create a new group with organisation_id instead of tennis_club_id
                             group = TennisGroup(
                                 name=group_name,
                                 description=group_description,
-                                tennis_club_id=club_id
+                                organisation_id=club.organisation_id  # CHANGED: Use organisation_id
                             )
                             db.session.add(group)
                             db.session.flush()  # Get group.id without committing
@@ -180,27 +184,27 @@ def import_groups():
                         except ValueError:
                             warnings.append(f"Row {row_num}: Invalid capacity value '{row['capacity']}', must be a number")
                     
-                    # Check if the time slot already exists
+                    # TennisGroupTimes creation remains the same (still club-level)
                     existing_time_slot = TennisGroupTimes.query.filter_by(
                         group_id=group.id,
                         day_of_week=day_enum,
                         start_time=start_time,
                         end_time=end_time,
-                        tennis_club_id=club_id
+                        tennis_club_id=club_id  # Still club-level
                     ).first()
                     
                     if existing_time_slot:
                         warnings.append(f"Row {row_num}: Time slot already exists for '{group_name}' on {day_enum.value} at {start_time}-{end_time}")
                         continue
                     
-                    # Create the time slot
+                    # Create the time slot (still club-level)
                     time_slot = TennisGroupTimes(
                         group_id=group.id,
                         day_of_week=day_enum,
                         start_time=start_time,
                         end_time=end_time,
                         capacity=capacity,
-                        tennis_club_id=club_id
+                        tennis_club_id=club_id  # Still club-level
                     )
                     
                     db.session.add(time_slot)

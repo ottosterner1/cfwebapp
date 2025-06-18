@@ -451,7 +451,7 @@ def get_groups():
     """Get all tennis groups for the current user's tennis club"""
     try:
         groups = TennisGroup.query.filter_by(
-            tennis_club_id=current_user.tennis_club_id
+            organisation_id=current_user.tennis_club.organisation_id
         ).order_by(TennisGroup.name).all()
         
         return jsonify([{

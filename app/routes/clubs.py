@@ -1002,19 +1002,21 @@ def manage_groups(club_id):
                     flash('Group name is required', 'error')
                     return redirect(url_for('club_management.manage_groups', club_id=club_id))
 
+                # CHANGED: Check for existing group in organization instead of club
                 existing_group = TennisGroup.query.filter_by(
-                    tennis_club_id=club.id, 
+                    organisation_id=club.organisation_id, 
                     name=group_name
                 ).first()
                 
                 if existing_group:
-                    flash('A group with this name already exists', 'error')
+                    flash('A group with this name already exists in your organization', 'error')
                 else:
                     try:
+                        # CHANGED: Use organisation_id instead of tennis_club_id
                         new_group = TennisGroup(
                             name=group_name,
                             description=group_description,
-                            tennis_club_id=club.id
+                            organisation_id=club.organisation_id
                         )
                         db.session.add(new_group)
                         db.session.commit()
@@ -1034,20 +1036,20 @@ def manage_groups(club_id):
 
                 group = TennisGroup.query.get_or_404(group_id)
                 
-                # Check if the group belongs to this club
-                if group.tennis_club_id != club.id:
+                # CHANGED: Check if the group belongs to this organization
+                if group.organisation_id != club.organisation_id:
                     flash('You do not have permission to edit this group', 'error')
                     return redirect(url_for('club_management.manage_groups', club_id=club_id))
 
-                # Check if name already exists for another group
+                # CHANGED: Check if name already exists for another group in organization
                 existing_group = TennisGroup.query.filter(
-                    TennisGroup.tennis_club_id == club.id,
+                    TennisGroup.organisation_id == club.organisation_id,
                     TennisGroup.name == group_name,
                     TennisGroup.id != group_id
                 ).first()
 
                 if existing_group:
-                    flash('A group with this name already exists', 'error')
+                    flash('A group with this name already exists in your organization', 'error')
                 else:
                     try:
                         group.name = group_name
@@ -1062,12 +1064,12 @@ def manage_groups(club_id):
                 group_id = request.form.get('group_id')
                 group = TennisGroup.query.get_or_404(group_id)
 
-                # Check if the group belongs to this club
-                if group.tennis_club_id != club.id:
+                # CHANGED: Check if the group belongs to this organization
+                if group.organisation_id != club.organisation_id:
                     flash('You do not have permission to delete this group', 'error')
                     return redirect(url_for('club_management.manage_groups', club_id=club_id))
 
-                # Check if the group has any players assigned to it
+                # Check if the group has any players assigned to it across all clubs in organization
                 if group.programme_players.count() > 0:
                     flash('Cannot delete group with players assigned to it', 'error')
                 else:
@@ -1090,6 +1092,12 @@ def manage_groups(club_id):
                     flash('All time fields are required', 'error')
                     return redirect(url_for('club_management.manage_groups', club_id=club_id))
 
+                # CHANGED: Validate group belongs to organization
+                group = TennisGroup.query.get_or_404(group_id)
+                if group.organisation_id != club.organisation_id:
+                    flash('You do not have permission to add time slots to this group', 'error')
+                    return redirect(url_for('club_management.manage_groups', club_id=club_id))
+
                 try:
                     # Parse times
                     start_time = datetime.strptime(start_time, '%H:%M').time()
@@ -1105,14 +1113,14 @@ def manage_groups(club_id):
                         flash('Capacity must be at least 1 if specified', 'error')
                         return redirect(url_for('club_management.manage_groups', club_id=club_id))
 
-                    # Create new time slot
+                    # TennisGroupTimes creation remains the same (still club-level)
                     time_slot = TennisGroupTimes(
                         group_id=group_id,
                         day_of_week=DayOfWeek[day.upper()],
                         start_time=start_time,
                         end_time=end_time,
                         capacity=capacity,  # Can be None
-                        tennis_club_id=club.id
+                        tennis_club_id=club.id  # Still club-level
                     )
                     db.session.add(time_slot)
                     db.session.commit()
@@ -1138,7 +1146,7 @@ def manage_groups(club_id):
 
                 time_slot = TennisGroupTimes.query.get_or_404(time_id)
 
-                # Verify club ownership
+                # TennisGroupTimes validation remains the same (still club-level)
                 if time_slot.tennis_club_id != club.id:
                     flash('You do not have permission to edit this time slot', 'error')
                     return redirect(url_for('club_management.manage_groups', club_id=club_id))
@@ -1177,7 +1185,7 @@ def manage_groups(club_id):
                 time_id = request.form.get('time_id')
                 time_slot = TennisGroupTimes.query.get_or_404(time_id)
 
-                # Verify club ownership
+                # TennisGroupTimes validation remains the same (still club-level)
                 if time_slot.tennis_club_id != club.id:
                     flash('You do not have permission to delete this time slot', 'error')
                 else:
@@ -1189,14 +1197,27 @@ def manage_groups(club_id):
                         db.session.rollback()
                         flash(f'Error deleting time slot: {str(e)}', 'error')
 
-        # Get all groups for this club with their times
+        # Get all groups for this organization
         groups = TennisGroup.query.filter_by(
-            tennis_club_id=club.id
+            organisation_id=club.organisation_id
         ).order_by(TennisGroup.name).all()
+
+        # SIMPLE FIX: Query group times for this club only
+        club_group_times = TennisGroupTimes.query.filter_by(
+            tennis_club_id=club.id
+        ).order_by(TennisGroupTimes.group_id, TennisGroupTimes.start_time).all()
+        
+        # Group the times by group_id for easy template access
+        group_times_dict = {}
+        for time in club_group_times:
+            if time.group_id not in group_times_dict:
+                group_times_dict[time.group_id] = []
+            group_times_dict[time.group_id].append(time)
 
         return render_template('admin/manage_groups.html', 
                              club=club, 
                              groups=groups,
+                             group_times_dict=group_times_dict, 
                              days_of_week=DayOfWeek)
 
     except Exception as e:
@@ -1207,9 +1228,9 @@ def manage_groups(club_id):
 @login_required
 @verify_club_access()
 def get_groups():
-    """API endpoint for getting all groups in the club"""
+    """API endpoint for getting all groups in the organisation"""
     groups = TennisGroup.query.filter_by(
-        tennis_club_id=current_user.tennis_club_id
+        organisation_id=current_user.tennis_club.organisation_id
     ).order_by(TennisGroup.name).all()
     
     return jsonify([{
@@ -1522,7 +1543,9 @@ def manage_players(club_id):
             teaching_period_id=selected_period_id
         ).order_by(ProgrammePlayers.created_at.desc()).all()
     
-    available_groups = TennisGroup.query.filter_by(tennis_club_id=club.id).all()
+    available_groups = TennisGroup.query.filter_by(
+        organisation_id=current_user.tennis_club.organisation_id
+    ).order_by(TennisGroup.name).all()
     
     return render_template(
         'admin/programme_management.html',
@@ -2407,7 +2430,9 @@ def process_csv_chunk(token):
                  User.query.filter_by(tennis_club_id=club_id).all()}
         
         groups = {group.name.lower(): group for group in 
-                 TennisGroup.query.filter_by(tennis_club_id=club_id).all()}
+                 TennisGroup.query.filter_by(
+                    organisation_id=current_user.tennis_club.organisation_id
+                ).order_by(TennisGroup.name).all()}
         
         # Get teaching period
         teaching_period = TeachingPeriod.query.get(teaching_period_id)
@@ -2500,9 +2525,9 @@ def create_player():
         if not coach or coach.tennis_club_id != club_id:
             return jsonify({'error': 'Invalid coach selected'}), 400
 
-        # Verify group belongs to club
+        # Verify group belongs to organisation
         group = TennisGroup.query.get(data['group_id'])
-        if not group or group.tennis_club_id != club_id:
+        if not group or group.organisation_id != current_user.tennis_club.organisation_id:
             return jsonify({'error': 'Invalid group selected'}), 400
 
         # Verify group time belongs to group and club
@@ -2654,7 +2679,7 @@ def player_api(player_id):
 
             # Verify group belongs to club
             group = TennisGroup.query.get(data['group_id'])
-            if not group or group.tennis_club_id != current_user.tennis_club_id:
+            if not group or group.organisation_id != current_user.tennis_club.organisation_id:
                 return jsonify({'error': 'Invalid group selected'}), 400
 
             # Verify group time belongs to group and club
@@ -2717,7 +2742,7 @@ def get_group_times(group_id):
         # Verify group belongs to user's club
         group = TennisGroup.query.filter_by(
             id=group_id,
-            tennis_club_id=current_user.tennis_club_id
+            organisation_id=current_user.tennis_club.organisation_id 
         ).first_or_404()
         
         # Get all time slots for this group - first get them unordered

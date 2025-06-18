@@ -10,13 +10,13 @@ interface TemplateEditorProps {
   onCancel: () => void;
 }
 
-// Updated interface to include club info
+// Updated interface for organisation-level groups
 interface OrganisationGroup {
   id: number;
   name: string;
   description?: string;
-  club_name: string;
-  club_id: number;
+  club_names: string[];  // Array of club names with time slots
+  clubs_with_times: number;  // Count of clubs with time slots
 }
 
 const FIELD_TYPES = [
@@ -46,7 +46,6 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
   const [selectedGroups, setSelectedGroups] = useState<number[]>(
     template?.assignedGroups?.map(g => g.id) || []
   );
-  // CHANGED: Updated to use OrganisationGroup interface
   const [availableGroups, setAvailableGroups] = useState<OrganisationGroup[]>([]);
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
   const [loadingGroups, setLoadingGroups] = useState<Set<number>>(new Set());
@@ -54,7 +53,6 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
   useEffect(() => {
     const fetchGroups = async () => {
       try {
-        // CHANGED: Updated API endpoint to fetch organization-wide groups
         const response = await fetch('/api/organisation-groups');
         if (!response.ok) throw new Error('Failed to fetch groups');
         const groups = await response.json();
@@ -192,7 +190,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
       return;
     }
 
-    // CHANGED: Updated to handle organization-wide groups
+    // Updated to handle organisation-level groups
     onSave({
       id: template?.id,
       name,
@@ -215,15 +213,6 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
       isActive: true
     });
   };
-
-  // CHANGED: Group clubs by club name for better organization
-  const groupsByClub = availableGroups.reduce((acc, group) => {
-    if (!acc[group.club_name]) {
-      acc[group.club_name] = [];
-    }
-    acc[group.club_name].push(group);
-    return acc;
-  }, {} as Record<string, OrganisationGroup[]>);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8">
@@ -271,75 +260,53 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Assign Groups
-            {/* CHANGED: Added helper text for organization-wide groups */}
             <span className="block text-xs text-gray-500 mt-1">
-              Select groups from across all clubs in your organization
+              Select groups from your organisation. Groups are shared across all clubs.
             </span>
           </label>
           
-          {/* CHANGED: Group selection organized by club */}
-          {Object.keys(groupsByClub).length > 1 ? (
-            // Multi-club organization: group by club
-            <div className="space-y-4">
-              {Object.entries(groupsByClub).map(([clubName, groups]) => (
-                <div key={clubName} className="border border-gray-200 rounded-lg p-4">
-                  <h4 className="font-medium text-gray-900 mb-3">{clubName}</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {groups.map(group => (
-                      <label
-                        key={group.id}
-                        className={`flex items-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer ${
-                          loadingGroups.has(group.id) ? 'opacity-50' : ''
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedGroups.includes(group.id)}
-                          onChange={(e) => handleGroupToggle(group.id, e.target.checked)}
-                          disabled={loadingGroups.has(group.id)}
-                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="ml-3 text-sm">{group.name}</span>
-                        {loadingGroups.has(group.id) && (
-                          <span className="ml-2 text-sm text-gray-500">Updating...</span>
-                        )}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ))}
+          {/* Simplified group selection with side-by-side checkboxes */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {availableGroups.map(group => (
+              <label
+                key={group.id}
+                className={`flex items-centre cursor-pointer ${
+                  loadingGroups.has(group.id) ? 'opacity-50' : ''
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedGroups.includes(group.id)}
+                  onChange={(e) => handleGroupToggle(group.id, e.target.checked)}
+                  disabled={loadingGroups.has(group.id)}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="ml-2 text-sm text-gray-900">{group.name}</span>
+                {loadingGroups.has(group.id) && (
+                  <span className="ml-1 text-xs text-gray-500">...</span>
+                )}
+              </label>
+            ))}
+          </div>
+          
+          {availableGroups.length === 0 && (
+            <div className="text-centre py-6 text-gray-500">
+              <p>No groups found in your organisation.</p>
+              <p className="text-sm mt-1">Create groups in the Groups management section first.</p>
             </div>
-          ) : (
-            // Single club: display normally
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {availableGroups.map(group => (
-                <label
-                  key={group.id}
-                  className={`flex items-center p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer ${
-                    loadingGroups.has(group.id) ? 'opacity-50' : ''
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedGroups.includes(group.id)}
-                    onChange={(e) => handleGroupToggle(group.id, e.target.checked)}
-                    disabled={loadingGroups.has(group.id)}
-                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                  <span className="ml-3 text-sm">{group.name}</span>
-                  {loadingGroups.has(group.id) && (
-                    <span className="ml-2 text-sm text-gray-500">Updating...</span>
-                  )}
-                </label>
-              ))}
+          )}
+          
+          {selectedGroups.length > 0 && (
+            <div className="mt-2 text-sm text-gray-600">
+              {selectedGroups.length} group{selectedGroups.length > 1 ? 's' : ''} selected
             </div>
           )}
         </div>
       </div>
 
-      {/* Rest of the component remains the same */}
+      {/* Assessment sections */}
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-centre">
           <div>
             <h3 className="text-lg font-medium text-gray-900">Assessment Sections</h3>
             <p className="text-sm text-gray-500 mt-1">
@@ -352,7 +319,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
           <button
             type="button"
             onClick={addSection}
-            className="inline-flex items-center px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+            className="inline-flex items-centre px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colours"
           >
             <PlusCircle className="h-5 w-5 mr-2" />
             Add Section
@@ -363,7 +330,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
           <div className="border-2 border-dashed border-gray-300 rounded-lg">
             <Card>
               <CardContent>
-                <div className="p-8 text-center text-gray-500">
+                <div className="p-8 text-centre text-gray-500">
                   <p className="text-lg font-medium mb-2">Recommendation-Only Template</p>
                   <p className="text-sm">
                     This template will only collect group recommendations for the next term.
@@ -380,7 +347,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
                 <Card>
                   <CardHeader>
                   <div 
-                    className="flex items-center justify-between cursor-pointer hover:bg-gray-50"
+                    className="flex items-centre justify-between cursor-pointer hover:bg-gray-50"
                     onClick={() => toggleSection(sectionIndex)}
                     role="button"
                     tabIndex={0}
@@ -391,7 +358,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
                       }
                     }}
                   >
-                    <div className="flex items-center space-x-3">
+                    <div className="flex items-centre space-x-3">
                       <GripVertical className="h-5 w-5 text-gray-400" />
                       <input
                         type="text"
@@ -403,14 +370,14 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
                         onKeyDown={(e) => e.stopPropagation()} 
                       />
                     </div>
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-centre space-x-2">
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           removeSection(sectionIndex);
                         }}
-                        className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                        className="p-1 text-gray-400 hover:text-red-500 transition-colours"
                       >
                         <X className="h-5 w-5" />
                       </button>
@@ -429,7 +396,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
                       {section.fields.map((field, fieldIndex) => (
                         <div
                           key={fieldIndex}
-                          className="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 bg-gray-50 rounded-lg"
+                          className="flex flex-col sm:flex-row items-start sm:items-centre gap-4 p-4 bg-gray-50 rounded-lg"
                         >
                           <div className="flex-1">
                             <input
@@ -449,7 +416,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
                               <option key={type.value} value={type.value}>{type.label}</option>
                             ))}
                           </select>
-                          <label className="flex items-center space-x-2">
+                          <label className="flex items-centre space-x-2">
                             <input
                               type="checkbox"
                               checked={field.isRequired}
@@ -461,7 +428,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
                           <button
                             type="button"
                             onClick={() => removeField(sectionIndex, fieldIndex)}
-                            className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                            className="p-1 text-gray-400 hover:text-red-500 transition-colours"
                           >
                             <X className="h-5 w-5" />
                           </button>
@@ -470,7 +437,7 @@ const TemplateEditor: React.FC<TemplateEditorProps> = ({ template, onSave, onCan
                       <button
                         type="button"
                         onClick={() => addField(sectionIndex)}
-                        className="inline-flex items-center px-4 py-2 text-sm text-blue-600 hover:text-blue-700 transition-colors"
+                        className="inline-flex items-centre px-4 py-2 text-sm text-blue-600 hover:text-blue-700 transition-colours"
                       >
                         <PlusCircle className="h-4 w-4 mr-2" />
                         Add Field
