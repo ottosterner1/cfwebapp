@@ -225,10 +225,10 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ currentUser, onClubSwitch
       : "";
 
     const links = [
-      { href: `/clubs/manage/${currentClubId}/club`, label: 'Club' },
-      { href: `/clubs/manage/${currentClubId}/teaching-periods`, label: 'Terms' },
-      { href: `/clubs/manage/${currentClubId}/groups`, label: 'Groups' },
-      { href: `/clubs/manage/${currentClubId}/coaches`, label: 'Coaches' },
+      { href: `/clubs/manage/${currentClubId}/club`, label: 'Manage Club' },
+      { href: `/clubs/manage/${currentClubId}/teaching-periods`, label: 'Manage Terms' },
+      { href: `/clubs/manage/${currentClubId}/groups`, label: 'Manage Groups' },
+      { href: `/clubs/manage/${currentClubId}/coaches`, label: 'Manage Coaches' },
       { href: `/clubs/manage/${currentClubId}/report-templates`, label: 'Report Templates' },
     ];
 
@@ -311,14 +311,17 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ currentUser, onClubSwitch
               </button>
             </div>
 
-            {/* Mobile: Center - Club Name */}
+            {/* Mobile: Center - Club Name (clickable) */}
             <div className="flex-1 flex justify-center md:hidden">
-              <div className="flex items-center">
+              <button
+                onClick={handleHomeClick}
+                className="flex items-center hover:bg-gray-100 rounded-md px-2 py-1 transition-colors"
+              >
                 <Building className="h-5 w-5 mr-2 text-blue-600" />
                 <span className="text-lg font-bold text-blue-600 truncate max-w-40">
                   {displayClubName}
                 </span>
-              </div>
+              </button>
             </div>
 
             {/* Desktop: Left side - Home Button, Club Info */}
