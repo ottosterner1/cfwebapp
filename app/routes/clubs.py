@@ -834,8 +834,8 @@ def manage_teaching_periods(club_id):
         flash('You must be an admin to manage teaching periods', 'error')
         return redirect(url_for('main.home'))
         
-    if current_user.tennis_club_id != club.id:
-        flash('You can only manage teaching periods for your own tennis club', 'error')
+    if current_user.tennis_club.organisation_id != club.organisation_id:
+        flash('You can only manage teaching periods for your own organisation', 'error')
         return redirect(url_for('main.home'))
     
     if request.method == 'POST':
@@ -1418,8 +1418,8 @@ def invite_coach(club_id):
     """Invite a new coach to the tennis club"""
     club = TennisClub.query.get_or_404(club_id)
     
-    if current_user.tennis_club_id != club.id:
-        flash('You can only invite coaches to your own tennis club', 'error')
+    if current_user.tennis_club.organisation_id != club.organisation_id:
+        flash('You can only invite coaches to your own organisation', 'error')
         return redirect(url_for('main.dashboard'))
     
     email = request.form.get('email')
@@ -1574,8 +1574,8 @@ def manage_players(club_id):
 def add_player_page(club_id):
     """Serve the React add player page"""
     club = TennisClub.query.get_or_404(club_id)
-    if current_user.tennis_club_id != club.id:
-        flash('You can only manage players in your own tennis club', 'error')
+    if current_user.tennis_club.organisation_id != club.organisation_id:
+        flash('You can only manage players in your own organisation', 'error')
         return redirect(url_for('main.dashboard'))
     
     return render_template('admin/add_programme_player.html', club=club)
@@ -1587,9 +1587,9 @@ def edit_player_page(club_id, player_id):
     """Serve the React edit player page"""
 
     club = TennisClub.query.get_or_404(club_id)
-    if current_user.tennis_club_id != club.id:
+    if current_user.tennis_club.organisation_id != club.organisation_id:
         current_app.logger.warning("Club ID mismatch.")
-        flash('You can only manage players in your own tennis club', 'error')
+        flash('You can only manage players in your own organisation', 'error')
         return redirect(url_for('main.home'))
 
     player = ProgrammePlayers.query.get_or_404(player_id)

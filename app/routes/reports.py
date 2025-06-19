@@ -224,7 +224,7 @@ def download_all_reports(period_id):
             current_app.logger.info("Using Wilton report generator")
             from app.utils.wilton_report_generator import EnhancedWiltonReportGenerator
             
-            config_path = os.path.join(base_dir, 'app', 'utils', 'wilton_group_config.json')
+            config_path = os.path.join(base_dir, 'utils', 'wilton_group_config.json')
             generator = EnhancedWiltonReportGenerator(config_path)
             result = generator.batch_generate_reports(period_id)
             
@@ -494,7 +494,7 @@ def print_all_reports(period_id):
             current_app.logger.info("Using Wilton report generator")
             from app.utils.wilton_report_generator import EnhancedWiltonReportGenerator
             
-            config_path = os.path.join(base_dir, 'app', 'utils', 'wilton_group_config.json')
+            config_path = os.path.join(base_dir, 'utils', 'wilton_group_config.json')
             generator = EnhancedWiltonReportGenerator(config_path)
             result = generator.batch_generate_reports(period_id)
             

@@ -278,3 +278,99 @@ def create_single_report_pdf(report, output_buffer):
     except Exception as e:
         print(f"Error in create_single_report_pdf: {str(e)}")
         raise
+
+def batch_generate_reports(period_id):
+    """Generate reports for all completed reports in a teaching period using the standard generator."""
+    from flask import current_app
+    from app.models import Report, TeachingPeriod
+    from app import db
+    import os
+    import traceback
+    
+    try:
+        # Get all completed reports for the period with related data
+        reports = Report.query.filter_by(
+            teaching_period_id=period_id,
+            is_draft=False  # Only get submitted reports
+        ).join(Report.programme_player)\
+         .join(Report.teaching_period)\
+         .options(
+             db.joinedload(Report.recommended_group),
+             db.joinedload(Report.teaching_period)
+         ).all()
+        
+        if not reports:
+            return {
+                'success': 0,
+                'errors': 0,
+                'error_details': ['No completed reports found for this period'],
+                'output_directory': None
+            }
+
+        # Get period name for the main folder
+        period_name = reports[0].teaching_period.name.replace(' ', '_').lower()
+        
+        # Set up base output directory
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        reports_dir = os.path.join(base_dir, 'app', 'instance', 'reports')
+        period_dir = os.path.join(reports_dir, f'reports-{period_name}')
+        
+        # Create directory if it doesn't exist
+        os.makedirs(period_dir, exist_ok=True)
+        
+        generated_reports = []
+        errors = []
+        
+        for report in reports:
+            try:
+                # Create group-specific directory
+                group_name = report.tennis_group.name.replace(' ', '_').lower()
+
+                if report.programme_player and report.programme_player.group_time:
+                    time = report.programme_player.group_time
+                    start_time = time.start_time.strftime('%I%M%p').lower()
+                    end_time = time.end_time.strftime('%I%M%p').lower()
+                    day = time.day_of_week.value.lower()
+                    group_dir = f"{group_name}_{day}_{start_time}_{end_time}_reports"
+                else:
+                    group_dir = f"{group_name}_reports"
+                
+                full_group_dir = os.path.join(period_dir, group_dir)
+                os.makedirs(full_group_dir, exist_ok=True)
+                
+                # Prepare output path with standardized naming
+                student_name = report.student.name.replace(' ', '_').lower()
+                term_name = report.teaching_period.name.replace(' ', '_').lower()
+                filename = f"{student_name}_{group_name}_{term_name}_report.pdf"
+                output_path = os.path.join(full_group_dir, filename)
+                
+                # Generate the report using the standard generator
+                success = create_single_report_pdf(report, output_path)
+                
+                if success and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                    generated_reports.append(output_path)
+                else:
+                    errors.append(f"Failed to generate report for {report.student.name}")
+                    
+            except Exception as e:
+                error_msg = f"Error generating report for {report.student.name}: {str(e)}"
+                errors.append(error_msg)
+                current_app.logger.error(error_msg)
+                current_app.logger.error(traceback.format_exc())
+                
+        return {
+            'success': len(generated_reports),
+            'errors': len(errors),
+            'error_details': errors,
+            'output_directory': period_dir
+        }
+        
+    except Exception as e:
+        current_app.logger.error(f"Error in batch_generate_reports: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return {
+            'success': 0,
+            'errors': 1,
+            'error_details': [str(e)],
+            'output_directory': None
+        }
