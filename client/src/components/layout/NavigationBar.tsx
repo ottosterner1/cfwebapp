@@ -69,7 +69,8 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ currentUser, onClubSwitch
     }
   ] : []);
   
-  const isMultiTenant = isAdmin && accessibleClubs.length > 1;
+  // CHANGED: Allow both admins and coaches to switch clubs if they have multiple accessible clubs
+  const isMultiTenant = accessibleClubs.length > 1;
   const currentClub = accessibleClubs.find(club => club.id === currentClubId) || currentUser.tennis_club;
   const displayClubName = currentClub?.name || clubName;
   const organizationName = currentUser.tennis_club?.organisation?.name;
@@ -187,7 +188,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ currentUser, onClubSwitch
                 <span className="text-xs text-gray-500">{organizationName}</span>
               )}
               <span className="text-xs text-gray-400 mt-1">
-                Current: {displayClubName} (ID: {currentClubId})
+                Current: {displayClubName}
               </span>
             </div>
           </DropdownMenuLabel>
@@ -204,7 +205,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ currentUser, onClubSwitch
               <div className="flex items-center justify-between w-full">
                 <div className="flex flex-col">
                   <span className="font-medium">{club.name}</span>
-                  <span className="text-xs text-gray-500">ID: {club.id}</span>
+                  <span className="text-xs text-gray-500">{club.subdomain}</span>
                 </div>
                 {club.id === currentClubId && (
                   <Check className="h-4 w-4 text-blue-600" />

@@ -52,7 +52,7 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
     const fetchCoaches = async () => {
       try {
         setLoadingCoaches(true);
-        const response = await fetch('/api/coaches');
+        const response = await fetch('/clubs/api/coaches/organisation');
         
         if (!response.ok) {
           throw new Error(`Error fetching coaches: ${response.statusText}`);
