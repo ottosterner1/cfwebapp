@@ -1,5 +1,5 @@
 # Build frontend
-FROM node:18-alpine AS frontend-build
+FROM node:22-alpine AS frontend-build
 
 WORKDIR /frontend
 COPY client/package*.json ./
@@ -9,15 +9,22 @@ COPY client/ .
 RUN npm run build || npm run build --skip-typescript
 
 # Use a pre-built image with PostgreSQL support
-FROM python:3.11-slim
+FROM python:3.11.11-slim-bookworm
 
 WORKDIR /app
 
-# Install minimal dependencies but include build-essential and gcc
+# Install system dependencies including WeasyPrint requirements
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
     libpq-dev \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
+    libfontconfig1 \
+    libcairo2 \
+    libgdk-pixbuf2.0-0 \
+    libgtk-3-0 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements file
@@ -41,7 +48,7 @@ RUN pip install --no-cache-dir --progress-bar off gunicorn
 RUN pip install --no-cache-dir --progress-bar off python-dotenv
 RUN pip install --no-cache-dir --progress-bar off pillow
 
-# Install any remaining packages
+# Install any remaining packages (including weasyprint)
 RUN pip install --no-cache-dir --progress-bar off -r requirements.txt
 
 # Copy the backend application
@@ -58,5 +65,5 @@ ENV PYTHONPATH=/app
 EXPOSE ${PORT:-8000}
 
 # Railway will use Procfile to execute commands
-# This CMD is a fallback for other environments
-CMD gunicorn --chdir /app wsgi:app --bind 0.0.0.0:${PORT:-8000}
+# This CMD is a fallback for other environments  
+CMD ["sh", "-c", "gunicorn --chdir /app wsgi:app --bind 0.0.0.0:${PORT:-8000}"]
