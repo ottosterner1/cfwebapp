@@ -137,14 +137,10 @@ class User(UserMixin, db.Model):
         if self.is_super_admin:
             return TennisClub.query.all()
         
-        if self.is_admin:
-            # Admins can access all clubs in their organisation
-            return TennisClub.query.filter_by(
-                organisation_id=self.tennis_club.organisation_id
-            ).all()
-    
-        # Regular coaches only access their home club
-        return [self.tennis_club]
+        ## Everyone else can access clubs in their organisation
+        return TennisClub.query.filter_by(
+            organisation_id=self.tennis_club.organisation_id
+        ).all()
     
     def get_active_club(self):
         """Get the club the user is currently viewing/managing"""

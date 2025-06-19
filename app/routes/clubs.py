@@ -646,19 +646,29 @@ def get_organisation_clubs():
             organisation_id=organisation_id
         ).order_by(TennisClub.name).all()
         
+        # FIXED: Get group count from organisation level
+        organisation_group_count = 0
+        if clubs:
+            # All clubs in same organisation share the same groups
+            first_club = clubs[0]
+            if first_club.organisation:
+                organisation_group_count = len(first_club.organisation.groups)
+        
         return jsonify([{
             'id': club.id,
             'name': club.name,
             'subdomain': club.subdomain,
             'is_current': club.id == current_user.tennis_club_id,
             'user_count': club.users.count(),
-            'group_count': club.groups.count()
+            'group_count': organisation_group_count  # FIXED: Use organisation-level group count
         } for club in clubs])
         
     except Exception as e:
         current_app.logger.error(f"Error fetching organisation clubs: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
+
+
 
 @club_management.route('/onboard', methods=['GET', 'POST'])
 def onboard_club():
@@ -987,8 +997,8 @@ def manage_groups(club_id):
     try:
         club = TennisClub.query.get_or_404(club_id)
 
-        if current_user.tennis_club_id != club.id:
-            flash('You can only manage groups in your own tennis club', 'error')
+        if current_user.tennis_club.organisation_id != club.organisation_id:
+            flash('You can only manage groups in your own organisation', 'error')
             return redirect(url_for('main.home'))
 
         if request.method == 'POST':
@@ -1245,14 +1255,16 @@ def get_groups():
 def manage_coaches(club_id):
     club = TennisClub.query.get_or_404(club_id)
     
-    if current_user.tennis_club_id != club.id:
-        flash('You can only manage coaches in your own tennis club', 'error')
+    if current_user.tennis_club.organisation_id != club.organisation_id:
+        flash('You can only manage coaches in your own organisation', 'error')
         return redirect(url_for('main.dashboard'))
 
-    # Get all coaches for this club
-    coaches = User.query.filter_by(
-        tennis_club_id=club.id
-    ).order_by(User.name).all()
+    # Get all coaches for this organisation
+    organisation_id = club.organisation_id
+    coaches = User.query.join(TennisClub).filter(
+        TennisClub.organisation_id == organisation_id,
+        User.is_active == True
+    ).order_by(TennisClub.name, User.name).all()
     
     # Get coach details for all coaches
     coach_details = CoachDetails.query.filter_by(
@@ -1339,16 +1351,16 @@ def edit_coach(club_id, coach_id):
     club = TennisClub.query.get_or_404(club_id)
     coach = User.query.get_or_404(coach_id)
     
-    if current_user.tennis_club_id != club.id:
-        flash('You can only manage coaches in your own tennis club', 'error')
+    if coach.tennis_club.organisation_id != club.organisation_id:
+        flash('You can only edit coaches in your own organisation', 'error')
         return redirect(url_for('main.dashboard'))
         
-    details = CoachDetails.query.filter_by(user_id=coach_id, tennis_club_id=club_id).first()
+    details = CoachDetails.query.filter_by(user_id=coach_id).first()
     
     if request.method == 'POST':
         try:
             if not details:
-                details = CoachDetails(user_id=coach_id, tennis_club_id=club_id)
+                details = CoachDetails(user_id=coach_id, tennis_club_id=coach.tennis_club_id)
                 db.session.add(details)
             
             # Update fields from form
@@ -1731,18 +1743,29 @@ def get_all_clubs():
                 .order_by(Organisation.name.nullslast(), TennisClub.name)
                 .all())
         
-        result = [{
-            'id': club.id,
-            'name': club.name,
-            'subdomain': club.subdomain,
-            'organisation': {
-                'id': club.organisation.id,
-                'name': club.organisation.name,
-                'slug': club.organisation.slug
-            } if club.organisation else None,
-            'user_count': club.users.count(),
-            'group_count': club.groups.count()
-        } for club in clubs]
+        result = []
+        for club in clubs:
+            # FIXED: Handle group counting properly for organisation-level groups
+            if club.organisation:
+                # Count groups in the organisation
+                group_count = len(club.organisation.groups)
+                organisation_data = {
+                    'id': club.organisation.id,
+                    'name': club.organisation.name,
+                    'slug': club.organisation.slug
+                }
+            else:
+                group_count = 0
+                organisation_data = None
+            
+            result.append({
+                'id': club.id,
+                'name': club.name,
+                'subdomain': club.subdomain,
+                'organisation': organisation_data,
+                'user_count': club.users.count(),
+                'group_count': group_count  # FIXED: Use len() instead of .count()
+            })
         
         # Set explicit content type
         response = jsonify(result)
@@ -1792,7 +1815,6 @@ def switch_club_api():
     
 @club_management.route('/api/switch-club', methods=['POST'])
 @login_required
-@admin_required
 def switch_club_context():
     """Permanently switch user's club assignment"""
     try:
@@ -2131,6 +2153,30 @@ def get_coaches():
     } for coach in coaches]
     
     return jsonify(response_data)
+
+@club_management.route('/api/coaches/organisation')
+@login_required
+@verify_club_access()
+def get_organisation_coaches():
+    """Get coaches across the organisation for dropdowns/selection"""
+    try:
+        organisation_id = current_user.tennis_club.organisation_id
+        
+        coaches = db.session.query(User).join(TennisClub).filter(
+            TennisClub.organisation_id == organisation_id,
+            User.is_active == True
+        ).order_by(User.name).all()
+        
+        return jsonify([{
+            'id': coach.id, 
+            'name': coach.name,
+            'club_name': coach.tennis_club.name,
+            'is_local': coach.tennis_club_id == current_user.tennis_club_id
+        } for coach in coaches])
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching organisation coaches: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 @club_management.route('/api/teaching-periods')
 @login_required
@@ -2513,6 +2559,7 @@ def create_player():
             return jsonify({'error': 'No data provided'}), 400
 
         club_id = current_user.tennis_club_id
+        organisation_id = current_user.tennis_club.organisation_id
 
         # Validate data
         required_fields = ['student_name', 'contact_email', 'coach_id', 'group_id', 'group_time_id', 'teaching_period_id']
@@ -2520,14 +2567,17 @@ def create_player():
             if field not in data:
                 return jsonify({'error': f'Missing required field: {field}'}), 400
 
-        # Verify coach belongs to club
-        coach = User.query.get(data['coach_id'])
-        if not coach or coach.tennis_club_id != club_id:
-            return jsonify({'error': 'Invalid coach selected'}), 400
+        # CHANGED: Verify coach belongs to organisation (not just club)
+        coach = User.query.join(TennisClub).filter(
+            User.id == data['coach_id'],
+            TennisClub.organisation_id == organisation_id
+        ).first()
+        if not coach:
+            return jsonify({'error': 'Invalid coach selected - coach must be from your organisation'}), 400
 
         # Verify group belongs to organisation
         group = TennisGroup.query.get(data['group_id'])
-        if not group or group.organisation_id != current_user.tennis_club.organisation_id:
+        if not group or group.organisation_id != organisation_id:
             return jsonify({'error': 'Invalid group selected'}), 400
 
         # Verify group time belongs to group and club
@@ -2607,9 +2657,15 @@ def create_player():
         db.session.add(assignment)
         db.session.commit()
 
+        # ADDED: Include coach info in response for confirmation
         return jsonify({
             'message': 'Player added successfully',
-            'id': assignment.id
+            'id': assignment.id,
+            'coach_info': {
+                'name': coach.name,
+                'club': coach.tennis_club.name,
+                'is_external': coach.tennis_club_id != club_id
+            }
         })
 
     except Exception as e:
@@ -2643,7 +2699,13 @@ def player_api(player_id):
             'group_time_id': player.group_time_id,
             'teaching_period_id': player.teaching_period_id,
             'walk_home': player.walk_home,
-            'notes': player.notes
+            'notes': player.notes,
+            # ADDED: Include coach details for display
+            'coach_info': {
+                'name': player.coach.name,
+                'club': player.coach.tennis_club.name,
+                'is_external': player.coach.tennis_club_id != player.tennis_club_id
+            }
         }
         return jsonify(response_data)
 
@@ -2653,6 +2715,8 @@ def player_api(player_id):
             
             if not data:
                 return jsonify({'error': 'No data provided'}), 400
+
+            organisation_id = current_user.tennis_club.organisation_id
 
             # Update student details
             player.student.name = data['student_name']
@@ -2672,14 +2736,17 @@ def player_api(player_id):
                 except ValueError:
                     return jsonify({'error': 'Invalid date format'}), 400
 
-            # Verify coach belongs to club
-            coach = User.query.get(data['coach_id'])
-            if not coach or coach.tennis_club_id != current_user.tennis_club_id:
-                return jsonify({'error': 'Invalid coach selected'}), 400
+            # CHANGED: Verify coach belongs to organisation (not just club)
+            coach = User.query.join(TennisClub).filter(
+                User.id == data['coach_id'],
+                TennisClub.organisation_id == organisation_id
+            ).first()
+            if not coach:
+                return jsonify({'error': 'Invalid coach selected - coach must be from your organisation'}), 400
 
-            # Verify group belongs to club
+            # Verify group belongs to organisation
             group = TennisGroup.query.get(data['group_id'])
-            if not group or group.organisation_id != current_user.tennis_club.organisation_id:
+            if not group or group.organisation_id != organisation_id:
                 return jsonify({'error': 'Invalid group selected'}), 400
 
             # Verify group time belongs to group and club
@@ -2701,7 +2768,16 @@ def player_api(player_id):
                 player.notes = data.get('notes')
             
             db.session.commit()
-            return jsonify({'message': 'Player updated successfully'})
+            
+            # ADDED: Include updated coach info in response
+            return jsonify({
+                'message': 'Player updated successfully',
+                'coach_info': {
+                    'name': coach.name,
+                    'club': coach.tennis_club.name,
+                    'is_external': coach.tennis_club_id != current_user.tennis_club_id
+                }
+            })
             
         except KeyError as e:
             return jsonify({'error': f'Missing required field: {str(e)}'}), 400

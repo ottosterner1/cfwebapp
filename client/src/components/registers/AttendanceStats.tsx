@@ -501,7 +501,7 @@ const AttendanceStats: React.FC<AttendanceStatsProps> = ({
       try {
         setLoadingCoaches(true);
         
-        const response = await fetch('/api/coaches');
+        const response = await fetch('/clubs/api/coaches/organisation');
         
         if (!response.ok) {
           throw new Error(`Failed to fetch coaches: ${response.status} ${response.statusText}`);

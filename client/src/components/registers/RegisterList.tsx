@@ -127,7 +127,7 @@ const RegisterList: React.FC<RegisterListProps> = ({
       try {
         setLoading(prev => ({ ...prev, coaches: true }));
         
-        const response = await fetch('/api/coaches');
+        const response = await fetch('/clubs/api/coaches/organsation');
         
         if (!response.ok) {
           throw new Error(`Failed to fetch coaches: ${response.status} ${response.statusText}`);
