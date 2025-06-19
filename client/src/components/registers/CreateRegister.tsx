@@ -220,7 +220,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
         setLoading(prev => ({ ...prev, coaches: true }));
         setLoadingCoaches(true);
         
-        const response = await fetch('/api/coaches');
+        const response = await fetch('/clubs/api/coaches/organisation');
         
         if (!response.ok) {
           throw new Error(`Error fetching coaches: ${response.statusText}`);

@@ -111,7 +111,7 @@ const EditProgrammePlayer: React.FC = () => {
         // Fetch player, coaches, groups, and periods in parallel
         const [playerRes, coachesRes, groupsRes, periodsRes] = await Promise.all([
           fetch(`/clubs/api/players/${playerId}`),
-          fetch('/clubs/api/coaches'),
+          fetch('/clubs/api/coaches/organisation'),
           fetch('/clubs/api/groups'),
           fetch('/clubs/api/teaching-periods')
         ]);

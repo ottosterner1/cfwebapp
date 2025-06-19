@@ -104,7 +104,7 @@ const AddProgrammePlayer: React.FC = () => {
     const fetchData = async (): Promise<void> => {
       try {
         const [coachesRes, groupsRes, periodsRes] = await Promise.all([
-          fetch('/clubs/api/coaches'),
+          fetch('/clubs/api/coaches/organisation'),
           fetch('/clubs/api/groups'),
           fetch('/clubs/api/teaching-periods')
         ]);
