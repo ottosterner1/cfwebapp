@@ -625,9 +625,17 @@ def download_single_report(report_id):
                 # Import the Wilton report generator
                 from app.utils.wilton_report_generator import EnhancedWiltonReportGenerator
                 
-                # Get base directory and config path
+                # Get base directory and config path - FIXED PATH
                 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                config_path = os.path.join(base_dir, 'app', 'utils', 'wilton_group_config.json')
+                config_path = os.path.join(base_dir, 'utils', 'wilton_group_config.json')
+                
+                # Add logging to debug the path
+                current_app.logger.info(f"Using config path: {config_path}")
+                current_app.logger.info(f"Config file exists: {os.path.exists(config_path)}")
+                
+                # Check if config file exists before proceeding
+                if not os.path.exists(config_path):
+                    raise Exception(f"Config file not found at: {config_path}")
                 
                 # Create a temporary directory for the output
                 import tempfile
@@ -642,10 +650,16 @@ def download_single_report(report_id):
                 
                 # Check if generation was successful
                 if not result.get('success'):
-                    raise Exception("Failed to generate Wilton report")
+                    error_msg = f"Failed to generate Wilton report: {result}"
+                    current_app.logger.error(error_msg)
+                    raise Exception(error_msg)
                     
                 # Get the output path
                 output_path = result.get('output_path')
+                
+                # Verify the output file exists
+                if not output_path or not os.path.exists(output_path):
+                    raise Exception(f"Generated report file not found at: {output_path}")
                 
                 # Read the file into memory
                 with open(output_path, 'rb') as f:
@@ -663,12 +677,15 @@ def download_single_report(report_id):
                     download_name=filename
                 )
                 
+                current_app.logger.info(f"Successfully generated Wilton report for {report.student.name}")
+                
             except Exception as e:
-                # If Wilton report generation fails, fall back to standard report
-                current_app.logger.error(f"Error generating Wilton report: {str(e)}")
+                # If Wilton report generation fails, log the error and fall back to standard report
+                current_app.logger.error(f"Error generating Wilton report for report {report_id}: {str(e)}")
                 current_app.logger.error(traceback.format_exc())
                 
-                # Create PDF in memory buffer
+                # Create PDF in memory buffer using standard generator
+                current_app.logger.info("Falling back to standard report generator")
                 pdf_buffer = BytesIO()
                 from app.utils.report_generator import create_single_report_pdf
                 create_single_report_pdf(report, pdf_buffer)
