@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card, CardContent } from '../../components/ui/card';
 import { Alert, AlertDescription } from '../../components/ui/alert';
-import { Download, PlusCircle, Pencil, Trash2, Search, FileDown, Users, Mail, Phone, AlertTriangle, FileText, Home } from 'lucide-react';
+import { Download, PlusCircle, Pencil, Trash2, Search, FileDown, Users, Mail, Phone, AlertTriangle, FileText, Home, Calendar } from 'lucide-react';
 import BulkUploadSection from './BulkUploadSection';
 import ProgrammeAnalytics from './ProgrammeAnalytics';
 
@@ -31,6 +31,7 @@ interface Player {
   medical_information?: string;
   notes?: string;
   walk_home?: boolean | null;
+  date_of_birth?: string; // Added date of birth field
 }
 
 // PeriodFilter Component
@@ -91,16 +92,53 @@ const getTimeValue = (timeStr: string): number => {
   return hours * 60 + minutes;
 };
 
+// Helper function to format date of birth
+const formatDateOfBirth = (dateString: string): string => {
+  try {
+    const date = new Date(dateString);
+    const today = new Date();
+    
+    // Calculate age
+    let age = today.getFullYear() - date.getFullYear();
+    const monthDiff = today.getMonth() - date.getMonth();
+    
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < date.getDate())) {
+      age--;
+    }
+    
+    // Format date
+    const formattedDate = date.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
+    
+    return `${formattedDate} (${age} years old)`;
+  } catch (error) {
+    return dateString; // Return original string if parsing fails
+  }
+};
+
 // Player Info Bar Component - Compact Version
 const PlayerInfoBar: React.FC<{ player: Player }> = ({ player }) => {
   const hasInfo = player.contact_email || player.contact_number || player.emergency_contact_number || 
-                 player.medical_information || player.notes || player.walk_home !== null;
+                 player.medical_information || player.notes || player.walk_home !== null || player.date_of_birth;
 
   if (!hasInfo) {
     return null;
   }
 
   const infoItems = [];
+
+  // Date of Birth
+  if (player.date_of_birth) {
+    infoItems.push(
+      <span key="dob" className="flex items-center text-gray-600">
+        <Calendar className="h-3 w-3 mr-1" />
+        {formatDateOfBirth(player.date_of_birth)}
+      </span>
+    );
+  }
 
   // Contact Email
   if (player.contact_email) {

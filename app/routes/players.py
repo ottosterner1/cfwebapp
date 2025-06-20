@@ -296,6 +296,7 @@ def programme_players():
             Student.name.label('student_name'),
             Student.contact_email,  # ADD THIS LINE
             Student.contact_number,
+            Student.date_of_birth,
             Student.emergency_contact_number, 
             Student.medical_information,
             TennisGroup.name.label('group_name'),
@@ -318,6 +319,7 @@ def programme_players():
             Student.name,
             Student.contact_email,  # ADD THIS LINE
             Student.contact_number,
+            Student.date_of_birth,
             Student.emergency_contact_number,
             Student.medical_information,
             TennisGroup.name,
@@ -343,6 +345,7 @@ def programme_players():
             'student_name': player.student_name,
             'contact_email': player.contact_email,  # ADD THIS LINE
             'contact_number': player.contact_number,
+            'date_of_birth': player.date_of_birth.isoformat() if player.date_of_birth else None,
             'emergency_contact_number': player.emergency_contact_number,
             'medical_information': player.medical_information,
             'group_name': player.group_name,
