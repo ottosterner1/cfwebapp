@@ -2473,7 +2473,10 @@ def process_csv_chunk(token):
         
         # Get coaches and groups
         coaches = {coach.email.lower(): coach for coach in 
-                 User.query.filter_by(tennis_club_id=club_id).all()}
+         db.session.query(User).join(TennisClub).filter(
+            TennisClub.organisation_id == current_user.tennis_club.organisation_id,
+            User.is_active == True
+        ).all()}
         
         groups = {group.name.lower(): group for group in 
                  TennisGroup.query.filter_by(
