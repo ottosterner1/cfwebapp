@@ -126,23 +126,32 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ currentUser, onClubSwitch
       if (response.ok) {
         const data = await response.json();
         console.log('Club switch response:', data);
-        setNotification(`Switched to ${data.club.name}`);
+        setNotification(`Switching to ${data.club.name}...`);
         
         if (onClubSwitch) {
           onClubSwitch(newClubId);
         }
         
+        // CHANGED: Navigate to /home instead of reloading the page
         setTimeout(() => {
-          window.location.reload();
+          window.location.href = '/home';
         }, 500);
       } else {
         const errorData = await response.json();
         console.error('Club switch error:', errorData);
         setNotification(`Failed to switch club: ${errorData.error}`);
+        // Clear error notification after 3 seconds
+        setTimeout(() => {
+          setNotification(null);
+        }, 3000);
       }
     } catch (error) {
       console.error('Error switching club:', error);
       setNotification('Error switching club. Please try again.');
+      // Clear error notification after 3 seconds
+      setTimeout(() => {
+        setNotification(null);
+      }, 3000);
     } finally {
       setIsLoading(false);
     }
@@ -201,6 +210,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ currentUser, onClubSwitch
                 handleClubSwitch(club.id);
               }}
               className={`cursor-pointer ${club.id === currentClubId ? 'bg-blue-50' : ''}`}
+              disabled={isLoading}
             >
               <div className="flex items-center justify-between w-full">
                 <div className="flex flex-col">
@@ -287,9 +297,19 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ currentUser, onClubSwitch
   return (
     <>
       {notification && (
-        <div className="bg-blue-50 border-b border-blue-200 px-4 py-2">
+        <div className={`border-b px-4 py-2 ${
+          notification.includes('Failed') || notification.includes('Error') 
+            ? 'bg-red-50 border-red-200' 
+            : 'bg-blue-50 border-blue-200'
+        }`}>
           <div className="max-w-7xl mx-auto">
-            <p className="text-sm text-blue-800">{notification}</p>
+            <p className={`text-sm ${
+              notification.includes('Failed') || notification.includes('Error')
+                ? 'text-red-800'
+                : 'text-blue-800'
+            }`}>
+              {notification}
+            </p>
           </div>
         </div>
       )}
@@ -393,6 +413,7 @@ const NavigationBar: React.FC<NavigationBarProps> = ({ currentUser, onClubSwitch
                           key={club.id}
                           onClick={() => handleClubSwitch(club.id)}
                           className={`cursor-pointer ${club.id === currentClubId ? 'bg-blue-50' : ''}`}
+                          disabled={isLoading}
                         >
                           <div className="flex items-center justify-between w-full">
                             <span className="text-sm">{club.name}</span>
