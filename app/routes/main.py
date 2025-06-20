@@ -219,19 +219,23 @@ def dashboard_stats():
             
         group_stats = group_stats_query.group_by(TennisGroup.name).all()
         
-        # Get coach summaries only for admin users
+        # Get coach summaries only for admin users - UPDATED: Organization-wide coaches
         coach_summaries = None
         if current_user.is_admin or current_user.is_super_admin:
             coach_summaries = []
-            coaches = User.query.filter_by(
-                tennis_club_id=tennis_club_id,
+            
+            # CHANGED: Get coaches from entire organization (not just current club)
+            organisation_id = current_user.tennis_club.organisation_id
+            coaches = db.session.query(User).join(TennisClub).filter(
+                TennisClub.organisation_id == organisation_id,
+                User.is_active == True
             ).all()
             
             for coach in coaches:
                 # Create fresh queries for each coach
                 coach_players = base_query.filter(ProgrammePlayers.coach_id == coach.id).count()
                 
-                # Skip coaches with no assigned players/reports
+                # Skip coaches with no assigned players/reports IN THIS CLUB
                 if coach_players == 0:
                     continue
                     
@@ -248,6 +252,8 @@ def dashboard_stats():
                 coach_summaries.append({
                     'id': coach.id,
                     'name': coach.name,
+                    'club_name': coach.tennis_club.name,  # ADDED: Show which club the coach belongs to
+                    'is_external': coach.tennis_club_id != tennis_club_id,  # ADDED: Flag for external coaches
                     'total_assigned': coach_players,
                     'reports_completed': coach_submitted_reports,
                     'reports_draft': coach_draft_reports
