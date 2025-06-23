@@ -60,6 +60,19 @@ interface Feature {
   is_enabled: boolean;
 }
 
+interface ClubFeaturesResponse {
+  features: Feature[];
+  club: {
+    id: number;
+    name: string;
+    organisation?: {
+      id: number;
+      name: string;
+      slug: string;
+    };
+  };
+}
+
 const SuperAdminDashboard: React.FC = () => {
   const [allClubs, setAllClubs] = useState<TennisClub[]>([]);
   const [selectedClubId, setSelectedClubId] = useState<number | null>(null);
@@ -89,7 +102,7 @@ const SuperAdminDashboard: React.FC = () => {
   // Invite functionality
   const [inviteEmail, setInviteEmail] = useState<string>('');
   
-  // User management state - RESTORED
+  // User management state
   const [clubUsers, setClubUsers] = useState<User[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(false);
   const [updateInProgress, setUpdateInProgress] = useState<number | null>(null);
@@ -159,7 +172,7 @@ const SuperAdminDashboard: React.FC = () => {
     }
   };
 
-  // RESTORED: Function to fetch users for a specific club
+  // Function to fetch users for a specific club
   const fetchClubUsers = async (clubId: number): Promise<void> => {
     setIsLoadingUsers(true);
     try {
@@ -186,9 +199,11 @@ const SuperAdminDashboard: React.FC = () => {
     }
   };
 
-  // Function to fetch features for a specific club
+  // FIXED: Function to fetch features for a specific club
   const fetchClubFeatures = async (clubId: number): Promise<void> => {
     setIsLoadingFeatures(true);
+    setNotification(null);
+    
     try {
       const response = await fetch(`/clubs/api/super-admin/clubs/${clubId}/features`, {
         credentials: 'include',
@@ -199,21 +214,53 @@ const SuperAdminDashboard: React.FC = () => {
       });
       
       if (response.ok) {
-        const featuresData = await response.json();
-        setFeatures(Array.isArray(featuresData) ? featuresData : []);
+        const data = await response.json() as ClubFeaturesResponse;
+        
+        // FIXED: Handle the correct response format
+        if (data && Array.isArray(data.features)) {
+          setFeatures(data.features);
+        } else if (Array.isArray(data)) {
+          // Fallback in case backend returns direct array
+          setFeatures(data as Feature[]);
+        } else {
+          console.warn('Unexpected response format for features:', data);
+          setFeatures([]);
+        }
       } else {
-        console.error('Failed to fetch club features');
+        const errorText = await response.text();
+        console.error('Failed to fetch club features:', response.status, errorText);
         setFeatures([]);
+        
+        if (response.status === 403) {
+          setNotification({
+            type: 'error',
+            message: 'Access denied. Super admin privileges required.'
+          });
+        } else if (response.status === 404) {
+          setNotification({
+            type: 'error',
+            message: 'Club not found or features not configured.'
+          });
+        } else {
+          setNotification({
+            type: 'error',
+            message: 'Failed to load club features. Please try again.'
+          });
+        }
       }
     } catch (error) {
       console.error('Error fetching club features:', error);
       setFeatures([]);
+      setNotification({
+        type: 'error',
+        message: 'Network error while loading features.'
+      });
     } finally {
       setIsLoadingFeatures(false);
     }
   };
 
-  // RESTORED: Function to directly update a user's role
+  // Function to directly update a user's role
   const handleDirectRoleChange = async (userId: number, newRole: string): Promise<void> => {
     setUpdateInProgress(userId);
     setNotification(null);
@@ -275,7 +322,7 @@ const SuperAdminDashboard: React.FC = () => {
     }
   };
 
-  // RESTORED: Get role badge styles based on role
+  // Get role badge styles based on role
   const getRoleBadgeClasses = (role: string): string => {
     const normRole = role.toUpperCase();
     
@@ -582,7 +629,7 @@ const SuperAdminDashboard: React.FC = () => {
     setSelectedClubId(isNaN(id) ? null : id);
   };
 
-  // Function to handle feature toggle
+  // FIXED: Function to handle feature toggle
   const handleToggleFeature = (featureName: string) => {
     setFeatures(prevFeatures => {
       if (!Array.isArray(prevFeatures)) {
@@ -598,7 +645,7 @@ const SuperAdminDashboard: React.FC = () => {
     });
   };
 
-  // Function to save feature settings
+  // FIXED: Function to save feature settings
   const handleSaveFeatures = async () => {
     if (!selectedClubId) return;
     
@@ -613,7 +660,7 @@ const SuperAdminDashboard: React.FC = () => {
           'Accept': 'application/json',
           'X-Requested-With': 'XMLHttpRequest'
         },
-        body: JSON.stringify(features),
+        body: JSON.stringify(features), // Send the features array directly
         credentials: 'include'
       });
       
@@ -623,6 +670,11 @@ const SuperAdminDashboard: React.FC = () => {
           type: 'success',
           message: data.message || 'Features updated successfully'
         });
+        
+        // Refresh features to get the latest state
+        if (selectedClubId) {
+          fetchClubFeatures(selectedClubId);
+        }
       } else {
         let errorMessage = 'Failed to update features';
         try {
@@ -879,22 +931,33 @@ const SuperAdminDashboard: React.FC = () => {
     fetchAllData();
   }, []);
 
-  // Update selected club when selectedClubId changes - RESTORED USER FETCHING
+  // Update selected club when selectedClubId changes
   useEffect(() => {
     if (selectedClubId) {
       const club = allClubs.find(c => c.id === selectedClubId) || null;
       setSelectedClub(club);
       
       if (club) {
-        fetchClubUsers(club.id);  // RESTORED: Fetch users when club is selected
+        fetchClubUsers(club.id);
         fetchClubFeatures(club.id);
       }
     } else {
       setSelectedClub(null);
-      setClubUsers([]);  // RESTORED: Clear users when no club selected
+      setClubUsers([]);
       setFeatures([]);
     }
   }, [selectedClubId, allClubs]);
+
+  // Auto-dismiss notifications after 5 seconds
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => {
+        setNotification(null);
+      }, 5000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   if (isLoading) {
     return (
@@ -908,12 +971,20 @@ const SuperAdminDashboard: React.FC = () => {
     <div className="max-w-7xl mx-auto p-6">
       {notification && (
         <div className={`mb-6 p-4 rounded-md border ${notification.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-          <div className="flex items-center">
-            {notification.type === 'success' ? 
-              <CheckCircle className="h-5 w-5 mr-2 text-green-600" /> : 
-              <AlertCircle className="h-5 w-5 mr-2 text-red-600" />
-            }
-            <p>{notification.message}</p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              {notification.type === 'success' ? 
+                <CheckCircle className="h-5 w-5 mr-2 text-green-600" /> : 
+                <AlertCircle className="h-5 w-5 mr-2 text-red-600" />
+              }
+              <p>{notification.message}</p>
+            </div>
+            <button
+              onClick={() => setNotification(null)}
+              className="ml-2 text-gray-400 hover:text-gray-600"
+            >
+              ×
+            </button>
           </div>
         </div>
       )}
@@ -1326,7 +1397,7 @@ const SuperAdminDashboard: React.FC = () => {
           {/* SECTIONS ONLY SHOWN WHEN CLUB IS SELECTED */}
           {selectedClub && (
             <>
-              {/* 4. USER ROLE MANAGEMENT - RESTORED */}
+              {/* 4. USER ROLE MANAGEMENT */}
               <div className="border rounded-lg p-6 bg-gradient-to-r from-red-50 to-pink-50">
                 <h2 className="text-xl font-semibold mb-4 flex items-center">
                   <Shield className="h-6 w-6 mr-3 text-red-600" />
@@ -1416,7 +1487,7 @@ const SuperAdminDashboard: React.FC = () => {
                 )}
               </div>
 
-              {/* 5. FEATURE MANAGEMENT */}
+              {/* 5. FEATURE MANAGEMENT - FIXED */}
               <div className="border rounded-lg p-6 bg-gradient-to-r from-purple-50 to-pink-50">
                 <h2 className="text-xl font-semibold mb-4 flex items-center">
                   <Settings className="h-6 w-6 mr-3 text-purple-600" />
@@ -1437,7 +1508,7 @@ const SuperAdminDashboard: React.FC = () => {
                             className="flex items-center justify-between p-4 bg-white rounded-md border"
                           >
                             <div className="flex items-center space-x-3">
-                              <div className="text-2xl">{feature.icon}</div>
+                              <div className="text-2xl">{feature.icon || '⚙️'}</div>
                               <div>
                                 <h4 className="font-medium text-gray-800">{feature.display_name}</h4>
                                 <p className="text-sm text-gray-600">{feature.description}</p>
@@ -1470,17 +1541,19 @@ const SuperAdminDashboard: React.FC = () => {
                       )}
                     </div>
                     
-                    <div className="flex justify-end">
-                      <button 
-                        type="button"
-                        className={`px-6 py-2 rounded-md text-white ${isUpdatingFeatures ? 'bg-purple-400' : 'bg-purple-600 hover:bg-purple-700'} flex items-center`}
-                        onClick={handleSaveFeatures}
-                        disabled={isUpdatingFeatures}
-                      >
-                        <Settings className="h-4 w-4 mr-2" />
-                        {isUpdatingFeatures ? 'Saving...' : 'Save Features'}
-                      </button>
-                    </div>
+                    {features.length > 0 && (
+                      <div className="flex justify-end">
+                        <button 
+                          type="button"
+                          className={`px-6 py-2 rounded-md text-white ${isUpdatingFeatures ? 'bg-purple-400' : 'bg-purple-600 hover:bg-purple-700'} flex items-center`}
+                          onClick={handleSaveFeatures}
+                          disabled={isUpdatingFeatures}
+                        >
+                          <Settings className="h-4 w-4 mr-2" />
+                          {isUpdatingFeatures ? 'Saving...' : 'Save Features'}
+                        </button>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
