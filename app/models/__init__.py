@@ -37,3 +37,8 @@ from app.models.cancellation import (
 from app.models.organisation import (
     Organisation
 )
+
+# Communication models
+from app.models.communication import (
+    Document, DocumentPermission, DocumentDownloadLog
+)
