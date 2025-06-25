@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Building, Plus, Edit2, Trash2, Mail, Shield, CheckCircle, 
+  Building, Plus, Edit2, Mail, CheckCircle, 
   AlertCircle, Clock, RefreshCw, Save, X
 } from 'lucide-react';
 

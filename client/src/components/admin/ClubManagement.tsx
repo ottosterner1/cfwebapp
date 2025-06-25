@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Mail, Move, Plus, Building, ArrowRight } from 'lucide-react';
 
 interface TennisClub {
@@ -40,7 +40,6 @@ interface ClubManagementProps {
 const ClubManagement: React.FC<ClubManagementProps> = ({
   allClubs,
   organisations,
-  currentClub,
   onNotification,
   onRefreshClubs,
   onRefreshOrganisations
