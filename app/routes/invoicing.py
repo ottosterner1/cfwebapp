@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
-from app.models import Invoice, InvoiceLineItem, CoachingRate, Register, User, UserRole, RegisterAssistantCoach, RateType
+from app.models import Invoice, InvoiceLineItem, CoachingRate, Register, User, UserRole, RegisterAssistantCoach, RateType, TennisGroupTimes
 from app.models.invoice import InvoiceStatus
 from app.utils.auth import admin_required
 from app import db
@@ -134,11 +134,15 @@ def generate_invoice(year, month):
     end_date = datetime(year, month, last_day).date()
     
     # === 1. Find all registers where this coach was the LEAD coach ===
-    lead_registers = Register.query.filter(
+    # ORDER BY date and start time
+    lead_registers = Register.query.join(Register.group_time).filter(
         Register.coach_id == current_user.id,
         Register.tennis_club_id == current_user.tennis_club_id,
         Register.date >= start_date,
         Register.date <= end_date
+    ).order_by(
+        Register.date.asc(),
+        TennisGroupTimes.start_time.asc()
     ).all()
     
     # Process lead coach registers
@@ -146,13 +150,17 @@ def generate_invoice(year, month):
         _process_lead_coach_register(register, invoice, current_user.id)
     
     # === 2. Find all registers where this coach was an ASSISTANT coach ===
+    # ORDER BY date and start time
     assistant_sessions = db.session.query(Register, RegisterAssistantCoach).join(
         RegisterAssistantCoach, Register.id == RegisterAssistantCoach.register_id
-    ).filter(
+    ).join(Register.group_time).filter(
         RegisterAssistantCoach.coach_id == current_user.id,
         Register.tennis_club_id == current_user.tennis_club_id,
         Register.date >= start_date,
         Register.date <= end_date
+    ).order_by(
+        Register.date.asc(),
+        TennisGroupTimes.start_time.asc()
     ).all()
     
     # Process assistant coach registers
