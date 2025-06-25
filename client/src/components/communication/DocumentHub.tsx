@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, FileText, Download, Trash2, Plus, Folder, User, Search, ArrowLeft, X, AlertCircle } from 'lucide-react';
+import { Upload, FileText, Download, Trash2, Plus, Folder, User, Search, ArrowLeft, X, AlertCircle, Building } from 'lucide-react';
 
 interface Document {
   id: number;
@@ -16,6 +16,8 @@ interface Coach {
   id: number;
   name: string;
   email: string;
+  club_name: string;  // ADDED: Club name for organisation-wide view
+  role: string;       // ADDED: Coach role
   documents: Document[];
 }
 
@@ -59,8 +61,8 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
           const userData = await userResponse.json();
           setCurrentUser(userData);
           
-          // Fetch coaches after we have user data
-          const coachesResponse = await fetch('/api/coaches');
+          // CHANGED: Fetch organisation-wide coaches instead of club coaches
+          const coachesResponse = await fetch('/communication/api/organisation/coaches');
           if (coachesResponse.ok) {
             const coachData = await coachesResponse.json();
             
@@ -292,14 +294,16 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
     }
   };
 
-  // Fixed search functionality with proper selected coach handling and null safety
+  // UPDATED: Enhanced search functionality with club name
   const filteredCoaches = coaches.filter(coach => {
     const name = coach.name || '';
     const email = coach.email || '';
+    const clubName = coach.club_name || '';
     const searchLower = searchTerm.toLowerCase();
     
     return name.toLowerCase().includes(searchLower) ||
-           email.toLowerCase().includes(searchLower);
+           email.toLowerCase().includes(searchLower) ||
+           clubName.toLowerCase().includes(searchLower);
   });
 
   // Check if selected coach is still in filtered results
@@ -370,9 +374,11 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
     </div>
   );
 
+  // UPDATED: Enhanced coach list item with club information
   const CoachListItem: React.FC<{ coach: Coach }> = ({ coach }) => {
     const name = coach.name || 'Unknown Coach';
     const email = coach.email || 'No email';
+    const clubName = coach.club_name || 'No club';
     const initials = name.split(' ').map(n => n[0] || '').join('').substring(0, 2) || 'UC';
     
     return (
@@ -391,6 +397,11 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-medium text-gray-900 truncate">{name}</h3>
             <p className="text-xs text-gray-500 truncate">{email}</p>
+            {/* ADDED: Show club name */}
+            <div className="flex items-center space-x-1 mt-1">
+              <Building className="h-3 w-3 text-gray-400" />
+              <p className="text-xs text-gray-500 truncate">{clubName}</p>
+            </div>
             <p className="text-xs text-blue-600 mt-1">
               {coach.documents.length} document{coach.documents.length !== 1 ? 's' : ''}
             </p>
@@ -510,8 +521,9 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Document Hub</h1>
           <p className="text-gray-600">
+            {/* UPDATED: Changed description to reflect organisation-wide scope */}
             {currentUser?.is_admin 
-              ? 'Share and manage documents with your coaching team' 
+              ? 'Share and manage documents across your entire organisation' 
               : 'View and manage your documents'
             }
           </p>
@@ -556,6 +568,7 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg font-semibold text-gray-900">
+                    {/* UPDATED: Changed title to reflect organisation scope */}
                     {currentUser?.is_admin ? 'Coaches' : 'Your Documents'}
                   </h2>
                   <span className="text-sm text-gray-500">{coaches.length} total</span>
@@ -567,7 +580,7 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <input
                       type="text"
-                      placeholder="Search coaches..."
+                      placeholder="Search coaches or clubs..." 
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -605,7 +618,7 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
           <div className={`${coaches.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
             {selectedCoachData && isSelectedCoachVisible ? (
               <div>
-                {/* Selected Coach Header */}
+                {/* Selected Coach Header - UPDATED with club info */}
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-4">
@@ -615,6 +628,11 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
                       <div>
                         <h2 className="text-xl font-semibold text-gray-900">{selectedCoachData.name || 'Unknown Coach'}</h2>
                         <p className="text-gray-600">{selectedCoachData.email || 'No email'}</p>
+                        {/* ADDED: Show club information */}
+                        <div className="flex items-center space-x-1 mt-1">
+                          <Building className="h-4 w-4 text-gray-500" />
+                          <span className="text-sm text-gray-500">{selectedCoachData.club_name}</span>
+                        </div>
                       </div>
                     </div>
                     {/* Only show upload button if admin or viewing own documents */}
@@ -681,7 +699,7 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
                 <p className="text-gray-600">
                   {coaches.length > 0 
                     ? (currentUser?.is_admin 
-                        ? 'Choose a coach from the list to view and manage their documents'
+                        ? 'Choose a coach from the organisation to view and manage their documents' 
                         : 'Click on your name to view your documents')
                     : 'You don\'t have access to any documents yet'
                   }
