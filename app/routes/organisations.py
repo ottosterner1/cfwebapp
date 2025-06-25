@@ -3,6 +3,7 @@ from flask_login import login_required, current_user
 from app.models import Organisation, TennisClub, User, UserRole, ReportTemplate
 from app import db
 from app.utils.auth import admin_required
+from app.services.email_service import EmailService
 import traceback
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func
@@ -27,11 +28,19 @@ def list_organisations():
             # Get admin users across all clubs in the organisation
             admin_users = org.get_admin_users()
             
+            # Get email verification status if configured
+            email_status = None
+            if org.sender_email:
+                email_service = EmailService()
+                email_status = email_service.get_verification_status(org.sender_email)
+            
             org_data = {
                 'id': org.id,
                 'name': org.name,
                 'slug': org.slug,
                 'created_at': org.created_at.isoformat() if org.created_at else None,
+                'sender_email': org.sender_email,
+                'email_verified': email_status['is_verified'] if email_status else False,
                 'club_count': len(org.clubs),
                 'admin_count': len(admin_users),
                 'template_count': len(org.report_templates),
@@ -73,7 +82,8 @@ def create_organisation():
         
         organisation = Organisation(
             name=data['name'].strip(),
-            slug=slug
+            slug=slug,
+            sender_email=data.get('sender_email', '').strip() or None
         )
         
         db.session.add(organisation)
@@ -85,6 +95,7 @@ def create_organisation():
             'id': organisation.id,
             'name': organisation.name,
             'slug': organisation.slug,
+            'sender_email': organisation.sender_email,
             'message': 'organisation created successfully'
         }), 201
         
@@ -113,10 +124,18 @@ def get_organisation(org_id):
             is_active=True
         ).all()
         
+        # Get email verification status if configured
+        email_status = None
+        if organisation.sender_email:
+            email_service = EmailService()
+            email_status = email_service.get_verification_status(organisation.sender_email)
+        
         return jsonify({
             'id': organisation.id,
             'name': organisation.name,
             'slug': organisation.slug,
+            'sender_email': organisation.sender_email,
+            'email_status': email_status,
             'created_at': organisation.created_at.isoformat() if organisation.created_at else None,
             'clubs': [{
                 'id': club.id,
@@ -187,14 +206,32 @@ def update_organisation(org_id):
             
             organisation.slug = new_slug
         
+        # Update sender email if provided
+        if 'sender_email' in data:
+            sender_email = data['sender_email'].strip() if data['sender_email'] else None
+            
+            # Validate email format if provided
+            if sender_email and '@' not in sender_email:
+                return jsonify({'error': 'Please enter a valid email address'}), 400
+            
+            organisation.sender_email = sender_email
+        
         db.session.commit()
         
         current_app.logger.info(f"Updated organisation: {organisation.name} (ID: {organisation.id})")
+        
+        # Get verification status if email was updated
+        email_status = None
+        if organisation.sender_email:
+            email_service = EmailService()
+            email_status = email_service.get_verification_status(organisation.sender_email)
         
         return jsonify({
             'id': organisation.id,
             'name': organisation.name,
             'slug': organisation.slug,
+            'sender_email': organisation.sender_email,
+            'email_status': email_status,
             'message': 'organisation updated successfully'
         })
         
@@ -239,6 +276,129 @@ def delete_organisation(org_id):
         current_app.logger.error(f"Error deleting organisation {org_id}: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
+
+# EMAIL CONFIGURATION ROUTES
+
+@organisation_routes.route('/<int:org_id>/email-config', methods=['GET'])
+@login_required
+def get_email_config(org_id):
+    """Get organisation email configuration and verification status"""
+    try:
+        organisation = Organisation.query.get_or_404(org_id)
+        
+        result = {
+            'organisation_id': organisation.id,
+            'organisation_name': organisation.name,
+            'sender_email': organisation.sender_email,
+            'verification_status': None
+        }
+        
+        # Check verification status if sender email is configured
+        if organisation.sender_email:
+            email_service = EmailService()
+            verification_info = email_service.get_verification_status(organisation.sender_email)
+            result['verification_status'] = verification_info
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error getting email config for org {org_id}: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@organisation_routes.route('/<int:org_id>/email-config', methods=['PUT'])
+@login_required
+def update_email_config(org_id):
+    """Update organisation sender email configuration"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        organisation = Organisation.query.get_or_404(org_id)
+        
+        sender_email = data.get('sender_email', '').strip()
+        
+        # Validate email format if provided
+        if sender_email and '@' not in sender_email:
+            return jsonify({'error': 'Please enter a valid email address'}), 400
+        
+        # Update organisation
+        organisation.sender_email = sender_email if sender_email else None
+        db.session.commit()
+        
+        # Get verification status if email was set
+        verification_status = None
+        if sender_email:
+            email_service = EmailService()
+            verification_status = email_service.get_verification_status(sender_email)
+        
+        current_app.logger.info(f"Updated sender email for organisation {organisation.name}: {sender_email}")
+        
+        return jsonify({
+            'message': 'Email configuration updated successfully',
+            'sender_email': organisation.sender_email,
+            'verification_status': verification_status
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating email config for org {org_id}: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@organisation_routes.route('/<int:org_id>/send-verification', methods=['POST'])
+@login_required
+def send_verification(org_id):
+    """Send verification email for organisation sender email"""
+    try:
+        organisation = Organisation.query.get_or_404(org_id)
+        
+        if not organisation.sender_email:
+            return jsonify({'error': 'No sender email configured'}), 400
+        
+        email_service = EmailService()
+        success, message = email_service.send_verification_email(organisation.sender_email)
+        
+        if success:
+            current_app.logger.info(f"Verification email sent for organisation {organisation.name}: {organisation.sender_email}")
+            return jsonify({
+                'message': f'Verification email sent to {organisation.sender_email}. Please check your inbox and click the verification link.',
+                'success': True
+            })
+        else:
+            return jsonify({
+                'error': f'Failed to send verification email: {message}',
+                'success': False
+            }), 400
+        
+    except Exception as e:
+        current_app.logger.error(f"Error sending verification for org {org_id}: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@organisation_routes.route('/<int:org_id>/verification-status', methods=['GET'])
+@login_required
+def check_verification_status(org_id):
+    """Check verification status of organisation sender email"""
+    try:
+        organisation = Organisation.query.get_or_404(org_id)
+        
+        if not organisation.sender_email:
+            return jsonify({'error': 'No sender email configured'}), 400
+        
+        email_service = EmailService()
+        verification_status = email_service.get_verification_status(organisation.sender_email)
+        
+        return jsonify(verification_status)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error checking verification status for org {org_id}: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+# CLUB MANAGEMENT ROUTES
 
 @organisation_routes.route('/<int:org_id>/clubs', methods=['POST'])
 @login_required
@@ -357,5 +517,122 @@ def get_clubs_without_organisation():
         
     except Exception as e:
         current_app.logger.error(f"Error fetching clubs without organisation: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+
+# ADDITIONAL ROUTES FOR ADMIN ACCESS TO EMAIL CONFIG
+
+# Create a separate blueprint for admin access to their own organisation's email config
+admin_org_routes = Blueprint('admin_organisations', __name__, url_prefix='/api/admin/organisation')
+
+@admin_org_routes.route('/email-config', methods=['GET'])
+@login_required
+@admin_required
+def get_admin_email_config():
+    """Get email configuration for current user's organisation (admin access)"""
+    try:
+        organisation = current_user.tennis_club.organisation
+        
+        if not organisation:
+            return jsonify({'error': 'No organisation found'}), 404
+        
+        result = {
+            'organisation_id': organisation.id,
+            'organisation_name': organisation.name,
+            'sender_email': organisation.sender_email,
+            'verification_status': None
+        }
+        
+        # Check verification status if sender email is configured
+        if organisation.sender_email:
+            email_service = EmailService()
+            verification_info = email_service.get_verification_status(organisation.sender_email)
+            result['verification_status'] = verification_info
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error getting admin email config: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@admin_org_routes.route('/email-config', methods=['PUT'])
+@login_required
+@admin_required
+def update_admin_email_config():
+    """Update email configuration for current user's organisation (admin access)"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        organisation = current_user.tennis_club.organisation
+        
+        if not organisation:
+            return jsonify({'error': 'No organisation found'}), 404
+        
+        sender_email = data.get('sender_email', '').strip()
+        
+        # Validate email format if provided
+        if sender_email and '@' not in sender_email:
+            return jsonify({'error': 'Please enter a valid email address'}), 400
+        
+        # Update organisation
+        organisation.sender_email = sender_email if sender_email else None
+        db.session.commit()
+        
+        # Get verification status if email was set
+        verification_status = None
+        if sender_email:
+            email_service = EmailService()
+            verification_status = email_service.get_verification_status(sender_email)
+        
+        current_app.logger.info(f"Admin updated sender email for organisation {organisation.name}: {sender_email}")
+        
+        return jsonify({
+            'message': 'Email configuration updated successfully',
+            'sender_email': organisation.sender_email,
+            'verification_status': verification_status
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating admin email config: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+
+@admin_org_routes.route('/send-verification', methods=['POST'])
+@login_required
+@admin_required
+def send_admin_verification():
+    """Send verification email for current user's organisation (admin access)"""
+    try:
+        organisation = current_user.tennis_club.organisation
+        
+        if not organisation:
+            return jsonify({'error': 'No organisation found'}), 404
+        
+        if not organisation.sender_email:
+            return jsonify({'error': 'No sender email configured'}), 400
+        
+        email_service = EmailService()
+        success, message = email_service.send_verification_email(organisation.sender_email)
+        
+        if success:
+            current_app.logger.info(f"Admin verification email sent for organisation {organisation.name}: {organisation.sender_email}")
+            return jsonify({
+                'message': f'Verification email sent to {organisation.sender_email}. Please check your inbox and click the verification link.',
+                'success': True
+            })
+        else:
+            return jsonify({
+                'error': f'Failed to send verification email: {message}',
+                'success': False
+            }), 400
+        
+    except Exception as e:
+        current_app.logger.error(f"Error sending admin verification: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500

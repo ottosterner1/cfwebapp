@@ -15,7 +15,7 @@ def register_routes(app):
     from app.routes.invoices_view import invoice_views
     from app.routes.invoicing import invoice_routes 
     from app.routes.cancellations import cancellation_routes
-    from app.routes.organisations import organisation_routes
+    from app.routes.organisations import organisation_routes, admin_org_routes
     from app.routes import communication
     
     # Register blueprints
@@ -35,5 +35,6 @@ def register_routes(app):
     app.register_blueprint(cancellation_routes)
     app.register_blueprint(organisation_routes)
     app.register_blueprint(communication.bp)
+    app.register_blueprint(admin_org_routes)
 
     return app
