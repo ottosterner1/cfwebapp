@@ -265,19 +265,12 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       pdf.text('Amount', colPositions[4] + 2, yPos + 7);
       yPos += 10;
       
-      // Sort line items
-      const sortedLineItems = [...exportData.line_items].sort((a, b) => {
-        const dateComparison = new Date(a.date).getTime() - new Date(b.date).getTime();
-        if (dateComparison !== 0) return dateComparison;
-        if (a.is_deduction !== b.is_deduction) {
-          return a.is_deduction ? 1 : -1;
-        }
-        return a.description.localeCompare(b.description);
-      });
+      // Use line items as they come from the backend (already sorted correctly)
+      const lineItems = exportData.line_items;
       
       // Table rows
-      for (let i = 0; i < sortedLineItems.length; i++) {
-        const item = sortedLineItems[i];
+      for (let i = 0; i < lineItems.length; i++) {
+        const item = lineItems[i];
         
         // Check if we need a new page
         checkPageBreak(15);
@@ -724,68 +717,60 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {invoice.line_items
-                  .sort((a, b) => {
-                    const dateComparison = new Date(a.date).getTime() - new Date(b.date).getTime();
-                    if (dateComparison !== 0) return dateComparison;
-                    if (a.is_deduction !== b.is_deduction) {
-                      return a.is_deduction ? 1 : -1;
-                    }
-                    return a.description.localeCompare(b.description);
-                  })
-                  .map((item, index) => {
-                    // Determine if this is a lead session or assistant session
-                    const isLeadSession = item.item_type === 'group' && 
-                                        (item.description && item.description.includes('Lead Coach'));
-                    const isAssistantSession = item.item_type === 'group' && 
-                                            (item.description && item.description.includes('Assistant Coach'));
-                                            
-                    return (
-                      <tr key={index} className={item.is_deduction ? 'bg-red-50' : ''}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.is_deduction && <span className="text-red-600 font-medium">[Deduction] </span>}
-                          {item.description}
-                          {isLeadSession && (
-                            <span className="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800">
-                              Lead
-                            </span>
-                          )}
-                          {isAssistantSession && (
-                            <span className="ml-1 px-1.5 py-0.5 text-xs rounded bg-blue-100 text-blue-800">
-                              Assistant
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {new Date(item.date).toLocaleDateString()}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {item.hours.toFixed(2)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          £{item.rate.toFixed(2)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {item.is_deduction ? (
-                            <span className="text-red-600">-£{item.amount.toFixed(2)}</span>
-                          ) : (
-                            `£${item.amount.toFixed(2)}`
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {item.register_id ? (
-                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
-                              Register
-                            </span>
-                          ) : (
-                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
-                              Manual
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                {/* Remove sorting - use backend order directly */}
+                {invoice.line_items.map((item, index) => {
+                  // Determine if this is a lead session or assistant session
+                  const isLeadSession = item.item_type === 'group' && 
+                                      (item.description && item.description.includes('Lead Coach'));
+                  const isAssistantSession = item.item_type === 'group' && 
+                                          (item.description && item.description.includes('Assistant Coach'));
+                                          
+                  return (
+                    <tr key={index} className={item.is_deduction ? 'bg-red-50' : ''}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {item.is_deduction && <span className="text-red-600 font-medium">[Deduction] </span>}
+                        {item.description}
+                        {isLeadSession && (
+                          <span className="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800">
+                            Lead
+                          </span>
+                        )}
+                        {isAssistantSession && (
+                          <span className="ml-1 px-1.5 py-0.5 text-xs rounded bg-blue-100 text-blue-800">
+                            Assistant
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {new Date(item.date).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {item.hours.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        £{item.rate.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {item.is_deduction ? (
+                          <span className="text-red-600">-£{item.amount.toFixed(2)}</span>
+                        ) : (
+                          `£${item.amount.toFixed(2)}`
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {item.register_id ? (
+                          <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                            Register
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                            Manual
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
               <tfoot className="bg-gray-50">
                 <tr>
