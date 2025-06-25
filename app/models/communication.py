@@ -14,27 +14,27 @@ class Document(db.Model):
     category = db.Column(db.String(50), nullable=False, default='General')  # Training, Safety, Forms, etc.
     description = db.Column(db.Text)
     
-    # Associations
+    # Associations - CHANGED: tennis_club_id to organisation_id
     uploaded_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     uploaded_for_coach_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    tennis_club_id = db.Column(db.Integer, db.ForeignKey('tennis_club.id'), nullable=False)
+    organisation_id = db.Column(db.Integer, db.ForeignKey('organisation.id'), nullable=False)  # CHANGED
     
     # Metadata
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
     updated_at = db.Column(db.DateTime(timezone=True), onupdate=text('CURRENT_TIMESTAMP'))
     
-    # Relationships
+    # Relationships - UPDATED
     uploaded_by = db.relationship('User', foreign_keys=[uploaded_by_id], backref='uploaded_documents')
     uploaded_for_coach = db.relationship('User', foreign_keys=[uploaded_for_coach_id], backref='documents')
-    tennis_club = db.relationship('TennisClub', backref='documents')
+    organisation = db.relationship('Organisation', backref='documents')  # CHANGED
     download_logs = db.relationship('DocumentDownloadLog', back_populates='document', cascade='all, delete-orphan')
     permissions = db.relationship('DocumentPermission', back_populates='document', cascade='all, delete-orphan')
     
-    # Indexes for performance
+    # Indexes for performance - UPDATED
     __table_args__ = (
         Index('idx_document_coach', uploaded_for_coach_id),
-        Index('idx_document_club', tennis_club_id),
+        Index('idx_document_organisation', organisation_id),  # CHANGED
         Index('idx_document_category', category),
         Index('idx_document_active', is_active),
     )
@@ -74,6 +74,7 @@ class Document(db.Model):
         return f'<Document {self.filename} for coach {self.uploaded_for_coach_id}>'
 
 
+# DocumentPermission and DocumentDownloadLog remain the same
 class DocumentPermission(db.Model):
     """Model for document access permissions"""
     __tablename__ = 'document_permission'

@@ -57,9 +57,10 @@ class DocumentService:
             file_extension = filename.split('.')[-1] if '.' in filename else ''
             unique_filename = f"{uuid.uuid4()}.{file_extension}" if file_extension else str(uuid.uuid4())
             
-            # Create S3 key structure: documents/club_id/coach_id/year/month/unique_filename
+            # CHANGED: Create S3 key structure using organisation: documents/org_id/coach_id/year/month/unique_filename
             now = datetime.now()
-            s3_key = f"documents/{uploaded_by_user.tennis_club_id}/{coach_user.id}/{now.year}/{now.month:02d}/{unique_filename}"
+            organisation_id = coach_user.tennis_club.organisation_id
+            s3_key = f"documents/org_{organisation_id}/{coach_user.id}/{now.year}/{now.month:02d}/{unique_filename}"
             current_app.logger.info(f"Generated S3 key: {s3_key}")
             
             # Read file content into memory to avoid stream issues
@@ -85,13 +86,14 @@ class DocumentService:
                         'original_filename': filename,
                         'uploaded_by': str(uploaded_by_user.id),
                         'coach_id': str(coach_user.id),
-                        'club_id': str(uploaded_by_user.tennis_club_id)
+                        'organisation_id': str(organisation_id),  # CHANGED: use organisation_id instead of club_id
+                        'club_id': str(coach_user.tennis_club_id)  # Keep for reference
                     }
                 }
             )
             current_app.logger.info("S3 upload successful")
             
-            # Create database record using the actual file size
+            # CHANGED: Create database record using organisation_id
             current_app.logger.info("Creating database record...")
             document = Document(
                 filename=filename,
@@ -102,7 +104,7 @@ class DocumentService:
                 description=metadata.get('description', ''),
                 uploaded_by_id=uploaded_by_user.id,
                 uploaded_for_coach_id=coach_user.id,
-                tennis_club_id=uploaded_by_user.tennis_club_id
+                organisation_id=organisation_id  # CHANGED: use organisation_id instead of tennis_club_id
             )
             
             db.session.add(document)
@@ -178,37 +180,37 @@ class DocumentService:
                 pass
             return 0
     
-    def get_documents_for_coach(self, coach_id, tennis_club_id):
+    def get_documents_for_coach(self, coach_id, organisation_id):
         """
-        Get all documents for a specific coach
+        Get all documents for a specific coach in an organisation
         
         Args:
             coach_id: ID of the coach
-            tennis_club_id: ID of the tennis club (for security)
+            organisation_id: ID of the organisation (for security)
             
         Returns:
             List[Document]: List of documents
         """
         return Document.query.filter_by(
             uploaded_for_coach_id=coach_id,
-            tennis_club_id=tennis_club_id,
+            organisation_id=organisation_id,  # CHANGED: use organisation_id
             is_active=True
         ).order_by(Document.created_at.desc()).all()
     
-    def get_document_by_id(self, document_id, tennis_club_id):
+    def get_document_by_id(self, document_id, organisation_id):
         """
-        Get a document by ID with club verification
+        Get a document by ID with organisation verification
         
         Args:
             document_id: ID of the document
-            tennis_club_id: ID of the tennis club (for security)
+            organisation_id: ID of the organisation (for security)
             
         Returns:
             Document or None
         """
         return Document.query.filter_by(
             id=document_id,
-            tennis_club_id=tennis_club_id,
+            organisation_id=organisation_id,  # CHANGED: use organisation_id
             is_active=True
         ).first()
     
@@ -262,12 +264,20 @@ class DocumentService:
             current_app.logger.error(f"Error logging download: {str(e)}")
             db.session.rollback()
     
-    def delete_document(self, document_id, tennis_club_id, user_id):
+    def delete_document(self, document_id, organisation_id, user_id):
         """
         Simple immediate deletion - no grace period, no complexity
+        
+        Args:
+            document_id: ID of the document to delete
+            organisation_id: ID of the organisation (for security)
+            user_id: ID of the user performing deletion
+            
+        Returns:
+            bool: True if successful, False otherwise
         """
         try:
-            document = self.get_document_by_id(document_id, tennis_club_id)
+            document = self.get_document_by_id(document_id, organisation_id)  # CHANGED: use organisation_id
             if not document:
                 return False
             
@@ -289,20 +299,20 @@ class DocumentService:
             db.session.rollback()
             return False
     
-    def update_document_metadata(self, document_id, tennis_club_id, metadata):
+    def update_document_metadata(self, document_id, organisation_id, metadata):
         """
         Update document metadata
         
         Args:
             document_id: ID of the document
-            tennis_club_id: Tennis club ID for security
+            organisation_id: Organisation ID for security
             metadata: dict with category, description
             
         Returns:
             Document or None: Updated document or None if failed
         """
         try:
-            document = self.get_document_by_id(document_id, tennis_club_id)
+            document = self.get_document_by_id(document_id, organisation_id)  # CHANGED: use organisation_id
             if not document:
                 return None
             
@@ -310,6 +320,9 @@ class DocumentService:
                 document.category = metadata['category']
             if 'description' in metadata:
                 document.description = metadata['description']
+            
+            # Update timestamp
+            document.updated_at = datetime.now()
             
             db.session.commit()
             return document
@@ -323,24 +336,30 @@ class DocumentService:
         """Get list of available document categories"""
         return [
             'Certificates',
-            'Meeting Notes',
+            'Meeting Notes', 
             'Policies',
             'General',
+            'Training Materials',  # ADDED: Additional categories for organisation-wide use
+            'Safety Documents',
+            'Forms',
+            'Photos',
+            'Videos'
         ]
     
-    def get_club_document_stats(self, tennis_club_id):
+    def get_organisation_document_stats(self, organisation_id):
         """
-        Get document statistics for a club
+        Get document statistics for an organisation
         
         Args:
-            tennis_club_id: ID of the tennis club
+            organisation_id: ID of the organisation
             
         Returns:
             dict: Statistics including total documents, by category, etc.
         """
         try:
+            # Total documents in organisation
             total_docs = Document.query.filter_by(
-                tennis_club_id=tennis_club_id,
+                organisation_id=organisation_id,  # CHANGED: use organisation_id
                 is_active=True
             ).count()
             
@@ -349,15 +368,185 @@ class DocumentService:
                 Document.category,
                 db.func.count(Document.id).label('count')
             ).filter_by(
-                tennis_club_id=tennis_club_id,
+                organisation_id=organisation_id,  # CHANGED: use organisation_id
                 is_active=True
             ).group_by(Document.category).all()
             
+            # Recent uploads (last 30 days)
+            thirty_days_ago = datetime.now() - timedelta(days=30)
+            recent_uploads = Document.query.filter(
+                Document.organisation_id == organisation_id,  # CHANGED: use organisation_id
+                Document.is_active == True,
+                Document.created_at >= thirty_days_ago
+            ).count()
+            
+            # Total storage used (in bytes)
+            total_size = db.session.query(
+                db.func.sum(Document.file_size)
+            ).filter_by(
+                organisation_id=organisation_id,  # CHANGED: use organisation_id
+                is_active=True
+            ).scalar() or 0
+            
+            # ADDED: Get stats by coach
+            coach_stats = db.session.query(
+                Document.uploaded_for_coach_id,
+                db.func.count(Document.id).label('count')
+            ).filter_by(
+                organisation_id=organisation_id,
+                is_active=True
+            ).group_by(Document.uploaded_for_coach_id).all()
+            
+            # ADDED: Get stats by club within organisation
+            from app.models import TennisClub
+            club_stats = db.session.query(
+                TennisClub.name.label('club_name'),
+                db.func.count(Document.id).label('count')
+            ).join(User, User.tennis_club_id == TennisClub.id)\
+             .join(Document, Document.uploaded_for_coach_id == User.id)\
+             .filter(
+                TennisClub.organisation_id == organisation_id,
+                Document.is_active == True
+             ).group_by(TennisClub.id, TennisClub.name).all()
+            
             return {
                 'total_documents': total_docs,
-                'by_category': {stat.category: stat.count for stat in category_stats}
+                'by_category': {stat.category: stat.count for stat in category_stats},
+                'recent_uploads': recent_uploads,
+                'total_size_bytes': total_size,
+                'total_size_mb': round(total_size / (1024 * 1024), 2) if total_size > 0 else 0,
+                'by_coach': {stat.uploaded_for_coach_id: stat.count for stat in coach_stats},
+                'by_club': {stat.club_name: stat.count for stat in club_stats}
             }
             
         except Exception as e:
-            current_app.logger.error(f"Error getting document stats: {str(e)}")
+            current_app.logger.error(f"Error getting organisation document stats: {str(e)}")
+            return {
+                'total_documents': 0, 
+                'by_category': {},
+                'recent_uploads': 0,
+                'total_size_bytes': 0,
+                'total_size_mb': 0,
+                'by_coach': {},
+                'by_club': {}
+            }
+    
+    # ADDED: New method for getting all documents in organisation
+    def get_all_organisation_documents(self, organisation_id, limit=None, offset=None):
+        """
+        Get all documents in an organisation with optional pagination
+        
+        Args:
+            organisation_id: ID of the organisation
+            limit: Maximum number of documents to return
+            offset: Number of documents to skip
+            
+        Returns:
+            List[Document]: List of documents
+        """
+        try:
+            query = Document.query.filter_by(
+                organisation_id=organisation_id,
+                is_active=True
+            ).order_by(Document.created_at.desc())
+            
+            if offset:
+                query = query.offset(offset)
+            if limit:
+                query = query.limit(limit)
+                
+            return query.all()
+            
+        except Exception as e:
+            current_app.logger.error(f"Error getting organisation documents: {str(e)}")
+            return []
+    
+    # ADDED: New method for searching documents across organisation
+    def search_organisation_documents(self, organisation_id, search_term, category=None):
+        """
+        Search documents across an organisation
+        
+        Args:
+            organisation_id: ID of the organisation
+            search_term: Text to search for in filename and description
+            category: Optional category filter
+            
+        Returns:
+            List[Document]: List of matching documents
+        """
+        try:
+            query = Document.query.filter(
+                Document.organisation_id == organisation_id,
+                Document.is_active == True,
+                db.or_(
+                    Document.filename.ilike(f'%{search_term}%'),
+                    Document.description.ilike(f'%{search_term}%')
+                )
+            )
+            
+            if category:
+                query = query.filter(Document.category == category)
+                
+            return query.order_by(Document.created_at.desc()).all()
+            
+        except Exception as e:
+            current_app.logger.error(f"Error searching organisation documents: {str(e)}")
+            return []
+    
+    # ADDED: New method for getting documents by club within organisation
+    def get_documents_by_club(self, organisation_id, club_id):
+        """
+        Get all documents for coaches in a specific club within an organisation
+        
+        Args:
+            organisation_id: ID of the organisation
+            club_id: ID of the specific club
+            
+        Returns:
+            List[Document]: List of documents for coaches in the club
+        """
+        try:
+            return db.session.query(Document)\
+                .join(User, Document.uploaded_for_coach_id == User.id)\
+                .filter(
+                    Document.organisation_id == organisation_id,
+                    User.tennis_club_id == club_id,
+                    Document.is_active == True
+                ).order_by(Document.created_at.desc()).all()
+                
+        except Exception as e:
+            current_app.logger.error(f"Error getting club documents: {str(e)}")
+            return []
+    
+    # BACKWARD COMPATIBILITY: Keep old method name for existing code
+    def get_club_document_stats(self, tennis_club_id):
+        """
+        DEPRECATED: Use get_organisation_document_stats instead
+        Get document statistics for a club (backward compatibility)
+        """
+        try:
+            # Get the organisation_id from the club
+            from app.models import TennisClub
+            club = TennisClub.query.get(tennis_club_id)
+            if not club:
+                return {'total_documents': 0, 'by_category': {}}
+                
+            # Get organisation stats and filter for this club
+            org_stats = self.get_organisation_document_stats(club.organisation_id)
+            
+            # Filter stats for just this club's coaches
+            club_docs = self.get_documents_by_club(club.organisation_id, tennis_club_id)
+            
+            # Count by category for this club only
+            category_counts = {}
+            for doc in club_docs:
+                category_counts[doc.category] = category_counts.get(doc.category, 0) + 1
+            
+            return {
+                'total_documents': len(club_docs),
+                'by_category': category_counts
+            }
+            
+        except Exception as e:
+            current_app.logger.error(f"Error getting club document stats: {str(e)}")
             return {'total_documents': 0, 'by_category': {}}

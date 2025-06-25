@@ -43,7 +43,7 @@ def get_documents():
     try:
         coach_id = request.args.get('coach_id', type=int)
         current_app.logger.info(f"Fetching documents for coach_id: {coach_id}")
-        current_app.logger.info(f"Current user: {current_user.id}, club: {current_user.tennis_club_id}")
+        current_app.logger.info(f"Current user: {current_user.id}, organisation: {current_user.tennis_club.organisation_id}")
         
         if coach_id:
             # Get documents for specific coach
@@ -55,25 +55,25 @@ def get_documents():
                 current_app.logger.error(f"Coach {coach_id} not found")
                 return jsonify({'error': 'Coach not found'}), 404
             
-            current_app.logger.info(f"Coach club org: {coach.tennis_club.organisation_id}")
-            current_app.logger.info(f"Current user club org: {current_user.tennis_club.organisation_id}")
+            current_app.logger.info(f"Coach organisation: {coach.tennis_club.organisation_id}")
+            current_app.logger.info(f"Current user organisation: {current_user.tennis_club.organisation_id}")
             
             # Verify coach belongs to same organisation
             if coach.tennis_club.organisation_id != current_user.tennis_club.organisation_id:
                 current_app.logger.error(f"Coach not in same organisation")
                 return jsonify({'error': 'Coach not found or not accessible'}), 404
             
-            current_app.logger.info(f"Getting documents for coach {coach_id} in club {current_user.tennis_club_id}")
+            current_app.logger.info(f"Getting documents for coach {coach_id} in organisation {current_user.tennis_club.organisation_id}")
             documents = document_service.get_documents_for_coach(
                 coach_id, 
-                current_user.tennis_club_id
+                current_user.tennis_club.organisation_id  # CHANGED: pass organisation_id instead of club_id
             )
             current_app.logger.info(f"Found {len(documents)} documents")
         else:
-            # Get all documents for the club
-            current_app.logger.info(f"Getting all documents for club {current_user.tennis_club_id}")
+            # Get all documents for the organisation (CHANGED)
+            current_app.logger.info(f"Getting all documents for organisation {current_user.tennis_club.organisation_id}")
             documents = Document.query.filter_by(
-                tennis_club_id=current_user.tennis_club_id,
+                organisation_id=current_user.tennis_club.organisation_id,  # CHANGED
                 is_active=True
             ).order_by(Document.created_at.desc()).all()
         
@@ -141,12 +141,12 @@ def upload_document():
             current_app.logger.error(f"Coach not in same organisation")
             return jsonify({'error': 'Coach not found or not accessible'}), 404
         
-        # Validate file type - DO NOT use the file stream for this
+        # Validate file type
         if not _is_allowed_file(file.filename):
             current_app.logger.error(f"File type not allowed: {file.filename}")
             return jsonify({'error': 'File type not allowed'}), 400
         
-        # Validate file size with better error handling
+        # Validate file size
         try:
             file.seek(0)  # Ensure we're at the beginning
             if not _is_valid_file_size_safe(file):
@@ -207,9 +207,6 @@ def upload_document():
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': f'Failed to upload document: {str(e)}'}), 500
 
-
-
-
 @bp.route('/api/documents/<int:document_id>/download', methods=['GET'])
 @login_required
 def download_document(document_id):
@@ -220,7 +217,7 @@ def download_document(document_id):
         # Get document and verify access
         document = document_service.get_document_by_id(
             document_id, 
-            current_user.tennis_club_id
+            current_user.tennis_club.organisation_id  # CHANGED: use organisation_id
         )
         
         if not document:
@@ -264,7 +261,7 @@ def delete_document(document_id):
         # Get document and verify access
         document = document_service.get_document_by_id(
             document_id,
-            current_user.tennis_club_id
+            current_user.tennis_club.organisation_id  # CHANGED: use organisation_id
         )
         
         if not document:
@@ -278,7 +275,7 @@ def delete_document(document_id):
         # Delete document
         success = document_service.delete_document(
             document_id,
-            current_user.tennis_club_id,
+            current_user.tennis_club.organisation_id,  # CHANGED: use organisation_id
             current_user.id
         )
         
@@ -303,7 +300,7 @@ def update_document(document_id):
         # Get document and verify access
         document = document_service.get_document_by_id(
             document_id,
-            current_user.tennis_club_id
+            current_user.tennis_club.organisation_id  # CHANGED: use organisation_id
         )
         
         if not document:
@@ -329,7 +326,7 @@ def update_document(document_id):
         # Update document
         updated_document = document_service.update_document_metadata(
             document_id,
-            current_user.tennis_club_id,
+            current_user.tennis_club.organisation_id,  # CHANGED: use organisation_id
             metadata
         )
         
@@ -362,36 +359,63 @@ def get_document_categories():
 @bp.route('/api/documents/stats', methods=['GET'])
 @login_required
 def get_document_stats():
-    """Get document statistics for the club"""
+    """Get document statistics for the organisation"""  # CHANGED: description
     try:
-        stats = document_service.get_club_document_stats(current_user.tennis_club_id)
+        stats = document_service.get_organisation_document_stats(current_user.tennis_club.organisation_id)  # CHANGED: method name and parameter
         return jsonify(stats)
     except Exception as e:
         current_app.logger.error(f"Error getting document stats: {str(e)}")
         return jsonify({'error': 'Failed to get statistics'}), 500
 
-# Helper functions
+# ADD NEW ENDPOINT: Get organisation-wide coaches
+@bp.route('/api/organisation/coaches', methods=['GET'])
+@login_required
+def get_organisation_coaches():
+    """Get all coaches in the organisation"""
+    try:
+        current_app.logger.info(f"Fetching coaches for organisation {current_user.tennis_club.organisation_id}")
+        
+        # Get all coaches in the organisation across all clubs
+        coaches = User.query.join(TennisClub).filter(
+            TennisClub.organisation_id == current_user.tennis_club.organisation_id,
+            User.is_active == True
+        ).order_by(User.name).all()
+        
+        coach_data = []
+        for coach in coaches:
+            coach_data.append({
+                'id': coach.id,
+                'name': coach.name,
+                'email': coach.email,
+                'club_name': coach.tennis_club.name,
+                'role': coach.role.value if coach.role else 'coach'
+            })
+        
+        current_app.logger.info(f"Found {len(coach_data)} coaches in organisation")
+        return jsonify(coach_data)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching organisation coaches: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': 'Failed to fetch coaches'}), 500
 
+# Helper functions remain the same
 def _is_valid_file_size_safe(file):
     """Safely check if file size is within limits (10MB)"""
     MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
     
     try:
-        # Check if file is closed
         if hasattr(file, 'closed') and file.closed:
             current_app.logger.error("File is closed in size validation")
             return False
         
-        # Get current position
         current_pos = file.tell()
         current_app.logger.debug(f"Current position in size validation: {current_pos}")
         
-        # Seek to end to get size
         file.seek(0, 2)
         size = file.tell()
         current_app.logger.debug(f"File size in validation: {size} bytes")
         
-        # Reset to original position
         file.seek(current_pos)
         
         is_valid = size <= MAX_FILE_SIZE
@@ -400,13 +424,11 @@ def _is_valid_file_size_safe(file):
         
     except Exception as e:
         current_app.logger.error(f"Error checking file size: {str(e)}")
-        # Reset to beginning as fallback
         try:
             file.seek(0)
         except:
             current_app.logger.error("Cannot reset file position in size validation")
         return False
-
 
 def _is_allowed_file(filename):
     """Check if file type is allowed - filename only, no file stream access"""
