@@ -1,5 +1,5 @@
 # app/utils/report_generator.py
-# Simple and compact tennis report generator
+# Complete updated tennis report generator with compact rating display
 
 from io import BytesIO
 from datetime import datetime
@@ -27,7 +27,7 @@ except Exception as e:
     print(f"WARNING: {WEASYPRINT_ERROR}")
 
 class CompactTennisReportGenerator:
-    """Simple and compact tennis report generator"""
+    """Simple and compact tennis report generator with enhanced rating display"""
     
     def create_single_report_pdf(self, report, output_path):
         """Generate a simple tennis report using HTML/CSS"""
@@ -73,7 +73,9 @@ class CompactTennisReportGenerator:
         for section_name, section_content in content.items():
             if section_content:
                 if isinstance(section_content, dict):
-                    if self._is_skills_section(section_content):
+                    if self._is_rating_section(section_content):
+                        sections_html += self._create_rating_section(section_name, section_content)
+                    elif self._is_skills_section(section_content):
                         sections_html += self._create_skills_section(section_name, section_content)
                     else:
                         sections_html += self._create_text_section(section_name, section_content)
@@ -81,6 +83,30 @@ class CompactTennisReportGenerator:
                     sections_html += self._create_text_section(section_name, section_content)
         
         return sections_html or '<div class="section"><h3>Assessment</h3><p>No assessment provided.</p></div>'
+
+    def _is_rating_section(self, content):
+        """Check if section content represents rating fields (1-5 scale)"""
+        if not isinstance(content, dict):
+            return False
+        
+        # Check for numeric ratings (1-5) - either as numbers or strings
+        rating_count = 0
+        for value in content.values():
+            try:
+                # Try to convert to int and check if it's in 1-5 range
+                if isinstance(value, (int, str)):
+                    num_val = int(str(value).strip())
+                    if 1 <= num_val <= 5:
+                        rating_count += 1
+            except (ValueError, TypeError):
+                # Also check for full format like "3 - Average"
+                if isinstance(value, str):
+                    rating_pattern = re.compile(r'^[1-5]\s*-\s*.+$')
+                    if rating_pattern.match(value.strip()):
+                        rating_count += 1
+        
+        # If most values (at least 50%) look like ratings, treat as rating section
+        return rating_count >= len(content) * 0.5
 
     def _is_skills_section(self, content):
         """Check if section content represents skills assessment"""
@@ -92,6 +118,75 @@ class CompactTennisReportGenerator:
             isinstance(value, str) and value.lower() in skill_values 
             for value in content.values()
         )
+
+    def _create_rating_section(self, section_name, rating_data):
+        """Create compact HTML for rating assessment section"""
+        html = f'<div class="section rating-section"><h3>{section_name}</h3>'
+        html += '<div class="rating-grid">'
+        
+        # Rating descriptions mapping
+        rating_descriptions = {
+            1: "Poor",
+            2: "Below Average", 
+            3: "Average",
+            4: "Good",
+            5: "Excellent"
+        }
+        
+        for skill_name, rating_value in rating_data.items():
+            rating_num = None
+            rating_desc = None
+            
+            # Handle different rating value formats
+            if isinstance(rating_value, str):
+                # Check if it's full format like "3 - Average"
+                rating_match = re.match(r'^([1-5])\s*-\s*(.+)$', rating_value.strip())
+                if rating_match:
+                    rating_num = int(rating_match.group(1))
+                    rating_desc = rating_match.group(2)
+                else:
+                    # Try to parse as just a number
+                    try:
+                        rating_num = int(rating_value.strip())
+                        if 1 <= rating_num <= 5:
+                            rating_desc = rating_descriptions.get(rating_num, "Unknown")
+                    except ValueError:
+                        continue
+            elif isinstance(rating_value, (int, float)):
+                # Handle numeric values
+                rating_num = int(rating_value)
+                if 1 <= rating_num <= 5:
+                    rating_desc = rating_descriptions.get(rating_num, "Unknown")
+            
+            if rating_num and rating_desc:
+                # Get color based on rating
+                rating_class = self._get_rating_class(rating_num)
+                
+                html += f'''
+                <div class="rating-item {rating_class}">
+                    <div class="rating-skill">{skill_name}</div>
+                    <div class="rating-score">
+                        <span class="rating-number">{rating_num}</span>
+                        <span class="rating-desc">{rating_desc}</span>
+                    </div>
+                </div>
+                '''
+        
+        html += '</div></div>'
+        return html
+
+    def _get_rating_class(self, rating_num):
+        """Get CSS class based on rating number"""
+        if rating_num >= 5:
+            return 'rating-excellent'
+        elif rating_num >= 4:
+            return 'rating-good'
+        elif rating_num >= 3:
+            return 'rating-average'
+        elif rating_num >= 2:
+            return 'rating-below'
+        else:
+            return 'rating-poor'
 
     def _create_skills_section(self, section_name, skills_data):
         """Create HTML for skills assessment section"""
@@ -167,14 +262,14 @@ class CompactTennisReportGenerator:
         return '<br>'.join(result)
 
     def _generate_html_template(self, report, sections_html):
-        """Generate the ultra-compact HTML template"""
+        """Generate the ultra-compact HTML template with enhanced rating styles"""
         club_name = report.programme_player.tennis_club.name
         term_name = report.teaching_period.name
         student_name = report.student.name
         coach_name = report.coach.name
         group_name = report.tennis_group.name
         
-        # Slightly larger recommendation section
+        # Recommendation section
         recommendation_html = ""
         if report.recommended_group:
             recommendation_html = f'<div class="recommendation">🏆 Next Term Recommendation: <strong>{report.recommended_group.name}</strong></div>'
@@ -297,6 +392,90 @@ class CompactTennisReportGenerator:
             font-size: 10px;
         }}
         
+        /* Enhanced Rating Section Styles */
+        .rating-section {{
+            background: #fafafa;
+        }}
+        
+        .rating-grid {{
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 4px;
+        }}
+        
+        .rating-item {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 3px 6px;
+            border-radius: 2px;
+            border: 1px solid #ddd;
+            background: white;
+            font-size: 8px;
+            min-height: 20px;
+        }}
+        
+        .rating-skill {{
+            flex: 1;
+            font-weight: 500;
+            margin-right: 8px;
+            line-height: 1.1;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }}
+        
+        .rating-score {{
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+            min-width: 60px;
+        }}
+        
+        .rating-number {{
+            background: #333;
+            color: white;
+            border-radius: 50%;
+            width: 14px;
+            height: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 8px;
+            flex-shrink: 0;
+        }}
+        
+        .rating-desc {{
+            font-size: 7px;
+            color: #666;
+            font-weight: 500;
+            white-space: nowrap;
+        }}
+        
+        /* Rating color variations */
+        .rating-excellent .rating-number {{
+            background: #2e7d32;
+        }}
+        
+        .rating-good .rating-number {{
+            background: #388e3c;
+        }}
+        
+        .rating-average .rating-number {{
+            background: #ffa000;
+        }}
+        
+        .rating-below .rating-number {{
+            background: #f57c00;
+        }}
+        
+        .rating-poor .rating-number {{
+            background: #d32f2f;
+        }}
+        
+        /* Skills Section Styles */
         .skill {{
             display: flex;
             justify-content: space-between;

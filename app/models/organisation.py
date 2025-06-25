@@ -1,4 +1,5 @@
-# app/models/organisation.py
+# Update your app/models/organisation.py file with this content:
+
 from sqlalchemy import text, Index
 from app.extensions import db
 from datetime import datetime, timezone
@@ -6,12 +7,13 @@ from datetime import datetime, timezone
 from app.models.core import TennisClub
 
 class Organisation(db.Model):
-    """Simple organisation model for grouping tennis clubs"""
+    """Organisation model for grouping tennis clubs with email configuration"""
     __tablename__ = 'organisation'
     
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     slug = db.Column(db.String(50), nullable=False, unique=True)
+    sender_email = db.Column(db.String(120), nullable=True)  # Custom sender for reports
     created_at = db.Column(db.DateTime(timezone=True), server_default=text('CURRENT_TIMESTAMP'))
     
     # Relationships
@@ -26,6 +28,10 @@ class Organisation(db.Model):
             TennisClub.organisation_id == self.id,
             User.role.in_([UserRole.ADMIN, UserRole.SUPER_ADMIN])
         ).all()
+    
+    def get_primary_club(self):
+        """Get the primary club for this organisation (first club alphabetically)"""
+        return self.clubs.order_by(TennisClub.name).first()
     
     def __repr__(self):
         return f'<Organisation {self.name}>'
