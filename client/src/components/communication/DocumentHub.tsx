@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, FileText, Download, Trash2, Plus, Folder, User, Search, ArrowLeft, X, AlertCircle, Building, Eye, ZoomIn, ZoomOut, RotateCw } from 'lucide-react';
+import { Upload, FileText, Download, Trash2, Plus, Folder, User, Search, ArrowLeft, X, AlertCircle, Building, Eye, ZoomIn, ZoomOut } from 'lucide-react';
 
 interface Document {
   id: number;
