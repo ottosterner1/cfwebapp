@@ -382,9 +382,6 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
                 documentIsPreviewable ? 'text-gray-900' : 'text-gray-900'
               }`}>
                 {document.name}
-                {documentIsPreviewable && (
-                  <span className="ml-2 text-xs text-blue-600 font-normal">(Click to preview)</span>
-                )}
               </h3>
               <p className="text-xs text-gray-500 mt-1">
                 {document.size} • {document.type} • {document.uploadedAt}
