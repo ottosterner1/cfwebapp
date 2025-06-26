@@ -207,6 +207,112 @@ def upload_document():
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': f'Failed to upload document: {str(e)}'}), 500
 
+@bp.route('/api/documents/<int:document_id>/preview', methods=['GET'])
+@login_required
+def preview_document(document_id):
+    """Generate preview content or URL for a document"""
+    try:
+        current_app.logger.info(f"Generating preview for document {document_id}")
+        
+        # Get document and verify access
+        document = document_service.get_document_by_id(
+            document_id, 
+            current_user.tennis_club.organisation_id
+        )
+        
+        if not document:
+            current_app.logger.error(f"Document {document_id} not found")
+            return jsonify({'error': 'Document not found'}), 404
+        
+        # Determine file type from extension
+        file_extension = document.filename.split('.')[-1].lower() if '.' in document.filename else ''
+        current_app.logger.info(f"File extension: {file_extension}")
+        
+        # Handle different file types
+        if file_extension in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+            # For images, generate a presigned URL for direct viewing
+            preview_url = document_service.generate_preview_url(document, expires_in=3600)
+            if not preview_url:
+                return jsonify({'error': 'Failed to generate preview URL'}), 500
+            
+            return jsonify({
+                'type': 'image',
+                'preview_url': preview_url
+            })
+            
+        elif file_extension == 'pdf':
+            # For PDFs, generate a presigned URL for iframe viewing
+            preview_url = document_service.generate_preview_url(document, expires_in=3600)
+            if not preview_url:
+                return jsonify({'error': 'Failed to generate preview URL'}), 500
+            
+            return jsonify({
+                'type': 'pdf',
+                'preview_url': preview_url
+            })
+            
+        elif file_extension == 'csv':
+            # For CSV files, read and parse the content
+            try:
+                csv_content = document_service.get_file_content(document)
+                if not csv_content:
+                    return jsonify({'error': 'Failed to read CSV file'}), 500
+                
+                # Parse CSV content
+                import csv
+                import io
+                
+                # Convert bytes to string if necessary
+                if isinstance(csv_content, bytes):
+                    csv_content = csv_content.decode('utf-8')
+                
+                # Parse CSV
+                csv_reader = csv.DictReader(io.StringIO(csv_content))
+                rows = list(csv_reader)
+                
+                current_app.logger.info(f"Parsed {len(rows)} rows from CSV")
+                
+                return jsonify({
+                    'type': 'csv',
+                    'content': rows[:500]  # Limit to first 500 rows for performance
+                })
+                
+            except Exception as e:
+                current_app.logger.error(f"Error parsing CSV: {str(e)}")
+                return jsonify({'error': 'Failed to parse CSV file'}), 500
+                
+        elif file_extension == 'txt':
+            # For text files, read the content
+            try:
+                text_content = document_service.get_file_content(document)
+                if not text_content:
+                    return jsonify({'error': 'Failed to read text file'}), 500
+                
+                # Convert bytes to string if necessary
+                if isinstance(text_content, bytes):
+                    text_content = text_content.decode('utf-8')
+                
+                # Limit text content to prevent browser issues
+                if len(text_content) > 50000:  # 50KB limit
+                    text_content = text_content[:50000] + "\n\n... (Content truncated)"
+                
+                return jsonify({
+                    'type': 'text',
+                    'content': text_content
+                })
+                
+            except Exception as e:
+                current_app.logger.error(f"Error reading text file: {str(e)}")
+                return jsonify({'error': 'Failed to read text file'}), 500
+        
+        else:
+            return jsonify({'error': 'Preview not supported for this file type'}), 400
+            
+    except Exception as e:
+        current_app.logger.error(f"Error generating preview: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': 'Failed to generate preview'}), 500
+
 @bp.route('/api/documents/<int:document_id>/download', methods=['GET'])
 @login_required
 def download_document(document_id):

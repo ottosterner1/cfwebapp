@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, FileText, Download, Trash2, Plus, Folder, User, Search, ArrowLeft, X, AlertCircle, Building } from 'lucide-react';
+import { Upload, FileText, Download, Trash2, Plus, Folder, User, Search, ArrowLeft, X, AlertCircle, Building, Eye, ZoomIn, ZoomOut, RotateCw } from 'lucide-react';
 
 interface Document {
   id: number;
@@ -16,8 +16,8 @@ interface Coach {
   id: number;
   name: string;
   email: string;
-  club_name: string;  // ADDED: Club name for organisation-wide view
-  role: string;       // ADDED: Coach role
+  club_name: string;
+  role: string;
   documents: Document[];
 }
 
@@ -37,12 +37,18 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [previewDocument, setPreviewDocument] = useState<Document | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [deletingDocumentId, setDeletingDocumentId] = useState<number | null>(null);
+  const [csvData, setCsvData] = useState<any[] | null>(null);
+  const [pdfScale, setPdfScale] = useState(1.0);
   
   // Upload form refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -55,21 +61,17 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
       try {
         setLoading(true);
         
-        // Fetch current user info first
         const userResponse = await fetch('/api/current-user');
         if (userResponse.ok) {
           const userData = await userResponse.json();
           setCurrentUser(userData);
           
-          // CHANGED: Fetch organisation-wide coaches instead of club coaches
           const coachesResponse = await fetch('/communication/api/organisation/coaches');
           if (coachesResponse.ok) {
             const coachData = await coachesResponse.json();
             
-            // Filter coaches based on permissions
             let filteredCoaches = coachData;
             if (!userData.is_admin) {
-              // Non-admin users can only see themselves
               filteredCoaches = coachData.filter((coach: any) => coach.id === userData.id);
             }
             
@@ -79,13 +81,10 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
             }));
             
             setCoaches(coachesWithDocuments);
-            
-            // Fetch documents for all coaches to show counts immediately
             await fetchDocumentsForAllCoaches(coachesWithDocuments);
           }
         }
         
-        // Fetch categories
         const categoriesResponse = await fetch('/communication/api/documents/categories');
         if (categoriesResponse.ok) {
           const categoriesData = await categoriesResponse.json();
@@ -103,7 +102,6 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
     fetchInitialData();
   }, []);
 
-  // Auto-hide success messages after 3 seconds
   useEffect(() => {
     if (success) {
       const timer = setTimeout(() => {
@@ -113,7 +111,6 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
     }
   }, [success]);
 
-  // Fetch documents for all coaches to show counts
   const fetchDocumentsForAllCoaches = async (coachList: Coach[]) => {
     try {
       const updatedCoaches = await Promise.all(
@@ -144,7 +141,6 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
       if (response.ok) {
         const documents = await response.json();
         
-        // Update the specific coach's documents
         setCoaches(prevCoaches => 
           prevCoaches.map(coach => 
             coach.id === coachId 
@@ -173,7 +169,6 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
       return;
     }
     
-    // Check permissions - only allow upload if admin or uploading for self
     if (!currentUser?.is_admin && selectedCoach !== currentUser?.id) {
       setError('You can only upload documents for yourself');
       return;
@@ -212,17 +207,13 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
       });
       
       if (response.ok) {
-        
-        // Close modal and refresh documents
         setUploadModalOpen(false);
         await fetchDocumentsForCoach(selectedCoach);
         
-        // Reset form
         if (fileInputRef.current) fileInputRef.current.value = '';
         if (categoryRef.current) categoryRef.current.value = categories[0] || '';
         if (descriptionRef.current) descriptionRef.current.value = '';
         
-        // Show success message
         setSuccess(`Document "${file.name}" uploaded successfully!`);
       } else {
         const errorData = await response.json();
@@ -236,25 +227,71 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
     }
   };
 
+  const isPreviewable = (document: Document): boolean => {
+    const previewableTypes = ['PDF', 'JPG', 'JPEG', 'PNG', 'GIF', 'WEBP', 'CSV', 'TXT'];
+    return previewableTypes.includes(document.type.toUpperCase());
+  };
+
+  const handlePreview = async (document: Document) => {
+    if (!isPreviewable(document)) {
+      setError('This file type cannot be previewed. Please download to view.');
+      return;
+    }
+
+    try {
+      setPreviewLoading(true);
+      setPreviewDocument(document);
+      setPreviewModalOpen(true);
+      setCsvData(null);
+      setPreviewUrl(null);
+      setPdfScale(1.0);
+
+      // Get preview URL from backend
+      const response = await fetch(`/communication/api/documents/${document.id}/preview`);
+      if (response.ok) {
+        const result = await response.json();
+        
+        if (document.type.toUpperCase() === 'CSV') {
+          // For CSV files, parse the content
+          setCsvData(result.content);
+        } else {
+          // For other files, use the preview URL
+          setPreviewUrl(result.preview_url);
+        }
+      } else {
+        setError('Failed to load preview');
+        setPreviewModalOpen(false);
+      }
+    } catch (error) {
+      console.error('Preview error:', error);
+      setError('Failed to load preview');
+      setPreviewModalOpen(false);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   const handleDocumentAction = async (action: string, document: Document) => {
     try {
+      if (action === 'preview') {
+        await handlePreview(document);
+        return;
+      }
+
       if (action === 'download') {
         const response = await fetch(`/communication/api/documents/${document.id}/download`);
         if (response.ok) {
           const result = await response.json();
-          // Open download URL in new tab
           window.open(result.download_url, '_blank');
         } else {
           setError('Failed to generate download link');
         }
       } else if (action === 'delete') {
-        // Check permissions - only allow delete if admin or own document
         if (!currentUser?.is_admin && document.uploadedBy !== currentUser?.id?.toString()) {
           setError('You can only delete your own documents');
           return;
         }
         
-        // Simple two-step delete confirmation
         const firstConfirm = confirm(`Are you sure you want to delete "${document.name}"?`);
         
         if (firstConfirm) {
@@ -269,7 +306,6 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
             });
             
             if (response.ok) {
-              // Refresh documents for the selected coach
               if (selectedCoach) {
                 await fetchDocumentsForCoach(selectedCoach);
               }
@@ -281,11 +317,9 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
             
             setDeletingDocumentId(null);
           } else if (userInput !== null) {
-            // User typed something other than DELETE
             setError('Deletion cancelled - please type "DELETE" exactly to confirm.');
           }
         }
-        // If firstConfirm is false, user cancelled the first dialog, so do nothing
       }
     } catch (error) {
       console.error(`Error with ${action}:`, error);
@@ -294,7 +328,6 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
     }
   };
 
-  // UPDATED: Enhanced search functionality with club name
   const filteredCoaches = coaches.filter(coach => {
     const name = coach.name || '';
     const email = coach.email || '';
@@ -306,75 +339,107 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
            clubName.toLowerCase().includes(searchLower);
   });
 
-  // Check if selected coach is still in filtered results
   const selectedCoachData = coaches.find(coach => coach.id === selectedCoach);
   const isSelectedCoachVisible = filteredCoaches.some(coach => coach.id === selectedCoach);
 
-  // Clear selection if selected coach is not visible in search results
   useEffect(() => {
     if (selectedCoach && !isSelectedCoachVisible && searchTerm) {
       setSelectedCoach(null);
     }
   }, [selectedCoach, isSelectedCoachVisible, searchTerm]);
 
-  const DocumentCard: React.FC<{ document: Document }> = ({ document }) => (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow duration-200">
-      <div className="flex items-start justify-between">
-        <div className="flex items-start space-x-3 flex-1">
-          <div className="bg-blue-50 p-2 rounded-lg flex-shrink-0">
-            <FileText className="h-5 w-5 text-blue-600" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-medium text-gray-900 truncate">{document.name}</h3>
-            <p className="text-xs text-gray-500 mt-1">
-              {document.size} • {document.type} • {document.uploadedAt}
-            </p>
-            {document.uploadedBy && (
-              <p className="text-xs text-gray-400">by {document.uploadedBy}</p>
-            )}
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mt-2 ${
-              document.category === 'Certificates' ? 'bg-green-100 text-green-800' :
-              document.category === 'Meeting Notes' ? 'bg-red-100 text-red-800' :
-              document.category === 'Policies' ? 'bg-yellow-100 text-yellow-800' :
-              document.category === 'General' ? 'bg-purple-100 text-purple-800' :
-              'bg-blue-100 text-blue-800'
+  const DocumentCard: React.FC<{ document: Document }> = ({ document }) => {
+    const documentIsPreviewable = isPreviewable(document);
+    
+    const handleCardClick = () => {
+      if (documentIsPreviewable) {
+        handleDocumentAction('preview', document);
+      }
+    };
+
+    return (
+      <div 
+        className={`bg-white border border-gray-200 rounded-lg p-4 transition-all duration-200 ${
+          documentIsPreviewable 
+            ? 'hover:shadow-md hover:border-blue-300 cursor-pointer' 
+            : 'hover:shadow-md'
+        }`}
+        onClick={handleCardClick}
+      >
+        <div className="flex items-start justify-between">
+          <div className="flex items-start space-x-3 flex-1">
+            <div className={`p-2 rounded-lg flex-shrink-0 ${
+              documentIsPreviewable ? 'bg-blue-50' : 'bg-gray-50'
             }`}>
-              {document.category}
-            </span>
-            {document.description && (
-              <p className="text-xs text-gray-600 mt-2">{document.description}</p>
+              {documentIsPreviewable ? (
+                <Eye className="h-5 w-5 text-blue-600" />
+              ) : (
+                <FileText className="h-5 w-5 text-gray-600" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className={`text-sm font-medium truncate ${
+                documentIsPreviewable ? 'text-gray-900' : 'text-gray-900'
+              }`}>
+                {document.name}
+                {documentIsPreviewable && (
+                  <span className="ml-2 text-xs text-blue-600 font-normal">(Click to preview)</span>
+                )}
+              </h3>
+              <p className="text-xs text-gray-500 mt-1">
+                {document.size} • {document.type} • {document.uploadedAt}
+              </p>
+              {document.uploadedBy && (
+                <p className="text-xs text-gray-400">by {document.uploadedBy}</p>
+              )}
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mt-2 ${
+                document.category === 'Certificates' ? 'bg-green-100 text-green-800' :
+                document.category === 'Meeting Notes' ? 'bg-red-100 text-red-800' :
+                document.category === 'Policies' ? 'bg-yellow-100 text-yellow-800' :
+                document.category === 'General' ? 'bg-purple-100 text-purple-800' :
+                'bg-blue-100 text-blue-800'
+              }`}>
+                {document.category}
+              </span>
+              {document.description && (
+                <p className="text-xs text-gray-600 mt-2">{document.description}</p>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center space-x-1 flex-shrink-0">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDocumentAction('download', document);
+              }}
+              className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+              title="Download document"
+            >
+              <Download className="h-4 w-4" />
+            </button>
+            {(currentUser?.is_admin || document.uploadedBy === currentUser?.id?.toString()) && (
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDocumentAction('delete', document);
+                }}
+                disabled={deletingDocumentId === document.id}
+                className="p-1 text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                title="Delete document"
+              >
+                {deletingDocumentId === document.id ? (
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-red-600 border-t-transparent"></div>
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+              </button>
             )}
           </div>
-        </div>
-        <div className="flex items-center space-x-1 flex-shrink-0">
-          <button 
-            onClick={() => handleDocumentAction('download', document)}
-            className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
-            title="Download document"
-          >
-            <Download className="h-4 w-4" />
-          </button>
-          {/* Show delete button if admin or own document */}
-          {(currentUser?.is_admin || document.uploadedBy === currentUser?.id?.toString()) && (
-            <button 
-              onClick={() => handleDocumentAction('delete', document)}
-              disabled={deletingDocumentId === document.id}
-              className="p-1 text-gray-400 hover:text-red-600 transition-colors disabled:opacity-50"
-              title="Delete document"
-            >
-              {deletingDocumentId === document.id ? (
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-red-600 border-t-transparent"></div>
-              ) : (
-                <Trash2 className="h-4 w-4" />
-              )}
-            </button>
-          )}
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
-  // UPDATED: Enhanced coach list item with club information
   const CoachListItem: React.FC<{ coach: Coach }> = ({ coach }) => {
     const name = coach.name || 'Unknown Coach';
     const email = coach.email || 'No email';
@@ -397,7 +462,6 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-medium text-gray-900 truncate">{name}</h3>
             <p className="text-xs text-gray-500 truncate">{email}</p>
-            {/* ADDED: Show club name */}
             <div className="flex items-center space-x-1 mt-1">
               <Building className="h-3 w-3 text-gray-400" />
               <p className="text-xs text-gray-500 truncate">{clubName}</p>
@@ -408,6 +472,174 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
           </div>
         </div>
       </button>
+    );
+  };
+
+  const PreviewModal: React.FC = () => {
+    if (!previewDocument) return null;
+
+    const renderPreviewContent = () => {
+      if (previewLoading) {
+        return (
+          <div className="flex items-center justify-center h-96">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+              <p className="mt-4 text-gray-600">Loading preview...</p>
+            </div>
+          </div>
+        );
+      }
+
+      const fileType = previewDocument.type.toUpperCase();
+
+      // Handle images
+      if (['JPG', 'JPEG', 'PNG', 'GIF', 'WEBP'].includes(fileType)) {
+        return (
+          <div className="flex justify-center">
+            <img 
+              src={previewUrl || ''} 
+              alt={previewDocument.name}
+              className="max-w-full max-h-96 object-contain rounded-lg"
+              onError={() => setError('Failed to load image preview')}
+            />
+          </div>
+        );
+      }
+
+      // Handle PDFs
+      if (fileType === 'PDF') {
+        return (
+          <div className="space-y-4">
+            <div className="flex items-center justify-center space-x-4 bg-gray-50 p-3 rounded-lg">
+              <button
+                onClick={() => setPdfScale(Math.max(0.5, pdfScale - 0.25))}
+                className="p-2 bg-white border rounded-lg hover:bg-gray-50"
+                title="Zoom out"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <span className="text-sm text-gray-600">{Math.round(pdfScale * 100)}%</span>
+              <button
+                onClick={() => setPdfScale(Math.min(3, pdfScale + 0.25))}
+                className="p-2 bg-white border rounded-lg hover:bg-gray-50"
+                title="Zoom in"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setPdfScale(1.0)}
+                className="px-3 py-2 bg-white border rounded-lg hover:bg-gray-50 text-sm"
+              >
+                Reset
+              </button>
+            </div>
+            <div className="border rounded-lg overflow-hidden">
+              <iframe
+                src={`${previewUrl}#zoom=${Math.round(pdfScale * 100)}`}
+                className="w-full h-96"
+                title={previewDocument.name}
+                onError={() => setError('Failed to load PDF preview')}
+              />
+            </div>
+          </div>
+        );
+      }
+
+      // Handle CSV files
+      if (fileType === 'CSV' && csvData) {
+        return (
+          <div className="overflow-auto max-h-96">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  {csvData.length > 0 && Object.keys(csvData[0]).map((header, index) => (
+                    <th key={index} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {csvData.slice(0, 100).map((row, rowIndex) => (
+                  <tr key={rowIndex} className={rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    {Object.values(row).map((cell: any, cellIndex) => (
+                      <td key={cellIndex} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {String(cell || '')}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {csvData.length > 100 && (
+              <div className="text-center py-4 text-sm text-gray-500">
+                Showing first 100 rows of {csvData.length} total rows
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // Handle text files
+      if (fileType === 'TXT') {
+        return (
+          <div className="bg-gray-50 p-4 rounded-lg max-h-96 overflow-auto">
+            <pre className="text-sm text-gray-900 whitespace-pre-wrap">{previewUrl}</pre>
+          </div>
+        );
+      }
+
+      return (
+        <div className="text-center py-12">
+          <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+          <p className="text-gray-600">Preview not available for this file type</p>
+        </div>
+      );
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg w-full max-w-4xl mx-4 max-h-[90vh] overflow-auto">
+          <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center">
+            <div>
+              <h3 className="text-lg font-semibold">{previewDocument.name}</h3>
+              <p className="text-sm text-gray-500">
+                {previewDocument.size} • {previewDocument.type} • {previewDocument.category}
+              </p>
+            </div>
+            <button 
+              onClick={() => {
+                setPreviewModalOpen(false);
+                setPreviewDocument(null);
+                setPreviewUrl(null);
+                setCsvData(null);
+              }}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </div>
+          
+          <div className="p-6">
+            {renderPreviewContent()}
+          </div>
+          
+          <div className="border-t px-6 py-4 bg-gray-50 flex justify-between items-center">
+            <div className="text-sm text-gray-500">
+              {previewDocument.description && (
+                <p><strong>Description:</strong> {previewDocument.description}</p>
+              )}
+            </div>
+            <button
+              onClick={() => handleDocumentAction('download', previewDocument)}
+              className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Download
+            </button>
+          </div>
+        </div>
+      </div>
     );
   };
 
@@ -434,7 +666,7 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
               type="file"
               required
               className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.mp4,.mp3,.zip"
+              accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.mp4,.mp3,.zip,.csv"
             />
           </div>
           
@@ -521,7 +753,6 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Document Hub</h1>
           <p className="text-gray-600">
-            {/* UPDATED: Changed description to reflect organisation-wide scope */}
             {currentUser?.is_admin 
               ? 'Share and manage documents across your entire organisation' 
               : 'View and manage your documents'
@@ -562,19 +793,17 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Coach List Sidebar - Only show if there are coaches */}
+          {/* Coach List Sidebar */}
           {coaches.length > 0 && (
             <div className="lg:col-span-1">
               <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg font-semibold text-gray-900">
-                    {/* UPDATED: Changed title to reflect organisation scope */}
                     {currentUser?.is_admin ? 'Coaches' : 'Your Documents'}
                   </h2>
                   <span className="text-sm text-gray-500">{coaches.length} total</span>
                 </div>
                 
-                {/* Search - Show for admins and when there are multiple coaches */}
                 {(currentUser?.is_admin && coaches.length > 1) && (
                   <div className="relative mb-4">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -588,7 +817,6 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
                   </div>
                 )}
 
-                {/* Coach List */}
                 <div className="space-y-3 max-h-96 overflow-y-auto">
                   {filteredCoaches.length > 0 ? (
                     filteredCoaches.map(coach => (
@@ -618,7 +846,7 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
           <div className={`${coaches.length > 0 ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
             {selectedCoachData && isSelectedCoachVisible ? (
               <div>
-                {/* Selected Coach Header - UPDATED with club info */}
+                {/* Selected Coach Header */}
                 <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-4">
@@ -628,14 +856,12 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
                       <div>
                         <h2 className="text-xl font-semibold text-gray-900">{selectedCoachData.name || 'Unknown Coach'}</h2>
                         <p className="text-gray-600">{selectedCoachData.email || 'No email'}</p>
-                        {/* ADDED: Show club information */}
                         <div className="flex items-center space-x-1 mt-1">
                           <Building className="h-4 w-4 text-gray-500" />
                           <span className="text-sm text-gray-500">{selectedCoachData.club_name}</span>
                         </div>
                       </div>
                     </div>
-                    {/* Only show upload button if admin or viewing own documents */}
                     {(currentUser?.is_admin || selectedCoach === currentUser?.id) && (
                       <button 
                         onClick={handleUploadClick}
@@ -718,8 +944,9 @@ const DocumentHub: React.FC<DocumentHubProps> = ({ onBack }) => {
         </div>
       </div>
 
-      {/* Upload Modal */}
+      {/* Modals */}
       {uploadModalOpen && <UploadModal />}
+      {previewModalOpen && <PreviewModal />}
     </div>
   );
 };

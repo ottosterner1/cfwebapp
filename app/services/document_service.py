@@ -550,3 +550,85 @@ class DocumentService:
         except Exception as e:
             current_app.logger.error(f"Error getting club document stats: {str(e)}")
             return {'total_documents': 0, 'by_category': {}}
+        
+    def generate_preview_url(self, document, expires_in=3600):
+        """
+        Generate a presigned URL for previewing a document
+        This is similar to generate_download_url but may have different headers
+        """
+        try:
+            from botocore.exceptions import NoCredentialsError, ClientError
+            
+            # Generate presigned URL for GET request
+            presigned_url = self.s3_client.generate_presigned_url(
+                'get_object',
+                Params={
+                    'Bucket': self.bucket_name,
+                    'Key': document.file_key
+                },
+                ExpiresIn=expires_in,
+                HttpMethod='GET'
+            )
+            
+            current_app.logger.info(f"Generated preview URL for document {document.id}")
+            return presigned_url
+            
+        except NoCredentialsError:
+            current_app.logger.error("AWS credentials not available for preview URL generation")
+            return None
+        except ClientError as e:
+            current_app.logger.error(f"AWS client error generating preview URL: {str(e)}")
+            return None
+        except Exception as e:
+            current_app.logger.error(f"Error generating preview URL: {str(e)}")
+            return None
+
+    def get_file_content(self, document, max_size=10 * 1024 * 1024):  # 10MB limit
+        """
+        Download and return the content of a file from S3
+        Use with caution - only for small files like CSVs and text files
+        """
+        try:
+            from botocore.exceptions import NoCredentialsError, ClientError
+            
+            # First check the file size to avoid downloading huge files
+            try:
+                response = self.s3_client.head_object(Bucket=self.bucket_name, Key=document.file_key)
+                file_size = response.get('ContentLength', 0)
+                
+                if file_size > max_size:
+                    current_app.logger.error(f"File too large for content reading: {file_size} bytes")
+                    return None
+                    
+            except ClientError as e:
+                current_app.logger.error(f"Error checking file size: {str(e)}")
+                return None
+            
+            # Download the file content
+            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=document.file_key)
+            content = response['Body'].read()
+            
+            current_app.logger.info(f"Downloaded {len(content)} bytes for document {document.id}")
+            return content
+            
+        except NoCredentialsError:
+            current_app.logger.error("AWS credentials not available for file content retrieval")
+            return None
+        except ClientError as e:
+            current_app.logger.error(f"AWS client error retrieving file content: {str(e)}")
+            return None
+        except Exception as e:
+            current_app.logger.error(f"Error retrieving file content: {str(e)}")
+            return None
+
+    def is_previewable(self, document):
+        """
+        Check if a document can be previewed based on its file type
+        """
+        if not document or not document.filename:
+            return False
+        
+        file_extension = document.filename.split('.')[-1].lower() if '.' in document.filename else ''
+        previewable_extensions = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp', 'csv', 'txt']
+        
+        return file_extension in previewable_extensions
