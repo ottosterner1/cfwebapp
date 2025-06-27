@@ -220,7 +220,6 @@ class EmailService:
                         {content}
                     </div>
                     <div style="font-size: 0.9em; color: #666; border-top: 1px solid #eee; padding-top: 15px;">
-                        <p>Please do not reply to this email.</p>
                         <p>To ensure you receive our emails, please add {sender} to your contacts or primary inbox.</p>
                     </div>
                 </div>
