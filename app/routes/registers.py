@@ -1610,7 +1610,23 @@ def send_absence_notification_email(programme_player, register, absence_count):
         if not student.contact_email:
             current_app.logger.warning(f"Cannot send absence email - no contact email for student {student.name}")
             return False
+        
+        # Get time information from the register's group_time
+        time_display = "session"  # Default fallback
+        day_display = ""
+        
+        if register.group_time:
+            group_time = register.group_time
+            if group_time.start_time and group_time.end_time:
+                time_display = f"{group_time.start_time.strftime('%H:%M')}-{group_time.end_time.strftime('%H:%M')}"
             
+            if group_time.day_of_week:
+                day_display = f"{group_time.day_of_week.value} "
+        
+        # Combine day and time for a complete session description
+        session_description = f"{day_display}{time_display}"
+        full_session_name = f"{group.name} ({session_description})"
+        
         # Prepare email subject and content
         email_subject = f"Attendance Notice for {student.name} - {group.name}"
         
@@ -1623,7 +1639,7 @@ def send_absence_notification_email(programme_player, register, absence_count):
                     <div style="max-width: 600px; margin: 0 auto;">
                         <div style="margin-bottom: 30px;">
                             <p>Dear {student.name} or Parent/Guardian,</p>
-                            <p>We've noticed that <strong>{student.name}</strong> has missed the <strong>{group.name}</strong> session 3 times in a row.</p>
+                            <p>We've noticed that <strong>{student.name}</strong> has missed the <strong>{full_session_name}</strong> session 3 times in a row.</p>
                             <p>We wanted to check in to see if there were any issues with the session and whether you are planning on being there in future weeks.</p>
                             <p>If there's anything you want to discuss, please get in contact with Marc using the following email: headcoach@wiltontennisclub.co.uk.</p>
                             <p>Thanks,<br>Marc Beckles, Head Coach</p>
@@ -1644,7 +1660,7 @@ def send_absence_notification_email(programme_player, register, absence_count):
                     <div style="max-width: 600px; margin: 0 auto;">
                         <div style="margin-bottom: 30px;">
                             <p>Dear {student.name} or Parent/Guardian,</p>
-                            <p>We've noticed that <strong>{student.name}</strong> has missed the <strong>{group.name}</strong> session 3 times in a row.</p>
+                            <p>We've noticed that <strong>{student.name}</strong> has missed the <strong>{full_session_name}</strong> session 3 times in a row.</p>
                             <p>We wanted to check in to see if there were any issues with the session and whether you are planning on being there in future weeks.</p>
                             <p>If there's anything you want to discuss, please get in contact with the {club.name} coaching team.</p>
                             <p>Thanks,<br>{club.name}</p>
@@ -1668,7 +1684,7 @@ def send_absence_notification_email(programme_player, register, absence_count):
         )
         
         if success:
-            current_app.logger.info(f"Absence notification email sent successfully to {student.contact_email} for {student.name}")
+            current_app.logger.info(f"Absence notification email sent successfully to {student.contact_email} for {student.name} - {full_session_name}")
             return True
         else:
             current_app.logger.error(f"Failed to send absence notification email: {result}")
