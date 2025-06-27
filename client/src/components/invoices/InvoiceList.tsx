@@ -31,10 +31,10 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
   const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
   
   // Compute authorization flags
   const isAdmin = userRole === 'admin' || userRole === 'super_admin';
-  const isSuperAdmin = userRole === 'super_admin';
   
   // Fetch invoices
   useEffect(() => {
@@ -122,14 +122,15 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
     return status === 'draft' || status === 'rejected';
   };
   
-  // Check if an invoice is deletable
+  // Check if an invoice is deletable - Updated: No one can delete paid invoices
   const canDeleteInvoice = (invoice: Invoice) => {
     if (invoice.status === 'draft') {
       return true;
     } else if (['submitted', 'approved', 'rejected'].includes(invoice.status)) {
       return isAdmin;
     } else if (invoice.status === 'paid') {
-      return isSuperAdmin;
+      // No one can delete paid invoices, not even super admins
+      return false;
     }
     return false;
   };
@@ -137,17 +138,19 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
   // Handle delete confirmation
   const handleOpenDeleteConfirm = (invoice: Invoice) => {
     setInvoiceToDelete(invoice);
+    setDeleteConfirmText(''); // Reset confirmation text
     setDeleteConfirmOpen(true);
   };
   
   const handleCloseDeleteConfirm = () => {
     setDeleteConfirmOpen(false);
     setInvoiceToDelete(null);
+    setDeleteConfirmText('');
   };
   
-  // Handle delete invoice
+  // Handle delete invoice - Updated: Require "DELETE" confirmation
   const handleDeleteInvoice = async () => {
-    if (!invoiceToDelete) return;
+    if (!invoiceToDelete || deleteConfirmText !== 'DELETE') return;
     
     try {
       setDeleting(true);
@@ -175,6 +178,9 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
       setDeleting(false);
     }
   };
+  
+  // Check if delete button should be enabled
+  const isDeleteButtonEnabled = deleteConfirmText === 'DELETE' && !deleting;
   
   return (
     <div className="space-y-4 lg:space-y-6">
@@ -324,14 +330,14 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
                     {/* Invoice Header */}
                     <div className="flex justify-between items-start mb-3">
                       <div className="min-w-0 flex-1">
-                        <h3 className="font-medium text-gray-900 text-base mb-1">
+                        <h3 className="font-medium text-gray-900 text-base mb-1 break-all leading-tight">
                           Invoice #{invoice.invoice_number}
                         </h3>
                         <p className="text-sm text-gray-600">
                           {invoice.month_name} {invoice.year}
                         </p>
                       </div>
-                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getStatusBadgeColor(invoice.status)}`}>
+                      <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getStatusBadgeColor(invoice.status)} flex-shrink-0 ml-2`}>
                         {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
                       </span>
                     </div>
@@ -428,7 +434,7 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
                       {filteredInvoices.map(invoice => (
                         <tr key={invoice.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {invoice.invoice_number}
+                            <div className="break-all">{invoice.invoice_number}</div>
                           </td>
                           {isAdmin && (
                             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -499,7 +505,7 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
         </>
       )}
       
-      {/* Delete Confirmation Modal */}
+      {/* Enhanced Delete Confirmation Modal */}
       {deleteConfirmOpen && invoiceToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 p-4">
           <div className="bg-white rounded-lg p-6 max-w-md w-full">
@@ -507,12 +513,23 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
             <p className="mb-4 text-sm lg:text-base">
               Are you sure you want to delete invoice #{invoiceToDelete.invoice_number} for {invoiceToDelete.month_name} {invoiceToDelete.year}?
             </p>
+  
             
-            {invoiceToDelete.status === 'paid' && (
-              <div className="p-3 bg-yellow-100 text-yellow-800 rounded mb-4 text-sm">
-                <strong>Warning:</strong> This is a paid invoice. Deleting it will permanently remove the payment record.
-              </div>
-            )}
+            {/* Type DELETE confirmation */}
+            <div className="mb-4">
+              <label htmlFor="deleteConfirm" className="block text-sm font-medium text-gray-700 mb-2">
+                Type <span className="font-bold text-red-600">DELETE</span> to confirm:
+              </label>
+              <input
+                id="deleteConfirm"
+                type="text"
+                value={deleteConfirmText}
+                onChange={(e) => setDeleteConfirmText(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                placeholder="Type DELETE here"
+                disabled={deleting}
+              />
+            </div>
             
             <div className="flex flex-col sm:flex-row justify-end gap-3">
               <button
@@ -524,12 +541,14 @@ const InvoiceList: React.FC<InvoiceListProps> = ({
               </button>
               <button
                 onClick={handleDeleteInvoice}
-                className={`w-full sm:w-auto px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors ${
-                  deleting ? 'opacity-70 cursor-not-allowed' : ''
+                className={`w-full sm:w-auto px-4 py-2 rounded-lg text-white transition-colors ${
+                  isDeleteButtonEnabled 
+                    ? 'bg-red-600 hover:bg-red-700' 
+                    : 'bg-red-300 cursor-not-allowed'
                 }`}
-                disabled={deleting}
+                disabled={!isDeleteButtonEnabled}
               >
-                {deleting ? 'Deleting...' : 'Delete'}
+                {deleting ? 'Deleting...' : 'Delete Invoice'}
               </button>
             </div>
           </div>
