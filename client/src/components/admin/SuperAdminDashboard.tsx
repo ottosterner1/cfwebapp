@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle, Crown, Settings } from 'lucide-react';
+import { 
+  AlertCircle, CheckCircle, Crown, Menu, X, Building, Users, Database, Zap
+} from 'lucide-react';
 import OrganisationManagement from './OrganisationManagement';
 import ClubManagement from './ClubManagement';
 import UserManagement from './UserManagement';
@@ -37,6 +39,7 @@ interface Notification {
 interface Tab {
   id: string;
   name: string;
+  shortName: string; // For mobile display
   icon: React.ComponentType<{ className?: string }>;
 }
 
@@ -49,15 +52,42 @@ const SuperAdminDashboard: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [notification, setNotification] = useState<Notification | null>(null);
   
-  // Tab management
+  // Mobile navigation state
   const [activeTab, setActiveTab] = useState('organisations');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [, setIsTabDropdownOpen] = useState(false);
 
   const tabs: Tab[] = [
-    { id: 'organisations', name: 'Organisations', icon: Crown },
-    { id: 'clubs', name: 'Club Management', icon: Settings },
-    { id: 'users', name: 'User Management', icon: Settings },
-    { id: 'features', name: 'Feature Management', icon: Settings },
-    { id: 'data', name: 'Data Import', icon: Settings }
+    { 
+      id: 'organisations', 
+      name: 'Organisations', 
+      shortName: 'Orgs',
+      icon: Building 
+    },
+    { 
+      id: 'clubs', 
+      name: 'Club Management', 
+      shortName: 'Clubs',
+      icon: Crown 
+    },
+    { 
+      id: 'users', 
+      name: 'User Management', 
+      shortName: 'Users',
+      icon: Users 
+    },
+    { 
+      id: 'features', 
+      name: 'Feature Management', 
+      shortName: 'Features',
+      icon: Zap 
+    },
+    { 
+      id: 'data', 
+      name: 'Data Import', 
+      shortName: 'Data',
+      icon: Database 
+    }
   ];
 
   // Fetch organizations
@@ -117,8 +147,18 @@ const SuperAdminDashboard: React.FC = () => {
     setNotification(null);
   };
 
+  // Handle tab change and close mobile menu
+  const handleTabChange = (tabId: string) => {
+    setActiveTab(tabId);
+    setIsMobileMenuOpen(false);
+    setIsTabDropdownOpen(false);
+  };
+
   // Get selected club
   const selectedClub = selectedClubId ? allClubs.find(c => c.id === selectedClubId) : null;
+
+  // Get current tab
+  const currentTab = tabs.find(tab => tab.id === activeTab);
 
   // Fetch all data on component mount
   useEffect(() => {
@@ -126,13 +166,9 @@ const SuperAdminDashboard: React.FC = () => {
       setIsLoading(true);
       
       try {
-        // Fetch clubs first
         await fetchClubs();
-        
-        // Fetch organizations
         await fetchOrganisations();
         
-        // Try to get current user's club
         try {
           const userResponse = await fetch('/api/current-user', {
             credentials: 'include',
@@ -147,7 +183,6 @@ const SuperAdminDashboard: React.FC = () => {
             const clubId = userData.tennis_club?.id || userData.tennis_club_id;
             if (clubId) {
               setSelectedClubId(clubId);
-              // Note: currentClub will be set when clubs are loaded
             }
           }
         } catch (userError) {
@@ -186,6 +221,17 @@ const SuperAdminDashboard: React.FC = () => {
     }
   }, [notification]);
 
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setIsTabDropdownOpen(false);
+      setIsMobileMenuOpen(false);
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
   // Render tab content
   const renderTabContent = () => {
     switch (activeTab) {
@@ -215,8 +261,10 @@ const SuperAdminDashboard: React.FC = () => {
             onNotification={handleNotification}
           />
         ) : (
-          <div className="text-center py-8 text-gray-500">
-            Please select a club using the Club Management tab first.
+          <div className="text-center py-8 text-gray-500 px-4">
+            <Building className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+            <p className="text-lg font-medium mb-2">No Club Selected</p>
+            <p className="text-sm">Please select a club using the Club Management tab first.</p>
           </div>
         );
       
@@ -227,8 +275,10 @@ const SuperAdminDashboard: React.FC = () => {
             onNotification={handleNotification}
           />
         ) : (
-          <div className="text-center py-8 text-gray-500">
-            Please select a club using the Club Management tab first.
+          <div className="text-center py-8 text-gray-500 px-4">
+            <Zap className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+            <p className="text-lg font-medium mb-2">No Club Selected</p>
+            <p className="text-sm">Please select a club using the Club Management tab first.</p>
           </div>
         );
       
@@ -239,8 +289,10 @@ const SuperAdminDashboard: React.FC = () => {
             onNotification={handleNotification}
           />
         ) : (
-          <div className="text-center py-8 text-gray-500">
-            Please select a club using the Club Management tab first.
+          <div className="text-center py-8 text-gray-500 px-4">
+            <Database className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+            <p className="text-lg font-medium mb-2">No Club Selected</p>
+            <p className="text-sm">Please select a club using the Club Management tab first.</p>
           </div>
         );
       
@@ -258,122 +310,160 @@ const SuperAdminDashboard: React.FC = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto p-6">
-      {/* Notification */}
-      {notification && (
-        <div className={`mb-6 p-4 rounded-md border ${
-          notification.type === 'success' 
-            ? 'bg-green-50 border-green-200 text-green-800' 
-            : notification.type === 'warning'
-            ? 'bg-yellow-50 border-yellow-200 text-yellow-800'
-            : 'bg-red-50 border-red-200 text-red-800'
-        }`}>
+    <div className="min-h-screen bg-gray-50">
+      {/* Mobile Header */}
+      <div className="lg:hidden bg-white shadow-sm border-b">
+        <div className="px-4 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              {notification.type === 'success' ? (
-                <CheckCircle className="h-5 w-5 mr-2 text-green-600" />
-              ) : (
-                <AlertCircle className="h-5 w-5 mr-2 text-red-600" />
-              )}
-              <p>{notification.message}</p>
-            </div>
+            <h1 className="text-lg font-bold text-gray-900 truncate">
+              Super Admin
+            </h1>
             <button
-              onClick={clearNotification}
-              className="ml-2 text-gray-400 hover:text-gray-600"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsMobileMenuOpen(!isMobileMenuOpen);
+              }}
+              className="p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100"
             >
-              ×
+              {isMobileMenuOpen ? (
+                <X className="h-6 w-6" />
+              ) : (
+                <Menu className="h-6 w-6" />
+              )}
             </button>
           </div>
-        </div>
-      )}
-      
-      {/* Header */}
-      <div className="bg-white shadow-lg rounded-lg mb-8">
-        <div className="px-6 py-4 border-b border-gray-200 flex flex-row items-center justify-between">
-          <h1 className="text-2xl font-bold">Super Admin Dashboard</h1>
+          
+          {/* Current Club Badge - Mobile */}
           {currentClub && (
-            <div className="bg-purple-100 text-purple-800 py-1 px-3 rounded-full text-sm font-medium">
-              Current Club: {currentClub.name}
+            <div className="mt-3">
+              <div className="bg-purple-100 text-purple-800 py-2 px-3 rounded-lg text-sm font-medium text-center">
+                {currentClub.name}
+              </div>
             </div>
           )}
         </div>
-        
-        {/* Tab Navigation */}
-        <div className="px-6">
-          <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-            {tabs.map((tab) => {
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`${
-                    isActive
-                      ? 'border-indigo-500 text-indigo-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-                >
-                  <tab.icon className="h-4 w-4 mr-2" />
-                  {tab.name}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
+
+        {/* Mobile Navigation Menu */}
+        {isMobileMenuOpen && (
+          <div className="border-t border-gray-200 bg-white">
+            <div className="px-4 py-2 space-y-1">
+              {tabs.map((tab) => {
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => handleTabChange(tab.id)}
+                    className={`${
+                      isActive
+                        ? 'bg-indigo-50 text-indigo-700 border-indigo-500'
+                        : 'text-gray-600 hover:bg-gray-50 border-transparent'
+                    } w-full text-left px-3 py-3 rounded-lg border font-medium text-base flex items-center transition-colors`}
+                  >
+                    <tab.icon className="h-5 w-5 mr-3" />
+                    {tab.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Tab Content */}
-      <div className="bg-white shadow-lg rounded-lg">
-        <div className="p-6">
-          {renderTabContent()}
-        </div>
-      </div>
-
-      {/* Management Links - Only show if club is selected */}
-      {selectedClub && (
-        <div className="mt-8 bg-white shadow-lg rounded-lg">
-          <div className="p-6">
-            <h3 className="font-medium mb-4">Quick Access Links for {selectedClub.name}</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <a 
-                href={`/clubs/manage/${selectedClub.id}/club`}
-                className="bg-indigo-600 text-white py-3 px-4 rounded-md hover:bg-indigo-700 text-center flex items-center justify-center"
-              >
-                <Settings className="h-4 w-4 mr-2" />
-                Club Settings
-              </a>
-              <a 
-                href={`/clubs/manage/${selectedClub.id}/coaches`}
-                className="bg-indigo-600 text-white py-3 px-4 rounded-md hover:bg-indigo-700 text-center flex items-center justify-center"
-              >
-                <Settings className="h-4 w-4 mr-2" />
-                Coaches
-              </a>
-              <a 
-                href={`/clubs/manage/${selectedClub.id}/groups`}
-                className="bg-indigo-600 text-white py-3 px-4 rounded-md hover:bg-indigo-700 text-center flex items-center justify-center"
-              >
-                <Settings className="h-4 w-4 mr-2" />
-                Groups
-              </a>
-              <a 
-                href={`/clubs/manage/${selectedClub.id}/teaching-periods`}
-                className="bg-indigo-600 text-white py-3 px-4 rounded-md hover:bg-indigo-700 text-center flex items-center justify-center"
-              >
-                <Settings className="h-4 w-4 mr-2" />
-                Teaching Periods
-              </a>
-              <a 
-                href={`/clubs/manage/${selectedClub.id}/players`}
-                className="bg-indigo-600 text-white py-3 px-4 rounded-md hover:bg-indigo-700 text-center flex items-center justify-center"
-              >
-                <Settings className="h-4 w-4 mr-2" />
-                Players
-              </a>
+      {/* Desktop Header */}
+      <div className="hidden lg:block">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="bg-white shadow-lg rounded-lg mb-8">
+            <div className="px-6 py-4 border-b border-gray-200 flex flex-row items-center justify-between">
+              <h1 className="text-2xl font-bold">Super Admin Dashboard</h1>
+              {currentClub && (
+                <div className="bg-purple-100 text-purple-800 py-1 px-3 rounded-full text-sm font-medium">
+                  Current Club: {currentClub.name}
+                </div>
+              )}
+            </div>
+            
+            {/* Desktop Tab Navigation */}
+            <div className="px-6">
+              <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                {tabs.map((tab) => {
+                  const isActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`${
+                        isActive
+                          ? 'border-indigo-500 text-indigo-600'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
+                    >
+                      <tab.icon className="h-4 w-4 mr-2" />
+                      {tab.name}
+                    </button>
+                  );
+                })}
+              </nav>
             </div>
           </div>
         </div>
-      )}
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
+        {/* Notification */}
+        {notification && (
+          <div className={`mb-4 lg:mb-6 p-4 rounded-md border ${
+            notification.type === 'success' 
+              ? 'bg-green-50 border-green-200 text-green-800' 
+              : notification.type === 'warning'
+              ? 'bg-yellow-50 border-yellow-200 text-yellow-800'
+              : 'bg-red-50 border-red-200 text-red-800'
+          }`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                {notification.type === 'success' ? (
+                  <CheckCircle className="h-5 w-5 mr-2 text-green-600 flex-shrink-0" />
+                ) : (
+                  <AlertCircle className="h-5 w-5 mr-2 text-red-600 flex-shrink-0" />
+                )}
+                <p className="text-sm lg:text-base">{notification.message}</p>
+              </div>
+              <button
+                onClick={clearNotification}
+                className="ml-2 text-gray-400 hover:text-gray-600 flex-shrink-0"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Mobile Tab Indicator */}
+        <div className="lg:hidden mb-4">
+          <div className="bg-white rounded-lg shadow-sm border p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                {currentTab && (
+                  <>
+                    <currentTab.icon className="h-5 w-5 text-indigo-600 mr-2" />
+                    <span className="font-medium text-gray-900">{currentTab.name}</span>
+                  </>
+                )}
+              </div>
+              <div className="text-sm text-gray-500">
+                {tabs.findIndex(tab => tab.id === activeTab) + 1} of {tabs.length}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tab Content */}
+        <div className="bg-white shadow-lg rounded-lg">
+          <div className="p-4 lg:p-6">
+            {renderTabContent()}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

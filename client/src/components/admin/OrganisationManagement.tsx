@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Building, Plus, Edit2, Mail, CheckCircle, 
-  AlertCircle, Clock, RefreshCw, Save, X
+  AlertCircle, Clock, RefreshCw, Save, X, ChevronDown, ChevronUp
 } from 'lucide-react';
 
 interface Organisation {
@@ -314,16 +314,17 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
   }
 
   return (
-    <div className="border rounded-lg p-6 bg-gradient-to-r from-indigo-50 to-purple-50">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-semibold flex items-center">
-          <Building className="h-6 w-6 mr-3 text-indigo-600" />
+    <div className="space-y-4 lg:space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 p-4 lg:p-6 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg">
+        <h2 className="text-lg lg:text-xl font-semibold flex items-center">
+          <Building className="h-5 w-5 lg:h-6 lg:w-6 mr-2 lg:mr-3 text-indigo-600 flex-shrink-0" />
           Organisation Management
         </h2>
         <button
           type="button"
           onClick={() => setShowCreateForm(true)}
-          className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 text-sm flex items-center"
+          className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium flex items-center justify-center touch-manipulation transition-colors"
         >
           <Plus className="h-4 w-4 mr-1" />
           Create Organisation
@@ -332,35 +333,44 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
 
       {/* Create/Edit Form */}
       {showCreateForm && (
-        <div className="mb-6 bg-white p-6 rounded-lg border shadow-sm">
-          <h3 className="font-medium mb-4">
-            {editingOrg ? 'Edit Organisation' : 'Create New Organisation'}
-          </h3>
+        <div className="bg-white p-4 lg:p-6 rounded-lg border shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-medium text-lg">
+              {editingOrg ? 'Edit Organisation' : 'Create New Organisation'}
+            </h3>
+            <button
+              onClick={resetForm}
+              className="p-2 text-gray-400 hover:text-gray-600 lg:hidden"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
           
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Form fields stack on mobile */}
+            <div className="space-y-4 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Organisation Name *
                 </label>
                 <input
                   type="text"
                   value={formData.name}
                   onChange={(e) => handleNameChange(e.target.value)}
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                  className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-base"
                   placeholder="e.g., Ace Tennis Academy"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Slug (URL identifier) *
                 </label>
                 <input
                   type="text"
                   value={formData.slug}
                   onChange={(e) => setFormData(prev => ({ ...prev, slug: e.target.value }))}
-                  className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                  className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-base"
                   placeholder="e.g., ace-tennis-academy"
                   required
                 />
@@ -368,34 +378,34 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
             </div>
             
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
                 Sender Email (for reports)
               </label>
               <input
                 type="email"
                 value={formData.sender_email}
                 onChange={(e) => setFormData(prev => ({ ...prev, sender_email: e.target.value }))}
-                className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-base"
                 placeholder="e.g., reports@acetennisacademy.com"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 mt-2">
                 Optional: Custom email address for sending report emails. If not set, default system email will be used.
               </p>
             </div>
             
-            <div className="flex justify-end space-x-2">
+            {/* Action buttons */}
+            <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
               <button
                 type="button"
                 onClick={resetForm}
-                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                className="w-full sm:w-auto px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-medium touch-manipulation transition-colors"
               >
-                <X className="h-4 w-4 inline mr-1" />
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isActionLoading}
-                className="px-4 py-2 text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:bg-indigo-400 flex items-center"
+                className="w-full sm:w-auto px-4 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400 flex items-center justify-center font-medium touch-manipulation transition-colors"
               >
                 <Save className="h-4 w-4 mr-1" />
                 {isActionLoading ? 'Saving...' : (editingOrg ? 'Update' : 'Create')}
@@ -408,66 +418,92 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
       {/* Organisations List */}
       <div className="space-y-4">
         {organisations.length === 0 ? (
-          <div className="text-center py-8 text-gray-500 bg-white rounded-md border">
-            No organisations found. Create one above.
+          <div className="text-center py-12 text-gray-500 bg-white rounded-lg border">
+            <Building className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+            <p className="text-lg font-medium mb-2">No organisations found</p>
+            <p className="text-sm">Create your first organisation above.</p>
           </div>
         ) : (
           organisations.map(org => (
             <div key={org.id} className="bg-white rounded-lg border shadow-sm overflow-hidden">
               {/* Organisation Header */}
-              <div className="p-4 border-b border-gray-200">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-3">
-                      <h3 className="font-medium text-lg text-gray-900">{org.name}</h3>
-                      <span className="text-sm text-gray-500">({org.slug})</span>
+              <div className="p-4 lg:p-6">
+                <div className="flex flex-col lg:flex-row lg:justify-between lg:items-start gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
+                      <h3 className="font-medium text-lg text-gray-900 truncate">{org.name}</h3>
+                      <span className="text-sm text-gray-500 flex-shrink-0">({org.slug})</span>
                     </div>
                     
-                    <div className="mt-2 flex items-center space-x-4 text-sm text-gray-600">
-                      <span>{org.club_count} clubs</span>
-                      <span>{org.admin_count} admins</span>
-                      <span>{org.template_count} templates</span>
+                    {/* Stats - Mobile optimized */}
+                    <div className="grid grid-cols-3 gap-4 sm:flex sm:items-center sm:space-x-6 mb-4 text-sm text-gray-600">
+                      <div className="text-center sm:text-left">
+                        <div className="font-medium text-gray-900">{org.club_count}</div>
+                        <div className="text-xs">Clubs</div>
+                      </div>
+                      <div className="text-center sm:text-left">
+                        <div className="font-medium text-gray-900">{org.admin_count}</div>
+                        <div className="text-xs">Admins</div>
+                      </div>
+                      <div className="text-center sm:text-left">
+                        <div className="font-medium text-gray-900">{org.template_count}</div>
+                        <div className="text-xs">Templates</div>
+                      </div>
                     </div>
                     
-                    {/* Email Status */}
-                    <div className="mt-3 flex items-center space-x-4">
-                      <div className="flex items-center space-x-2">
+                    {/* Email Status - Mobile optimized */}
+                    <div className="space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                         <span className="text-sm font-medium text-gray-700">Email:</span>
                         {org.sender_email ? (
-                          <span className="text-sm text-gray-600">{org.sender_email}</span>
+                          <span className="text-sm text-gray-600 break-all">{org.sender_email}</span>
                         ) : (
                           <span className="text-sm text-gray-400">Not configured</span>
                         )}
                       </div>
-                      {getEmailStatusBadge(org.id, org.sender_email)}
                       
-                      {org.sender_email && !emailStatuses[org.id]?.is_verified && (
-                        <button
-                          onClick={() => handleSendVerification(org.id)}
-                          disabled={isVerifying[org.id]}
-                          className="text-sm text-indigo-600 hover:text-indigo-800 flex items-center"
-                        >
-                          {isVerifying[org.id] ? (
-                            <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
-                          ) : (
-                            <Mail className="h-3 w-3 mr-1" />
-                          )}
-                          {isVerifying[org.id] ? 'Sending...' : 'Send Verification'}
-                        </button>
-                      )}
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                        {getEmailStatusBadge(org.id, org.sender_email)}
+                        
+                        {org.sender_email && !emailStatuses[org.id]?.is_verified && (
+                          <button
+                            onClick={() => handleSendVerification(org.id)}
+                            disabled={isVerifying[org.id]}
+                            className="text-sm text-indigo-600 hover:text-indigo-800 flex items-center touch-manipulation"
+                          >
+                            {isVerifying[org.id] ? (
+                              <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                            ) : (
+                              <Mail className="h-3 w-3 mr-1" />
+                            )}
+                            {isVerifying[org.id] ? 'Sending...' : 'Send Verification'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                   
-                  <div className="flex items-center space-x-2">
+                  {/* Action buttons */}
+                  <div className="flex flex-row sm:flex-col lg:flex-row gap-2 lg:gap-2">
                     <button
                       onClick={() => setExpandedOrg(expandedOrg === org.id ? null : org.id)}
-                      className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800"
+                      className="flex-1 sm:flex-none px-3 py-2 text-sm text-gray-600 hover:text-gray-800 bg-gray-50 hover:bg-gray-100 rounded-lg flex items-center justify-center touch-manipulation transition-colors"
                     >
-                      {expandedOrg === org.id ? 'Hide Details' : 'Show Details'}
+                      {expandedOrg === org.id ? (
+                        <>
+                          <ChevronUp className="h-4 w-4 mr-1" />
+                          Hide
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="h-4 w-4 mr-1" />
+                          Details
+                        </>
+                      )}
                     </button>
                     <button
                       onClick={() => startEditing(org)}
-                      className="p-2 text-gray-400 hover:text-gray-600"
+                      className="flex-1 sm:flex-none p-2 text-gray-400 hover:text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-lg touch-manipulation transition-colors"
                     >
                       <Edit2 className="h-4 w-4" />
                     </button>
@@ -477,27 +513,29 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
               
               {/* Expanded Details */}
               {expandedOrg === org.id && (
-                <div className="p-4 bg-gray-50">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="border-t border-gray-200 p-4 lg:p-6 bg-gray-50">
+                  <div className="space-y-6 lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0">
                     {/* Clubs */}
                     <div>
                       <h4 className="font-medium text-gray-900 mb-3">Clubs ({org.clubs.length})</h4>
                       {org.clubs.length > 0 ? (
                         <div className="space-y-2">
                           {org.clubs.map(club => (
-                            <div key={club.id} className="flex justify-between items-center p-2 bg-white rounded border">
-                              <div>
-                                <div className="font-medium text-sm">{club.name}</div>
-                                <div className="text-xs text-gray-500">{club.subdomain}</div>
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                {club.user_count} users
+                            <div key={club.id} className="p-3 bg-white rounded-lg border">
+                              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-medium text-sm truncate">{club.name}</div>
+                                  <div className="text-xs text-gray-500 break-all">{club.subdomain}</div>
+                                </div>
+                                <div className="text-xs text-gray-500 flex-shrink-0">
+                                  {club.user_count} users
+                                </div>
                               </div>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-gray-500">No clubs assigned</p>
+                        <p className="text-sm text-gray-500 italic">No clubs assigned</p>
                       )}
                     </div>
                     
@@ -506,31 +544,39 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
                       <h4 className="font-medium text-gray-900 mb-3">Email Configuration</h4>
                       {org.sender_email ? (
                         <div className="space-y-2">
-                          <div className="flex justify-between items-center p-2 bg-white rounded border">
-                            <span className="text-sm font-medium">Sender Email:</span>
-                            <span className="text-sm">{org.sender_email}</span>
+                          <div className="p-3 bg-white rounded-lg border">
+                            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
+                              <span className="text-sm font-medium">Sender Email:</span>
+                              <span className="text-sm break-all">{org.sender_email}</span>
+                            </div>
                           </div>
                           
                           {emailStatuses[org.id] && (
-                            <div className="space-y-1">
-                              <div className="flex justify-between items-center p-2 bg-white rounded border">
-                                <span className="text-sm font-medium">Status:</span>
-                                <span className="text-sm">{emailStatuses[org.id].status}</span>
+                            <div className="space-y-2">
+                              <div className="p-3 bg-white rounded-lg border">
+                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
+                                  <span className="text-sm font-medium">Status:</span>
+                                  <span className="text-sm">{emailStatuses[org.id].status}</span>
+                                </div>
                               </div>
                               
-                              <div className="flex justify-between items-center p-2 bg-white rounded border">
-                                <span className="text-sm font-medium">Verified:</span>
-                                <span className="text-sm">
-                                  {emailStatuses[org.id].is_verified ? 'Yes' : 'No'}
-                                </span>
+                              <div className="p-3 bg-white rounded-lg border">
+                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
+                                  <span className="text-sm font-medium">Verified:</span>
+                                  <span className="text-sm">
+                                    {emailStatuses[org.id].is_verified ? 'Yes' : 'No'}
+                                  </span>
+                                </div>
                               </div>
                             </div>
                           )}
                         </div>
                       ) : (
-                        <p className="text-sm text-gray-500">
-                          No custom email configured. Reports will be sent from the default system email.
-                        </p>
+                        <div className="p-3 bg-white rounded-lg border">
+                          <p className="text-sm text-gray-500 italic">
+                            No custom email configured. Reports will be sent from the default system email.
+                          </p>
+                        </div>
                       )}
                     </div>
                   </div>
