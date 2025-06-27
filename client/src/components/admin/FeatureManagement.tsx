@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Save, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Settings, Save, ToggleLeft, ToggleRight, Zap } from 'lucide-react';
 
 interface Feature {
   name: string;
@@ -175,79 +175,138 @@ const FeatureManagement: React.FC<FeatureManagementProps> = ({ selectedClub, onN
   }, [selectedClub]);
 
   return (
-    <div className="border rounded-lg p-6 bg-gradient-to-r from-purple-50 to-pink-50">
-      <h2 className="text-xl font-semibold mb-4 flex items-center">
-        <Settings className="h-6 w-6 mr-3 text-purple-600" />
-        Feature Management for {selectedClub.name}
-      </h2>
+    <div className="space-y-4 lg:space-y-6">
+      {/* Header - Mobile optimized */}
+      <div className="p-4 lg:p-6 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg">
+        <h2 className="text-lg lg:text-xl font-semibold flex items-center mb-2">
+          <Zap className="h-5 w-5 lg:h-6 lg:w-6 mr-2 lg:mr-3 text-purple-600 flex-shrink-0" />
+          Feature Management
+        </h2>
+        <p className="text-sm lg:text-base text-gray-700">
+          Configure features for <span className="font-medium">{selectedClub.name}</span>
+        </p>
+      </div>
       
       {isLoadingFeatures ? (
-        <div className="flex justify-center p-4">
+        <div className="flex justify-center items-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-purple-600"></div>
         </div>
       ) : (
         <>
-          <div className="space-y-3 mb-6">
+          {/* Features List - Mobile optimized */}
+          <div className="space-y-3 lg:space-y-4">
             {Array.isArray(features) && features.length > 0 ? (
               features.map(feature => (
                 <div 
                   key={feature.name} 
-                  className="flex items-center justify-between p-4 bg-white rounded-md border hover:shadow-sm transition-shadow"
+                  className="bg-white rounded-lg border shadow-sm p-4 lg:p-6 hover:shadow-md transition-shadow"
                 >
-                  <div className="flex items-center space-x-3">
-                    <div className="text-2xl">{getFeatureIcon(feature.icon)}</div>
-                    <div>
-                      <h4 className="font-medium text-gray-800">{feature.display_name}</h4>
-                      <p className="text-sm text-gray-600">{feature.description}</p>
+                  {/* Mobile: Stack vertically, Desktop: Side by side */}
+                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                    {/* Feature Info */}
+                    <div className="flex items-start gap-3 lg:gap-4 flex-1 min-w-0">
+                      <div className="text-2xl lg:text-3xl flex-shrink-0 mt-1">
+                        {getFeatureIcon(feature.icon)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-medium text-gray-900 text-base lg:text-lg mb-1 lg:mb-2">
+                          {feature.display_name}
+                        </h4>
+                        <p className="text-sm lg:text-base text-gray-600 leading-relaxed">
+                          {feature.description}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <span className={`text-sm font-medium ${feature.is_enabled ? 'text-green-600' : 'text-gray-400'}`}>
-                      {feature.is_enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleToggleFeature(feature.name)}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
-                        feature.is_enabled ? 'bg-purple-600' : 'bg-gray-200'
-                      }`}
-                    >
-                      <span
-                        className={`${
-                          feature.is_enabled ? 'translate-x-6' : 'translate-x-1'
-                        } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
-                      />
-                    </button>
-                    {feature.is_enabled ? (
-                      <ToggleRight className="h-5 w-5 text-purple-600" />
-                    ) : (
-                      <ToggleLeft className="h-5 w-5 text-gray-400" />
-                    )}
+                    
+                    {/* Toggle Controls - Mobile optimized */}
+                    <div className="flex items-center justify-between lg:justify-end gap-4 lg:gap-3 pt-3 lg:pt-0 border-t lg:border-t-0 lg:flex-shrink-0">
+                      {/* Status Badge */}
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm lg:text-base font-medium ${
+                          feature.is_enabled ? 'text-green-600' : 'text-gray-500'
+                        }`}>
+                          {feature.is_enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                        {feature.is_enabled ? (
+                          <ToggleRight className="h-5 w-5 text-green-600 lg:hidden" />
+                        ) : (
+                          <ToggleLeft className="h-5 w-5 text-gray-400 lg:hidden" />
+                        )}
+                      </div>
+                      
+                      {/* Toggle Switch - Larger for mobile */}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleFeature(feature.name)}
+                        className={`relative inline-flex h-7 w-12 lg:h-6 lg:w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 touch-manipulation ${
+                          feature.is_enabled ? 'bg-purple-600' : 'bg-gray-300'
+                        }`}
+                      >
+                        <span className="sr-only">
+                          {feature.is_enabled ? 'Disable' : 'Enable'} {feature.display_name}
+                        </span>
+                        <span
+                          className={`${
+                            feature.is_enabled ? 'translate-x-6 lg:translate-x-6' : 'translate-x-1'
+                          } inline-block h-5 w-5 lg:h-4 lg:w-4 transform rounded-full bg-white transition-transform shadow-lg`}
+                        />
+                      </button>
+                      
+                      {/* Desktop Icons */}
+                      <div className="hidden lg:block">
+                        {feature.is_enabled ? (
+                          <ToggleRight className="h-5 w-5 text-purple-600" />
+                        ) : (
+                          <ToggleLeft className="h-5 w-5 text-gray-400" />
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               ))
             ) : (
-              <div className="text-center py-8 text-gray-500 bg-white rounded-md border">
-                <Settings className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-                <p>No features available to configure</p>
-                <p className="text-sm text-gray-400 mt-1">Features may not be set up for this club yet.</p>
+              <div className="text-center py-12 text-gray-500 bg-white rounded-lg border">
+                <Settings className="h-16 w-16 lg:h-20 lg:w-20 mx-auto text-gray-300 mb-4" />
+                <h3 className="text-lg lg:text-xl font-medium mb-2">No Features Available</h3>
+                <p className="text-sm lg:text-base text-gray-400">
+                  Features may not be set up for this club yet.
+                </p>
               </div>
             )}
           </div>
           
+          {/* Save Button - Mobile optimized */}
           {features.length > 0 && (
-            <div className="flex justify-end border-t pt-4">
-              <button 
-                type="button"
-                className={`px-6 py-2 rounded-md text-white ${
-                  isUpdatingFeatures ? 'bg-purple-400' : 'bg-purple-600 hover:bg-purple-700'
-                } flex items-center`}
-                onClick={handleSaveFeatures}
-                disabled={isUpdatingFeatures}
-              >
-                <Save className="h-4 w-4 mr-2" />
-                {isUpdatingFeatures ? 'Saving...' : 'Save Changes'}
-              </button>
+            <div className="bg-white rounded-lg border p-4 lg:p-6">
+              <div className="flex flex-col sm:flex-row sm:justify-end gap-3">
+                <button 
+                  type="button"
+                  className={`w-full sm:w-auto px-6 py-3 lg:py-2 rounded-lg text-white font-medium flex items-center justify-center touch-manipulation transition-colors ${
+                    isUpdatingFeatures 
+                      ? 'bg-purple-400 cursor-not-allowed' 
+                      : 'bg-purple-600 hover:bg-purple-700 focus:ring-2 focus:ring-purple-500 focus:ring-offset-2'
+                  }`}
+                  onClick={handleSaveFeatures}
+                  disabled={isUpdatingFeatures}
+                >
+                  {isUpdatingFeatures ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
+                      Saving Changes...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Save Changes
+                    </>
+                  )}
+                </button>
+              </div>
+              
+              {/* Save hint */}
+              <p className="text-xs lg:text-sm text-gray-500 mt-3 text-center sm:text-right">
+                Changes will take effect immediately after saving
+              </p>
             </div>
           )}
         </>
