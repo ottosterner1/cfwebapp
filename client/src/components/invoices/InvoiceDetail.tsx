@@ -102,7 +102,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     fetchInvoiceDetails();
   }, [invoiceId]);
   
-  // Handle PDF export (same logic as before)
+  // Handle PDF export
   const handleExport = async () => {
     if (!invoice) return;
     
@@ -114,17 +114,25 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       const jsPDF = jsPDFModule.default;
       const pdf = new jsPDF();
       
-      // PDF generation logic (keeping same as original)
+      // PDF generation logic
       const margin = 20;
       let yPos = margin;
       const lineHeight = 10;
       const pageWidth = 210;
+      const contentWidth = pageWidth - (2 * margin);
       
       const addText = (text: string, fontSize: number = 12, isBold: boolean = false, align: 'left' | 'center' | 'right' = 'left') => {
         pdf.setFontSize(fontSize);
         pdf.setFont('helvetica', isBold ? 'bold' : 'normal');
         pdf.text(text, align === 'left' ? margin : align === 'right' ? pageWidth - margin : pageWidth / 2, yPos, { align });
         yPos += lineHeight;
+      };
+      
+      const checkPageBreak = (height: number = lineHeight) => {
+        if (yPos + height > 280) {
+          pdf.addPage();
+          yPos = margin;
+        }
       };
       
       // Add invoice header
@@ -138,7 +146,202 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       
       yPos += 10;
       
-      // ... (rest of PDF generation logic same as original)
+      // Create two columns for invoice details and financial summary
+      const colWidth = (contentWidth / 2) - 5;
+      
+      // Invoice Details heading
+      const invoiceDetailsX = margin;
+      pdf.setDrawColor(200, 200, 200);
+      pdf.setFontSize(12);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('INVOICE DETAILS', invoiceDetailsX, yPos);
+      yPos += 5;
+      pdf.line(invoiceDetailsX, yPos, invoiceDetailsX + colWidth, yPos);
+      yPos += 10;
+      
+      // Financial Summary heading
+      const financialX = margin + colWidth + 10;
+      pdf.setFontSize(12);
+      pdf.text('FINANCIAL SUMMARY', financialX, yPos - 15);
+      pdf.line(financialX, yPos - 10, financialX + colWidth, yPos - 10);
+      
+      // Invoice Details content
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Coach', invoiceDetailsX, yPos);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(exportData.coach.name, invoiceDetailsX + 40, yPos);
+      yPos += lineHeight;
+      
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Period', invoiceDetailsX, yPos);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`${exportData.month_name} ${exportData.year}`, invoiceDetailsX + 40, yPos);
+      yPos += lineHeight;
+      
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Created', invoiceDetailsX, yPos);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(exportData.dates.created_at, invoiceDetailsX + 40, yPos);
+      yPos += lineHeight;
+      
+      if (exportData.dates.submitted_at) {
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('Submitted', invoiceDetailsX, yPos);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(exportData.dates.submitted_at, invoiceDetailsX + 40, yPos);
+        yPos += lineHeight;
+      }
+      
+      if (exportData.dates.approved_at) {
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('Approved', invoiceDetailsX, yPos);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(exportData.dates.approved_at, invoiceDetailsX + 40, yPos);
+        yPos += lineHeight;
+      }
+      
+      if (exportData.dates.paid_at) {
+        pdf.setFont('helvetica', 'bold');
+        pdf.text('Paid', invoiceDetailsX, yPos);
+        pdf.setFont('helvetica', 'normal');
+        pdf.text(exportData.dates.paid_at, invoiceDetailsX + 40, yPos);
+        yPos += lineHeight;
+      }
+      
+      // Financial Summary content
+      let finYPos = yPos - (lineHeight * (exportData.dates.submitted_at ? 4 : 3) + 
+                          (exportData.dates.approved_at ? lineHeight : 0) + 
+                          (exportData.dates.paid_at ? lineHeight : 0));
+      
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Subtotal', financialX, finYPos);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`£${exportData.financial.subtotal.toFixed(2)}`, financialX + 40, finYPos);
+      finYPos += lineHeight;
+      
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Deductions', financialX, finYPos);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`£${exportData.financial.deductions.toFixed(2)}`, financialX + 40, finYPos);
+      finYPos += lineHeight;
+      
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Total', financialX, finYPos);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(`£${exportData.financial.total.toFixed(2)}`, financialX + 40, finYPos);
+      
+      // Set yPos to the maximum of both columns
+      yPos = Math.max(yPos, finYPos + lineHeight);
+      yPos += 20;
+      
+      // Line Items heading
+      checkPageBreak();
+      addText('Line Items', 16, true);
+      yPos += 5;
+      
+      // Line Items table
+      const colWidths = [80, 30, 20, 25, 25];
+      const colPositions = [
+        margin,
+        margin + colWidths[0],
+        margin + colWidths[0] + colWidths[1],
+        margin + colWidths[0] + colWidths[1] + colWidths[2],
+        margin + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3]
+      ];
+      
+      // Table header
+      pdf.setFillColor(243, 244, 246);
+      pdf.rect(margin, yPos, contentWidth, 10, 'F');
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(9);
+      pdf.text('Description', colPositions[0] + 2, yPos + 7);
+      pdf.text('Date', colPositions[1] + 2, yPos + 7);
+      pdf.text('Hours', colPositions[2] + 2, yPos + 7);
+      pdf.text('Rate', colPositions[3] + 2, yPos + 7);
+      pdf.text('Amount', colPositions[4] + 2, yPos + 7);
+      yPos += 10;
+      
+      // Table rows
+      const lineItems = exportData.line_items;
+      
+      for (let i = 0; i < lineItems.length; i++) {
+        const item = lineItems[i];
+        
+        checkPageBreak(15);
+        
+        if (item.is_deduction) {
+          pdf.setFillColor(254, 226, 226);
+          pdf.rect(margin, yPos, contentWidth, 12, 'F');
+        } else if (i % 2 === 1) {
+          pdf.setFillColor(249, 250, 251);
+          pdf.rect(margin, yPos, contentWidth, 12, 'F');
+        }
+        
+        pdf.setFont('helvetica', 'normal');
+        
+        let description = item.description;
+        if (item.is_deduction) {
+          pdf.setTextColor(220, 38, 38);
+          description = `[Deduction] ${description}`;
+        }
+        if (item.register_id) {
+          description = `${description} (Register)`;
+        }
+        
+        if (description.length > 30) {
+          description = description.substring(0, 27) + '...';
+        }
+        
+        pdf.text(description, colPositions[0] + 2, yPos + 7);
+        pdf.setTextColor(0, 0, 0);
+        
+        pdf.text(new Date(item.date).toLocaleDateString(), colPositions[1] + 2, yPos + 7);
+        pdf.text(item.hours.toFixed(2), colPositions[2] + 2, yPos + 7);
+        pdf.text(`£${item.rate.toFixed(2)}`, colPositions[3] + 2, yPos + 7);
+        
+        if (item.is_deduction) {
+          pdf.setTextColor(220, 38, 38);
+          pdf.text(`-£${item.amount.toFixed(2)}`, colPositions[4] + 2, yPos + 7);
+          pdf.setTextColor(0, 0, 0);
+        } else {
+          pdf.text(`£${item.amount.toFixed(2)}`, colPositions[4] + 2, yPos + 7);
+        }
+        
+        yPos += 12;
+      }
+      
+      // Table footer
+      checkPageBreak();
+      pdf.setFillColor(243, 244, 246);
+      pdf.rect(margin, yPos, contentWidth, 12, 'F');
+      
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Total:', colPositions[3] - 5, yPos + 7, { align: 'right' as const });
+      pdf.text(`£${exportData.financial.total.toFixed(2)}`, colPositions[4] + 2, yPos + 7);
+      
+      yPos += 20;
+      
+      // Notes section if available
+      if (exportData.notes) {
+        checkPageBreak();
+        addText('Notes', 12, true);
+        
+        pdf.setFillColor(249, 250, 251);
+        pdf.setDrawColor(221, 221, 221);
+        pdf.roundedRect(margin, yPos, contentWidth, 40, 3, 3, 'FD');
+        
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(10);
+        
+        const maxWidth = contentWidth - 10;
+        const lines = pdf.splitTextToSize(exportData.notes, maxWidth);
+        
+        for (let i = 0; i < lines.length && i < 10; i++) {
+          checkPageBreak();
+          pdf.text(lines[i], margin + 5, yPos + 8 + (i * 6));
+        }
+      }
       
       pdf.save(`Invoice-${exportData.invoice_number}.pdf`);
       
@@ -387,15 +590,16 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
   const statusInfo = getStatusInfo(invoice.status);
   
   return (
-    <div className="space-y-4 lg:space-y-6">
+    <div className="space-y-4 lg:space-y-6 overflow-hidden">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-xl lg:text-2xl font-bold text-gray-800 truncate">
+        <div className="min-w-0 flex-1 overflow-hidden">
+          {/* Mobile: Stack title and badge vertically */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2">
+            <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-800 min-w-0 break-all leading-tight">
               Invoice #{invoice.invoice_number}
             </h1>
-            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${statusInfo.color} flex-shrink-0`}>
+            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${statusInfo.color} self-start sm:flex-shrink-0`}>
               {statusInfo.icon}
               <span className="ml-1">{invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}</span>
             </span>
@@ -525,6 +729,118 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
             </div>
           </div>
         </div>
+        
+        {/* Status and actions - Moved above line items */}
+        <div className="bg-white rounded-lg border shadow-sm p-4 lg:p-6">
+          <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-sm lg:text-base font-medium text-gray-700">Status:</span>
+              <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${statusInfo.color}`}>
+                {statusInfo.icon}
+                <span className="ml-1">{invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}</span>
+              </span>
+            </div>
+            
+            <div className="flex flex-col sm:flex-row gap-2">
+              {/* Submit/Resubmit button */}
+              {(invoice.status === 'draft' || invoice.status === 'rejected') && (
+                <button
+                  onClick={handleSubmit}
+                  disabled={submitting}
+                  className={`w-full sm:w-auto px-4 py-2 rounded-lg text-white transition-colors flex items-center justify-center ${
+                    submitting ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
+                >
+                  <Send className="h-4 w-4 mr-1" />
+                  {submitting ? 'Submitting...' : invoice.status === 'rejected' ? 'Resubmit' : 'Submit'}
+                </button>
+              )}
+              
+              {/* Admin approval buttons */}
+              {invoice.status === 'submitted' && isAdmin && (
+                <>
+                  <button
+                    onClick={handleApprove}
+                    disabled={approving}
+                    className={`w-full sm:w-auto px-4 py-2 rounded-lg text-white transition-colors flex items-center justify-center ${
+                      approving ? 'bg-green-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+                    }`}
+                  >
+                    <Check className="h-4 w-4 mr-1" />
+                    {approving ? 'Approving...' : 'Approve'}
+                  </button>
+                  
+                  <button
+                    onClick={() => setShowRejectionForm(true)}
+                    disabled={rejecting}
+                    className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center"
+                  >
+                    <X className="h-4 w-4 mr-1" />
+                    Reject
+                  </button>
+                </>
+              )}
+              
+              {/* Mark as Paid button */}
+              {invoice.status === 'approved' && isAdmin && (
+                <button
+                  onClick={handleMarkAsPaid}
+                  disabled={markingAsPaid}
+                  className={`w-full sm:w-auto px-4 py-2 rounded-lg text-white transition-colors flex items-center justify-center ${
+                    markingAsPaid ? 'bg-purple-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700'
+                  }`}
+                >
+                  <PoundSterlingIcon className="h-4 w-4 mr-1" />
+                  {markingAsPaid ? 'Processing...' : 'Mark as Paid'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Rejection form */}
+        {showRejectionForm && (
+          <div className="bg-white rounded-lg border border-red-300 p-4 lg:p-6">
+            <h3 className="text-lg font-medium text-red-800 mb-4 flex items-center">
+              <XCircle className="h-5 w-5 mr-2" />
+              Reject Invoice
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label htmlFor="rejectionReason" className="block text-sm font-medium text-gray-700 mb-2">
+                  Reason for rejection
+                </label>
+                <textarea
+                  id="rejectionReason"
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                  rows={3}
+                  placeholder="Please provide a reason for rejection"
+                />
+              </div>
+              <div className="flex flex-col sm:flex-row justify-end gap-3">
+                <button
+                  onClick={() => setShowRejectionForm(false)}
+                  className="w-full sm:w-auto px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleReject}
+                  disabled={rejecting || !rejectionReason.trim()}
+                  className={`w-full sm:w-auto px-4 py-2 rounded-lg text-white transition-colors ${
+                    rejecting || !rejectionReason.trim() 
+                      ? 'bg-red-400 cursor-not-allowed' 
+                      : 'bg-red-600 hover:bg-red-700'
+                  }`}
+                >
+                  {rejecting ? 'Rejecting...' : 'Confirm Rejection'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         
         {/* Line items */}
         <div className="bg-white rounded-lg border shadow-sm">
@@ -723,118 +1039,6 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
             </div>
           </div>
         )}
-      </div>
-      
-      {/* Rejection form */}
-      {showRejectionForm && (
-        <div className="bg-white rounded-lg border border-red-300 p-4 lg:p-6">
-          <h3 className="text-lg font-medium text-red-800 mb-4 flex items-center">
-            <XCircle className="h-5 w-5 mr-2" />
-            Reject Invoice
-          </h3>
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="rejectionReason" className="block text-sm font-medium text-gray-700 mb-2">
-                Reason for rejection
-              </label>
-              <textarea
-                id="rejectionReason"
-                value={rejectionReason}
-                onChange={(e) => setRejectionReason(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                rows={3}
-                placeholder="Please provide a reason for rejection"
-              />
-            </div>
-            <div className="flex flex-col sm:flex-row justify-end gap-3">
-              <button
-                onClick={() => setShowRejectionForm(false)}
-                className="w-full sm:w-auto px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleReject}
-                disabled={rejecting || !rejectionReason.trim()}
-                className={`w-full sm:w-auto px-4 py-2 rounded-lg text-white transition-colors ${
-                  rejecting || !rejectionReason.trim() 
-                    ? 'bg-red-400 cursor-not-allowed' 
-                    : 'bg-red-600 hover:bg-red-700'
-                }`}
-              >
-                {rejecting ? 'Rejecting...' : 'Confirm Rejection'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Status and actions */}
-      <div className="bg-white rounded-lg border shadow-sm p-4 lg:p-6">
-        <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
-          <div className="flex items-center gap-3">
-            <span className="text-sm lg:text-base font-medium text-gray-700">Status:</span>
-            <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${statusInfo.color}`}>
-              {statusInfo.icon}
-              <span className="ml-1">{invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}</span>
-            </span>
-          </div>
-          
-          <div className="flex flex-col sm:flex-row gap-2">
-            {/* Submit/Resubmit button */}
-            {(invoice.status === 'draft' || invoice.status === 'rejected') && (
-              <button
-                onClick={handleSubmit}
-                disabled={submitting}
-                className={`w-full sm:w-auto px-4 py-2 rounded-lg text-white transition-colors flex items-center justify-center ${
-                  submitting ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
-                }`}
-              >
-                <Send className="h-4 w-4 mr-1" />
-                {submitting ? 'Submitting...' : invoice.status === 'rejected' ? 'Resubmit' : 'Submit'}
-              </button>
-            )}
-            
-            {/* Admin approval buttons */}
-            {invoice.status === 'submitted' && isAdmin && (
-              <>
-                <button
-                  onClick={handleApprove}
-                  disabled={approving}
-                  className={`w-full sm:w-auto px-4 py-2 rounded-lg text-white transition-colors flex items-center justify-center ${
-                    approving ? 'bg-green-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
-                  }`}
-                >
-                  <Check className="h-4 w-4 mr-1" />
-                  {approving ? 'Approving...' : 'Approve'}
-                </button>
-                
-                <button
-                  onClick={() => setShowRejectionForm(true)}
-                  disabled={rejecting}
-                  className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center"
-                >
-                  <X className="h-4 w-4 mr-1" />
-                  Reject
-                </button>
-              </>
-            )}
-            
-            {/* Mark as Paid button */}
-            {invoice.status === 'approved' && isAdmin && (
-              <button
-                onClick={handleMarkAsPaid}
-                disabled={markingAsPaid}
-                className={`w-full sm:w-auto px-4 py-2 rounded-lg text-white transition-colors flex items-center justify-center ${
-                  markingAsPaid ? 'bg-purple-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700'
-                }`}
-              >
-                <PoundSterlingIcon className="h-4 w-4 mr-1" />
-                {markingAsPaid ? 'Processing...' : 'Mark as Paid'}
-              </button>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   );
