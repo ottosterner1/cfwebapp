@@ -1,5 +1,5 @@
 # app/utils/report_generator.py
-# Complete updated tennis report generator with compact rating display
+# Complete updated tennis report generator with numeric-only rating display
 
 from io import BytesIO
 from datetime import datetime
@@ -27,7 +27,7 @@ except Exception as e:
     print(f"WARNING: {WEASYPRINT_ERROR}")
 
 class CompactTennisReportGenerator:
-    """Simple and compact tennis report generator with enhanced rating display"""
+    """Simple and compact tennis report generator with numeric-only rating display"""
     
     def create_single_report_pdf(self, report, output_path):
         """Generate a simple tennis report using HTML/CSS"""
@@ -71,16 +71,32 @@ class CompactTennisReportGenerator:
         
         sections_html = ""
         for section_name, section_content in content.items():
-            if section_content:
-                if isinstance(section_content, dict):
-                    if self._is_rating_section(section_content):
-                        sections_html += self._create_rating_section(section_name, section_content)
-                    elif self._is_skills_section(section_content):
-                        sections_html += self._create_skills_section(section_name, section_content)
-                    else:
-                        sections_html += self._create_text_section(section_name, section_content)
+            # Skip empty or None content
+            if not section_content:
+                continue
+                
+            if isinstance(section_content, dict):
+                # Skip empty dictionaries
+                if not any(section_content.values()):
+                    continue
+                    
+                if self._is_rating_section(section_content):
+                    section_html = self._create_rating_section(section_name, section_content)
+                elif self._is_skills_section(section_content):
+                    section_html = self._create_skills_section(section_name, section_content)
                 else:
-                    sections_html += self._create_text_section(section_name, section_content)
+                    section_html = self._create_text_section(section_name, section_content)
+                
+                # Only add non-empty sections
+                if section_html.strip():
+                    sections_html += section_html
+            else:
+                # Skip empty strings and whitespace
+                if not str(section_content).strip():
+                    continue
+                section_html = self._create_text_section(section_name, section_content)
+                if section_html.strip():
+                    sections_html += section_html
         
         return sections_html or '<div class="section"><h3>Assessment</h3><p>No assessment provided.</p></div>'
 
@@ -120,22 +136,14 @@ class CompactTennisReportGenerator:
         )
 
     def _create_rating_section(self, section_name, rating_data):
-        """Create compact HTML for rating assessment section"""
+        """Create compact HTML for rating assessment section with numeric scores only"""
         html = f'<div class="section rating-section"><h3>{section_name}</h3>'
         html += '<div class="rating-grid">'
         
-        # Rating descriptions mapping
-        rating_descriptions = {
-            1: "Poor",
-            2: "Below Average", 
-            3: "Average",
-            4: "Good",
-            5: "Excellent"
-        }
+        has_content = False
         
         for skill_name, rating_value in rating_data.items():
             rating_num = None
-            rating_desc = None
             
             # Handle different rating value formats
             if isinstance(rating_value, str):
@@ -143,36 +151,37 @@ class CompactTennisReportGenerator:
                 rating_match = re.match(r'^([1-5])\s*-\s*(.+)$', rating_value.strip())
                 if rating_match:
                     rating_num = int(rating_match.group(1))
-                    rating_desc = rating_match.group(2)
                 else:
                     # Try to parse as just a number
                     try:
                         rating_num = int(rating_value.strip())
-                        if 1 <= rating_num <= 5:
-                            rating_desc = rating_descriptions.get(rating_num, "Unknown")
+                        if not (1 <= rating_num <= 5):
+                            continue
                     except ValueError:
                         continue
             elif isinstance(rating_value, (int, float)):
                 # Handle numeric values
                 rating_num = int(rating_value)
-                if 1 <= rating_num <= 5:
-                    rating_desc = rating_descriptions.get(rating_num, "Unknown")
+                if not (1 <= rating_num <= 5):
+                    continue
             
-            if rating_num and rating_desc:
-                # Get color based on rating
+            if rating_num:
                 rating_class = self._get_rating_class(rating_num)
                 
                 html += f'''
                 <div class="rating-item {rating_class}">
                     <div class="rating-skill">{skill_name}</div>
-                    <div class="rating-score">
-                        <span class="rating-number">{rating_num}</span>
-                        <span class="rating-desc">{rating_desc}</span>
-                    </div>
+                    <div class="rating-score">{rating_num}/5</div>
                 </div>
                 '''
+                has_content = True
         
         html += '</div></div>'
+        
+        # Return empty string if no valid ratings found
+        if not has_content:
+            return ''
+            
         return html
 
     def _get_rating_class(self, rating_num):
@@ -192,6 +201,7 @@ class CompactTennisReportGenerator:
         """Create HTML for skills assessment section"""
         html = f'<div class="section"><h3>{section_name}</h3>'
         
+        has_content = False
         for skill_name, skill_value in skills_data.items():
             if isinstance(skill_value, str) and skill_value.lower() in ['yes', 'nearly', 'not yet', 'not_yet']:
                 status_class = skill_value.lower().replace(' ', '_').replace('_', '_')
@@ -200,31 +210,52 @@ class CompactTennisReportGenerator:
                 icon = '✓' if skill_value.lower() == 'yes' else '◐' if skill_value.lower() == 'nearly' else '○'
                 
                 html += f'<div class="skill {status_class}"><span class="skill-name">{skill_name}</span><span class="skill-status">{icon} {display_value}</span></div>'
+                has_content = True
         
         html += '</div>'
+        
+        # Return empty string if no valid skills found
+        if not has_content:
+            return ''
+            
         return html
 
     def _create_text_section(self, section_name, content):
         """Create HTML for text content section"""
         html = f'<div class="section"><h3>{section_name}</h3>'
         
+        has_content = False
+        
         if isinstance(content, dict):
             for key, value in content.items():
-                formatted_value = self._format_text_content(value)
-                html += f'<div class="field"><strong>{key}:</strong><br>{formatted_value}</div>'
+                if value and str(value).strip():
+                    formatted_value = self._format_text_content(value)
+                    if formatted_value.strip():
+                        html += f'<div class="field"><strong>{key}:</strong><br>{formatted_value}</div>'
+                        has_content = True
         else:
-            formatted_content = self._format_text_content(content)
-            html += f'<div class="content">{formatted_content}</div>'
+            if content and str(content).strip():
+                formatted_content = self._format_text_content(content)
+                if formatted_content.strip():
+                    html += f'<div class="content">{formatted_content}</div>'
+                    has_content = True
         
         html += '</div>'
+        
+        # Return empty string if no content
+        if not has_content:
+            return ''
+            
         return html
 
     def _format_text_content(self, text):
         """Format text content for HTML display with proper newline handling"""
         if not text:
-            return "No additional notes provided."
+            return ""
         
-        text = str(text)
+        text = str(text).strip()
+        if not text:
+            return ""
         
         # Handle literal \n characters in the JSON string
         text = text.replace('\\n', '\n')
@@ -262,7 +293,7 @@ class CompactTennisReportGenerator:
         return '<br>'.join(result)
 
     def _generate_html_template(self, report, sections_html):
-        """Generate the ultra-compact HTML template with enhanced rating styles"""
+        """Generate the ultra-compact HTML template with numeric rating styles"""
         club_name = report.programme_player.tennis_club.name
         term_name = report.teaching_period.name
         student_name = report.student.name
@@ -358,9 +389,10 @@ class CompactTennisReportGenerator:
         }}
         
         .section {{
-            margin-bottom: 12px;
+            margin-bottom: 8px;
             border: 1px solid #ddd;
             page-break-inside: avoid;
+            overflow: hidden;
         }}
         
         .section h3 {{
@@ -375,6 +407,12 @@ class CompactTennisReportGenerator:
         .section .field {{
             padding: 8px 10px;
             line-height: 1.5;
+        }}
+        
+        .section:empty,
+        .section .content:empty,
+        .section .field:empty {{
+            display: none;
         }}
         
         .field {{
@@ -392,86 +430,102 @@ class CompactTennisReportGenerator:
             font-size: 10px;
         }}
         
-        /* Enhanced Rating Section Styles */
+        /* Compact Rating Section Styles */
         .rating-section {{
             background: #fafafa;
         }}
         
+        .rating-section:empty {{
+            display: none;
+        }}
+        
         .rating-grid {{
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
             padding: 4px;
+            display: block;
+        }}
+        
+        .rating-grid:empty {{
+            display: none;
         }}
         
         .rating-item {{
+            border: 1px solid #e0e0e0;
+            border-radius: 3px;
+            padding: 6px 8px;
+            margin-bottom: 2px;
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            padding: 3px 6px;
-            border-radius: 2px;
-            border: 1px solid #ddd;
-            background: white;
-            font-size: 8px;
-            min-height: 20px;
+            justify-content: space-between;
+            min-height: 28px;
+        }}
+        
+        .rating-item:last-child {{
+            margin-bottom: 0;
         }}
         
         .rating-skill {{
-            flex: 1;
             font-weight: 500;
+            font-size: 10px;
+            color: #2c3e50;
+            line-height: 1.2;
+            flex: 1;
             margin-right: 8px;
-            line-height: 1.1;
-            word-wrap: break-word;
-            overflow-wrap: break-word;
         }}
         
         .rating-score {{
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            flex-shrink: 0;
-            min-width: 60px;
-        }}
-        
-        .rating-number {{
-            background: #333;
-            color: white;
-            border-radius: 50%;
-            width: 14px;
-            height: 14px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             font-weight: bold;
-            font-size: 8px;
-            flex-shrink: 0;
+            font-size: 11px;
+            color: white;
+            background: #34495e;
+            border-radius: 4px;
+            padding: 3px 8px;
+            min-width: 32px;
+            text-align: center;
         }}
         
-        .rating-desc {{
-            font-size: 7px;
-            color: #666;
-            font-weight: 500;
-            white-space: nowrap;
+        /* Rating background colors */
+        .rating-excellent {{
+            background-color: #e8f5e8;
+            border-color: #2e7d32;
         }}
         
-        /* Rating color variations */
-        .rating-excellent .rating-number {{
+        .rating-excellent .rating-score {{
             background: #2e7d32;
         }}
         
-        .rating-good .rating-number {{
+        .rating-good {{
+            background-color: #f1f8e9;
+            border-color: #388e3c;
+        }}
+        
+        .rating-good .rating-score {{
             background: #388e3c;
         }}
         
-        .rating-average .rating-number {{
+        .rating-average {{
+            background-color: #fff8e1;
+            border-color: #ffa000;
+        }}
+        
+        .rating-average .rating-score {{
             background: #ffa000;
         }}
         
-        .rating-below .rating-number {{
+        .rating-below {{
+            background-color: #fff3e0;
+            border-color: #f57c00;
+        }}
+        
+        .rating-below .rating-score {{
             background: #f57c00;
         }}
         
-        .rating-poor .rating-number {{
+        .rating-poor {{
+            background-color: #ffebee;
+            border-color: #d32f2f;
+        }}
+        
+        .rating-poor .rating-score {{
             background: #d32f2f;
         }}
         
