@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, MessageSquare, Target } from 'lucide-react';
+import { FileText} from 'lucide-react';
 import DocumentHub from './DocumentHub';
 
 type ViewType = 'hub' | 'documents' | 'announcements' | 'goals';
@@ -132,31 +132,6 @@ const HubLanding: React.FC<{
               )}
             </div>
           </button>
-
-          {/* Announcements (Coming Soon) */}
-          <div className="block p-8 bg-white rounded-xl shadow-md border-2 border-gray-100 text-left opacity-60 cursor-not-allowed">
-            <div className="text-center">
-              <div className="text-4xl mb-4 text-gray-400">
-                <MessageSquare className="h-12 w-12 mx-auto" />
-              </div>
-              <h2 className="text-xl font-bold mb-3 text-gray-600">Announcements</h2>
-              <p className="text-gray-500">Broadcast messages to all coaches</p>
-              <div className="mt-4 text-xs text-gray-400 font-medium">Coming Soon</div>
-            </div>
-          </div>
-
-          {/* Goals & Tasks (Coming Soon) */}
-          <div className="block p-8 bg-white rounded-xl shadow-md border-2 border-gray-100 text-left opacity-60 cursor-not-allowed">
-            <div className="text-center">
-              <div className="text-4xl mb-4 text-gray-400">
-                <Target className="h-12 w-12 mx-auto" />
-              </div>
-              <h2 className="text-xl font-bold mb-3 text-gray-600">Goals & Tasks</h2>
-              <p className="text-gray-500">Set goals and manage tasks for the team</p>
-              <div className="mt-4 text-xs text-gray-400 font-medium">Coming Soon</div>
-            </div>
-          </div>
-
         </div>
 
         {/* Quick Stats */}
