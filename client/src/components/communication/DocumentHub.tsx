@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  Upload, FileText, Download, Trash2, Plus, Folder, User, Search, ArrowLeft, X, 
+  Upload, FileText, Download, Trash2, Plus, Folder, Search, ArrowLeft, X, 
   AlertCircle, Building, Eye, ZoomIn, ZoomOut, CheckCircle, Clock,
-  Users, Calendar, PenTool, Save, Check
+  Users, Calendar, PenTool, Save
 } from 'lucide-react';
 
 interface Document {
