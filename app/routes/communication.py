@@ -42,7 +42,6 @@ def get_documents():
     """Get documents for a specific coach"""
     try:
         coach_id = request.args.get('coach_id', type=int)
-        current_app.logger.info(f"Fetching documents for coach_id: {coach_id}")
         
         if not coach_id:
             return jsonify({'error': 'Coach ID is required'}), 400
@@ -101,7 +100,6 @@ def upload_document():
         if not coach_ids:
             return jsonify({'error': 'At least one coach must be selected'}), 400
         
-        current_app.logger.info(f"Upload params: coach_ids={coach_ids}, requires_acknowledgment={requires_acknowledgment}")
         
         # Parse deadline if provided
         deadline_dt = None
@@ -236,8 +234,6 @@ def acknowledge_document(document_id):
         db.session.add(acknowledgment)
         db.session.commit()
         
-        current_app.logger.info(f"Document {document_id} acknowledged by user {current_user.id}")
-        
         return jsonify({
             'message': 'Document acknowledged successfully',
             'acknowledgment': acknowledgment.to_dict()
@@ -288,7 +284,6 @@ def get_document_acknowledgments(document_id):
 def preview_document(document_id):
     """Generate preview content or URL for a document"""
     try:
-        current_app.logger.info(f"Generating preview for document {document_id}")
         
         # Get document and verify access
         document = document_service.get_document_by_id(

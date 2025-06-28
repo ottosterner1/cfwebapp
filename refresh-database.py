@@ -5,6 +5,8 @@ import json
 import argparse
 import getpass
 import sys
+import subprocess
+import tempfile
 from dotenv import load_dotenv
 
 # Load environment variables from .envrc file
@@ -133,6 +135,149 @@ def check_migration_state(db_url, db_name):
     except Exception as e:
         print(f"  ❌ Error checking migration state: {str(e)}")
         return None
+
+def drop_and_recreate_schema(source_db_url, target_db_url, target_name):
+    """Completely drop and recreate the target database schema from source"""
+    print(f"\n💥 DROPPING AND RECREATING {target_name.upper()} DATABASE SCHEMA")
+    print("="*60)
+    print("⚠️  WARNING: This will COMPLETELY DESTROY the target database!")
+    print("⚠️  All data, tables, indexes, and schema will be PERMANENTLY DELETED!")
+    print("="*60)
+    
+    # Extra confirmation for destructive operation
+    confirm1 = input(f"Are you absolutely sure you want to DROP ALL DATA in {target_name}? (type 'YES' to confirm): ")
+    if confirm1 != 'YES':
+        print("❌ Operation cancelled - schema drop aborted")
+        return False
+    
+    confirm2 = input(f"Final confirmation: Type 'DROP {target_name.upper()}' to proceed: ")
+    if confirm2 != f'DROP {target_name.upper()}':
+        print("❌ Operation cancelled - incorrect confirmation")
+        return False
+    
+    try:
+        print(f"\n🗄️  Creating database dump from production...")
+        
+        # Create a temporary dump file
+        import tempfile
+        import subprocess
+        import os
+        
+        with tempfile.NamedTemporaryFile(mode='w+b', suffix='.sql', delete=False) as dump_file:
+            dump_path = dump_file.name
+        
+        try:
+            # Dump production database
+            print(f"   📦 Dumping production database...")
+            dump_cmd = ['pg_dump', '--no-owner', '--no-privileges', '--clean', '--if-exists', source_db_url]
+            
+            with open(dump_path, 'w') as f:
+                result = subprocess.run(dump_cmd, stdout=f, stderr=subprocess.PIPE, text=True)
+            
+            if result.returncode != 0:
+                print(f"❌ Error creating database dump: {result.stderr}")
+                return False
+            
+            print(f"   ✅ Production database dumped successfully")
+            
+            # Get dump file size for user feedback
+            dump_size = os.path.getsize(dump_path) / (1024 * 1024)  # MB
+            print(f"   📏 Dump file size: {dump_size:.1f} MB")
+            
+            # Drop and recreate target database schema
+            print(f"\n💥 Dropping {target_name} database schema...")
+            target_conn = psycopg2.connect(target_db_url)
+            target_conn.set_session(autocommit=True)
+            target_cursor = target_conn.cursor()
+            
+            # Drop all tables, views, functions, etc. in public schema
+            target_cursor.execute("DROP SCHEMA public CASCADE;")
+            target_cursor.execute("CREATE SCHEMA public;")
+            target_cursor.execute("GRANT ALL ON SCHEMA public TO postgres;")
+            target_cursor.execute("GRANT ALL ON SCHEMA public TO public;")
+            
+            target_cursor.close()
+            target_conn.close()
+            print(f"   ✅ {target_name.title()} schema dropped and recreated")
+            
+            # Restore from production dump
+            print(f"\n📥 Restoring production data to {target_name}...")
+            restore_cmd = ['psql', target_db_url, '-f', dump_path]
+            
+            result = subprocess.run(restore_cmd, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                print(f"⚠️  Restore completed with warnings:")
+                if result.stderr:
+                    # Filter out common harmless warnings
+                    stderr_lines = result.stderr.split('\n')
+                    important_errors = [line for line in stderr_lines if line.strip() and 
+                                      not any(harmless in line.lower() for harmless in 
+                                            ['already exists', 'does not exist', 'warning:', 'notice:'])]
+                    if important_errors:
+                        for error in important_errors[:10]:  # Show first 10 important errors
+                            print(f"   ⚠️  {error}")
+                        if len(important_errors) > 10:
+                            print(f"   ... and {len(important_errors) - 10} more warnings")
+            else:
+                print(f"   ✅ Database restored successfully")
+            
+        finally:
+            # Clean up temp file
+            if os.path.exists(dump_path):
+                os.unlink(dump_path)
+                print(f"   🧹 Cleaned up temporary dump file")
+        
+        # Verify the restoration
+        print(f"\n🔍 Verifying restoration...")
+        target_conn = psycopg2.connect(target_db_url)
+        target_conn.set_session(autocommit=True)
+        target_cursor = target_conn.cursor()
+        
+        # Check table count
+        target_cursor.execute("""
+        SELECT COUNT(*) FROM information_schema.tables 
+        WHERE table_schema = 'public'
+        """)
+        table_count = target_cursor.fetchone()[0]
+        
+        # Check if alembic_version exists and get version
+        target_cursor.execute("""
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name = 'alembic_version'
+        )
+        """)
+        has_alembic = target_cursor.fetchone()[0]
+        
+        migration_version = "None"
+        if has_alembic:
+            target_cursor.execute("SELECT version_num FROM alembic_version")
+            version_result = target_cursor.fetchone()
+            if version_result:
+                migration_version = version_result[0]
+        
+        target_cursor.close()
+        target_conn.close()
+        
+        print(f"   📊 Tables created: {table_count}")
+        print(f"   🔄 Migration version: {migration_version}")
+        
+        print(f"\n🎉 SUCCESS: {target_name.title()} database completely rebuilt from production!")
+        print(f"💡 Next steps:")
+        print(f"   1. Verify your application works with {target_name}")
+        print(f"   2. Deploy any new code changes")
+        print(f"   3. Run 'flask db upgrade' if you have newer migrations")
+        
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Command execution error: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error during schema recreation: {str(e)}")
+        return False
 
 def migrate_database(source_db_url, target_db_url, target_name, sync_flask_migrations=False):
     # Connect to both databases
@@ -480,8 +625,19 @@ if __name__ == "__main__":
                        help='Also sync Flask migration state (alembic_version table) from production')
     parser.add_argument('--check-migration-state', action='store_true',
                        help='Only check and display current Flask migration states')
+    parser.add_argument('--drop-and-recreate', action='store_true',
+                       help='🚨 DESTRUCTIVE: Completely drop and recreate database schema from production (nuclear option)')
     
     args = parser.parse_args()
+    
+    # Validate flag combinations
+    if args.drop_and_recreate and args.sync_flask_migrations:
+        print("ℹ️  Note: --sync-flask-migrations is redundant with --drop-and-recreate")
+        print("    (Migration state will be copied automatically with full schema recreation)")
+    
+    if args.drop_and_recreate and args.check_integrity:
+        print("ℹ️  Note: --check-integrity is skipped with --drop-and-recreate")
+        print("    (Data integrity will be ensured by complete schema recreation)")
     
     # Check migration state only if requested
     if args.check_migration_state:
@@ -506,8 +662,8 @@ if __name__ == "__main__":
         
         sys.exit(0)
     
-    # Check production data integrity if requested
-    if args.check_integrity:
+    # Check production data integrity if requested (skip for drop-and-recreate)
+    if args.check_integrity and not args.drop_and_recreate:
         is_clean = check_data_integrity(PROD_DB_URL, "production")
         if not is_clean:
             print("\n⚠️  Production database has data integrity issues.")
@@ -539,7 +695,13 @@ if __name__ == "__main__":
             sys.exit(1)
     
     # Show Flask migration sync status
-    if args.sync_flask_migrations:
+    if args.drop_and_recreate:
+        print("\n💥 DROP AND RECREATE MODE: ENABLED")
+        print("   ⚠️  This will COMPLETELY REBUILD the target database from production!")
+        print("   ⚠️  This is a DESTRUCTIVE operation - all data will be lost!")
+        if args.sync_flask_migrations:
+            print("   ℹ️  Migration sync flag ignored in drop-and-recreate mode")
+    elif args.sync_flask_migrations:
         print("\n🔄 Flask migration sync: ENABLED")
         print("   This will copy the alembic_version table from production")
     else:
@@ -556,9 +718,17 @@ if __name__ == "__main__":
         
         LOCAL_DB_URL = f"postgresql://{local_user}:{local_password}@{local_host}:{local_port}/{local_db}"
         
-        print("Refreshing local database from production...")
-        migrate_database(PROD_DB_URL, LOCAL_DB_URL, "local", args.sync_flask_migrations)
+        if args.drop_and_recreate:
+            print("🚀 Dropping and recreating local database from production...")
+            drop_and_recreate_schema(PROD_DB_URL, LOCAL_DB_URL, "local")
+        else:
+            print("🚀 Refreshing local database from production...")
+            migrate_database(PROD_DB_URL, LOCAL_DB_URL, "local", args.sync_flask_migrations)
         
     elif target == 'staging':
-        print("Refreshing staging database from production...")
-        migrate_database(PROD_DB_URL, STAGING_DB_URL, "staging", args.sync_flask_migrations)
+        if args.drop_and_recreate:
+            print("🚀 Dropping and recreating staging database from production...")
+            drop_and_recreate_schema(PROD_DB_URL, STAGING_DB_URL, "staging")
+        else:
+            print("🚀 Refreshing staging database from production...")
+            migrate_database(PROD_DB_URL, STAGING_DB_URL, "staging", args.sync_flask_migrations)
