@@ -40,7 +40,6 @@ def upgrade():
     # ADD THESE MISSING OPERATIONS for the document table:
     with op.batch_alter_table('document', schema=None) as batch_op:
         # Remove the is_global column
-        batch_op.drop_column('is_global')
         
         # Add acknowledgment columns
         batch_op.add_column(sa.Column('requires_acknowledgment', sa.Boolean(), nullable=False, default=False))
@@ -64,7 +63,6 @@ def downgrade():
     # Reverse changes to document table
     with op.batch_alter_table('document', schema=None) as batch_op:
         # Add back is_global column
-        batch_op.add_column(sa.Column('is_global', sa.Boolean(), nullable=False, default=False))
         
         # Remove acknowledgment columns
         batch_op.drop_index('idx_document_acknowledgment_required')
