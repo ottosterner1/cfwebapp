@@ -40,5 +40,5 @@ from app.models.organisation import (
 
 # Communication models
 from app.models.communication import (
-    Document, DocumentPermission, DocumentDownloadLog
+    Document, DocumentPermission, DocumentDownloadLog, DocumentAcknowledgment
 )

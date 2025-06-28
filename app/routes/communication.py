@@ -2,10 +2,11 @@ from flask import Blueprint, render_template, request, jsonify, current_app
 from flask_login import login_required, current_user
 from werkzeug.exceptions import BadRequest
 from app.extensions import db
-from app.models import User, Document, TennisClub
+from app.models import User, Document, TennisClub, DocumentAcknowledgment
 from app.services.document_service import DocumentService
 from app.utils.auth import admin_required
 import traceback
+from datetime import datetime
 
 bp = Blueprint('communication', __name__, url_prefix='/communication')
 
@@ -18,7 +19,6 @@ def hub():
     """Communication hub - handles all sub-views in React"""
     return render_template('communication/hub.html')
 
-# Test endpoint to verify routes are working
 @bp.route('/api/test', methods=['GET'])
 @login_required
 def test_endpoint():
@@ -39,173 +39,249 @@ def test_endpoint():
 @bp.route('/api/documents', methods=['GET'])
 @login_required
 def get_documents():
-    """Get documents, optionally filtered by coach"""
+    """Get documents for a specific coach"""
     try:
         coach_id = request.args.get('coach_id', type=int)
         current_app.logger.info(f"Fetching documents for coach_id: {coach_id}")
-        current_app.logger.info(f"Current user: {current_user.id}, organisation: {current_user.tennis_club.organisation_id}")
         
-        if coach_id:
-            # Get documents for specific coach
-            # First verify coach exists
-            coach = User.query.get(coach_id)
-            current_app.logger.info(f"Found coach: {coach}")
-            
-            if not coach:
-                current_app.logger.error(f"Coach {coach_id} not found")
-                return jsonify({'error': 'Coach not found'}), 404
-            
-            current_app.logger.info(f"Coach organisation: {coach.tennis_club.organisation_id}")
-            current_app.logger.info(f"Current user organisation: {current_user.tennis_club.organisation_id}")
-            
-            # Verify coach belongs to same organisation
-            if coach.tennis_club.organisation_id != current_user.tennis_club.organisation_id:
-                current_app.logger.error(f"Coach not in same organisation")
-                return jsonify({'error': 'Coach not found or not accessible'}), 404
-            
-            current_app.logger.info(f"Getting documents for coach {coach_id} in organisation {current_user.tennis_club.organisation_id}")
-            documents = document_service.get_documents_for_coach(
-                coach_id, 
-                current_user.tennis_club.organisation_id  # CHANGED: pass organisation_id instead of club_id
-            )
-            current_app.logger.info(f"Found {len(documents)} documents")
-        else:
-            # Get all documents for the organisation (CHANGED)
-            current_app.logger.info(f"Getting all documents for organisation {current_user.tennis_club.organisation_id}")
-            documents = Document.query.filter_by(
-                organisation_id=current_user.tennis_club.organisation_id,  # CHANGED
-                is_active=True
-            ).order_by(Document.created_at.desc()).all()
+        if not coach_id:
+            return jsonify({'error': 'Coach ID is required'}), 400
         
-        result = [doc.to_dict() for doc in documents]
-        current_app.logger.info(f"Returning {len(result)} documents")
+        # Get coach and verify access
+        coach = User.query.get(coach_id)
+        if not coach:
+            return jsonify({'error': 'Coach not found'}), 404
+        
+        if coach.tennis_club.organisation_id != current_user.tennis_club.organisation_id:
+            return jsonify({'error': 'Coach not found or not accessible'}), 404
+        
+        # Get documents for this specific coach only
+        documents = document_service.get_documents_for_coach(
+            coach_id, 
+            current_user.tennis_club.organisation_id
+        )
+        
+        # Include acknowledgment status for current user
+        result = [doc.to_dict(user_id=current_user.id) for doc in documents]
         return jsonify(result)
         
     except Exception as e:
         current_app.logger.error(f"Error fetching documents: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': 'Failed to fetch documents'}), 500
 
 @bp.route('/api/documents', methods=['POST'])
 @login_required
 def upload_document():
-    """Upload a new document"""
+    """Upload document(s) to selected coaches"""
     try:
         current_app.logger.info("Starting document upload")
-        current_app.logger.info(f"Request files: {list(request.files.keys())}")
-        current_app.logger.info(f"Request form: {dict(request.form)}")
         
-        # Check if file was uploaded
-        if 'file' not in request.files:
-            current_app.logger.error("No file in request")
-            return jsonify({'error': 'No file uploaded'}), 400
+        # Check if files were uploaded
+        if 'files' not in request.files:
+            return jsonify({'error': 'No files uploaded'}), 400
         
-        file = request.files['file']
-        if file.filename == '':
-            current_app.logger.error("Empty filename")
-            return jsonify({'error': 'No file selected'}), 400
+        files = request.files.getlist('files')
+        if not files or all(f.filename == '' for f in files):
+            return jsonify({'error': 'No files selected'}), 400
         
-        current_app.logger.info(f"File received: {file.filename}")
-        current_app.logger.info(f"File content type: {file.content_type}")
+        # Get upload parameters
+        coach_ids_str = request.form.get('coach_ids', '')
+        requires_acknowledgment = request.form.get('requires_acknowledgment', 'false').lower() == 'true'
+        acknowledgment_deadline = request.form.get('acknowledgment_deadline')
         
-        # Check file status
-        if hasattr(file, 'closed'):
-            current_app.logger.info(f"File closed status: {file.closed}")
-        
-        # Ensure file is at beginning
-        try:
-            file.seek(0)
-            current_app.logger.info("Successfully reset file to beginning")
-        except Exception as e:
-            current_app.logger.error(f"Cannot seek file: {e}")
-            return jsonify({'error': 'File handling error'}), 400
-        
-        # Get coach ID from form data
-        coach_id = request.form.get('coach_id', type=int)
-        if not coach_id:
-            current_app.logger.error("No coach_id provided")
-            return jsonify({'error': 'Coach ID is required'}), 400
-        
-        current_app.logger.info(f"Coach ID: {coach_id}")
-        
-        # Verify coach exists
-        coach = User.query.get(coach_id)
-        if not coach:
-            current_app.logger.error(f"Coach {coach_id} not found")
-            return jsonify({'error': 'Coach not found'}), 404
+        # Parse coach IDs
+        if not coach_ids_str:
+            return jsonify({'error': 'At least one coach must be selected'}), 400
             
-        current_app.logger.info(f"Found coach: {coach.name}")
-        
-        # Verify coach belongs to same organisation
-        if coach.tennis_club.organisation_id != current_user.tennis_club.organisation_id:
-            current_app.logger.error(f"Coach not in same organisation")
-            return jsonify({'error': 'Coach not found or not accessible'}), 404
-        
-        # Validate file type
-        if not _is_allowed_file(file.filename):
-            current_app.logger.error(f"File type not allowed: {file.filename}")
-            return jsonify({'error': 'File type not allowed'}), 400
-        
-        # Validate file size
         try:
-            file.seek(0)  # Ensure we're at the beginning
-            if not _is_valid_file_size_safe(file):
-                current_app.logger.error(f"File too large")
-                return jsonify({'error': 'File size too large (max 10MB)'}), 400
-        except Exception as e:
-            current_app.logger.error(f"Error validating file size: {e}")
-            return jsonify({'error': 'File validation error'}), 400
+            coach_ids = [int(id.strip()) for id in coach_ids_str.split(',') if id.strip()]
+        except ValueError:
+            return jsonify({'error': 'Invalid coach IDs format'}), 400
+            
+        if not coach_ids:
+            return jsonify({'error': 'At least one coach must be selected'}), 400
+        
+        current_app.logger.info(f"Upload params: coach_ids={coach_ids}, requires_acknowledgment={requires_acknowledgment}")
+        
+        # Parse deadline if provided
+        deadline_dt = None
+        if acknowledgment_deadline:
+            try:
+                # Handle both ISO string and date-only formats
+                if 'T' in acknowledgment_deadline:
+                    deadline_dt = datetime.fromisoformat(acknowledgment_deadline.replace('Z', '+00:00'))
+                else:
+                    # Date only - set to end of day
+                    date_part = datetime.strptime(acknowledgment_deadline, '%Y-%m-%d').date()
+                    deadline_dt = datetime.combine(date_part, datetime.max.time().replace(microsecond=0))
+            except ValueError:
+                return jsonify({'error': 'Invalid deadline format'}), 400
         
         # Get metadata
         metadata = {
             'category': request.form.get('category', 'General'),
-            'description': request.form.get('description', '')
+            'description': request.form.get('description', ''),
+            'requires_acknowledgment': requires_acknowledgment,
+            'acknowledgment_deadline': deadline_dt
         }
-        
-        current_app.logger.info(f"Metadata: {metadata}")
         
         # Validate category
         if metadata['category'] not in document_service.get_document_categories():
             metadata['category'] = 'General'
         
-        # Final file position check before upload
-        try:
-            file.seek(0)
-            current_app.logger.info("Final file reset successful")
-            
-            # Check if we can read from the file
-            current_pos = file.tell()
-            current_app.logger.info(f"File position before upload: {current_pos}")
-            
-            # Quick check - try to read first byte and reset
-            first_byte = file.read(1)
-            file.seek(0)
-            current_app.logger.info(f"File is readable, first byte check passed")
-            
-        except Exception as e:
-            current_app.logger.error(f"File is not accessible before upload: {e}")
-            return jsonify({'error': 'File is not accessible'}), 400
+        # Verify all coaches exist and belong to the same organisation
+        coaches = []
+        for coach_id in coach_ids:
+            coach = User.query.get(coach_id)
+            if not coach:
+                return jsonify({'error': f'Coach with ID {coach_id} not found'}), 404
+                
+            if coach.tennis_club.organisation_id != current_user.tennis_club.organisation_id:
+                return jsonify({'error': f'Coach {coach.name} not accessible'}), 404
+                
+            coaches.append(coach)
         
-        # Upload document
-        current_app.logger.info("Calling document service upload")
-        document = document_service.upload_document(
-            file=file,
-            metadata=metadata,
-            uploaded_by_user=current_user,
-            coach_user=coach
-        )
+        # Validate files
+        for file in files:
+            if file and file.filename != '':
+                if not _is_allowed_file(file.filename):
+                    return jsonify({'error': f'File type not allowed: {file.filename}'}), 400
+                
+                if not _is_valid_file_size_safe(file):
+                    return jsonify({'error': f'File too large: {file.filename}'}), 400
         
-        current_app.logger.info(f"Document uploaded successfully: {document.id}")
+        # Upload documents to all selected coaches
+        uploaded_documents = []
+        
+        for file in files:
+            if file and file.filename != '':
+                # Upload to multiple coaches
+                docs = document_service.upload_to_multiple_coaches(
+                    file=file,
+                    metadata=metadata,
+                    uploaded_by_user=current_user,
+                    coaches=coaches
+                )
+                uploaded_documents.extend(docs)
+        
+        coach_names = [coach.name for coach in coaches]
+        success_message = f"Successfully uploaded {len(files)} document(s) to {len(coaches)} coach(es): {', '.join(coach_names)}"
         
         return jsonify({
-            'message': 'Document uploaded successfully',
-            'document': document.to_dict()
+            'message': success_message,
+            'documents': [doc.to_dict() for doc in uploaded_documents],
+            'count': len(uploaded_documents)
         }), 201
         
     except Exception as e:
-        current_app.logger.error(f"Error uploading document: {str(e)}")
+        current_app.logger.error(f"Error uploading documents: {str(e)}")
         current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': f'Failed to upload document: {str(e)}'}), 500
+        return jsonify({'error': f'Failed to upload documents: {str(e)}'}), 500
+
+@bp.route('/api/documents/<int:document_id>/acknowledge', methods=['POST'])
+@login_required
+def acknowledge_document(document_id):
+    """Mark a document as read/acknowledged by current user"""
+    try:
+        current_app.logger.info(f"User {current_user.id} acknowledging document {document_id}")
+        
+        # Get document and verify access
+        document = document_service.get_document_by_id(
+            document_id, 
+            current_user.tennis_club.organisation_id
+        )
+        
+        if not document:
+            return jsonify({'error': 'Document not found'}), 404
+        
+        # Verify the document was uploaded for the current user
+        if document.uploaded_for_coach_id != current_user.id:
+            # Provide helpful error message for admins
+            if current_user.is_admin:
+                coach_name = document.uploaded_for_coach.name if document.uploaded_for_coach else "Unknown"
+                return jsonify({
+                    'error': f'This document was uploaded for {coach_name}. Only they can acknowledge it. If you want to acknowledge documents uploaded for yourself, make sure you select the document with your name.'
+                }), 403
+            else:
+                return jsonify({'error': 'You can only acknowledge documents uploaded for you'}), 403
+        
+        # Check if document requires acknowledgment
+        if not document.requires_acknowledgment:
+            return jsonify({'error': 'Document does not require acknowledgment'}), 400
+        
+        # Check if already acknowledged
+        existing_ack = DocumentAcknowledgment.query.filter_by(
+            document_id=document_id,
+            user_id=current_user.id
+        ).first()
+        
+        if existing_ack:
+            return jsonify({'error': 'Document already acknowledged'}), 400
+        
+        # Get acknowledgment data
+        data = request.get_json() or {}
+        signature = data.get('signature', current_user.name)
+        notes = data.get('notes', '')
+        
+        # Create acknowledgment record
+        acknowledgment = DocumentAcknowledgment(
+            document_id=document_id,
+            user_id=current_user.id,
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent'),
+            signature=signature,
+            notes=notes
+        )
+        
+        db.session.add(acknowledgment)
+        db.session.commit()
+        
+        current_app.logger.info(f"Document {document_id} acknowledged by user {current_user.id}")
+        
+        return jsonify({
+            'message': 'Document acknowledged successfully',
+            'acknowledgment': acknowledgment.to_dict()
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Error acknowledging document: {str(e)}")
+        db.session.rollback()
+        return jsonify({'error': 'Failed to acknowledge document'}), 500
+        
+    except Exception as e:
+        current_app.logger.error(f"Error acknowledging document: {str(e)}")
+        db.session.rollback()
+        return jsonify({'error': 'Failed to acknowledge document'}), 500
+
+@bp.route('/api/documents/<int:document_id>/acknowledgments', methods=['GET'])
+@login_required
+def get_document_acknowledgments(document_id):
+    """Get all acknowledgments for a document (admin only)"""
+    try:
+        if not current_user.is_admin:
+            return jsonify({'error': 'Admin access required'}), 403
+        
+        # Get document and verify access
+        document = document_service.get_document_by_id(
+            document_id, 
+            current_user.tennis_club.organisation_id
+        )
+        
+        if not document:
+            return jsonify({'error': 'Document not found'}), 404
+        
+        acknowledgments = DocumentAcknowledgment.query.filter_by(
+            document_id=document_id
+        ).order_by(DocumentAcknowledgment.acknowledged_at.desc()).all()
+        
+        return jsonify({
+            'acknowledgments': [ack.to_dict() for ack in acknowledgments],
+            'total_count': len(acknowledgments)
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Error getting acknowledgments: {str(e)}")
+        return jsonify({'error': 'Failed to get acknowledgments'}), 500
 
 @bp.route('/api/documents/<int:document_id>/preview', methods=['GET'])
 @login_required
@@ -221,60 +297,64 @@ def preview_document(document_id):
         )
         
         if not document:
-            current_app.logger.error(f"Document {document_id} not found")
             return jsonify({'error': 'Document not found'}), 404
         
-        # Determine file type from extension
-        file_extension = document.filename.split('.')[-1].lower() if '.' in document.filename else ''
-        current_app.logger.info(f"File extension: {file_extension}")
+        # Verify access: admins can preview any document, users can only preview their own
+        if not current_user.is_admin and document.uploaded_for_coach_id != current_user.id:
+            return jsonify({'error': 'You can only preview your own documents'}), 403
         
-        # Handle different file types
+        # Log that user opened the document (for tracking purposes)
+        document_service.log_preview(
+            document_id=document_id,
+            user_id=current_user.id,
+            ip_address=request.remote_addr,
+            user_agent=request.headers.get('User-Agent')
+        )
+        
+        # Generate preview based on file type
+        file_extension = document.filename.split('.')[-1].lower() if '.' in document.filename else ''
+        
         if file_extension in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
-            # For images, generate a presigned URL for direct viewing
             preview_url = document_service.generate_preview_url(document, expires_in=3600)
             if not preview_url:
                 return jsonify({'error': 'Failed to generate preview URL'}), 500
             
             return jsonify({
                 'type': 'image',
-                'preview_url': preview_url
+                'preview_url': preview_url,
+                'document': document.to_dict(user_id=current_user.id)
             })
             
         elif file_extension == 'pdf':
-            # For PDFs, generate a presigned URL for iframe viewing
             preview_url = document_service.generate_preview_url(document, expires_in=3600)
             if not preview_url:
                 return jsonify({'error': 'Failed to generate preview URL'}), 500
             
             return jsonify({
                 'type': 'pdf',
-                'preview_url': preview_url
+                'preview_url': preview_url,
+                'document': document.to_dict(user_id=current_user.id)
             })
             
         elif file_extension == 'csv':
-            # For CSV files, read and parse the content
             try:
                 csv_content = document_service.get_file_content(document)
                 if not csv_content:
                     return jsonify({'error': 'Failed to read CSV file'}), 500
                 
-                # Parse CSV content
                 import csv
                 import io
                 
-                # Convert bytes to string if necessary
                 if isinstance(csv_content, bytes):
                     csv_content = csv_content.decode('utf-8')
                 
-                # Parse CSV
                 csv_reader = csv.DictReader(io.StringIO(csv_content))
                 rows = list(csv_reader)
                 
-                current_app.logger.info(f"Parsed {len(rows)} rows from CSV")
-                
                 return jsonify({
                     'type': 'csv',
-                    'content': rows[:500]  # Limit to first 500 rows for performance
+                    'content': rows[:500],
+                    'document': document.to_dict(user_id=current_user.id)
                 })
                 
             except Exception as e:
@@ -282,23 +362,21 @@ def preview_document(document_id):
                 return jsonify({'error': 'Failed to parse CSV file'}), 500
                 
         elif file_extension == 'txt':
-            # For text files, read the content
             try:
                 text_content = document_service.get_file_content(document)
                 if not text_content:
                     return jsonify({'error': 'Failed to read text file'}), 500
                 
-                # Convert bytes to string if necessary
                 if isinstance(text_content, bytes):
                     text_content = text_content.decode('utf-8')
                 
-                # Limit text content to prevent browser issues
-                if len(text_content) > 50000:  # 50KB limit
+                if len(text_content) > 50000:
                     text_content = text_content[:50000] + "\n\n... (Content truncated)"
                 
                 return jsonify({
                     'type': 'text',
-                    'content': text_content
+                    'content': text_content,
+                    'document': document.to_dict(user_id=current_user.id)
                 })
                 
             except Exception as e:
@@ -310,7 +388,6 @@ def preview_document(document_id):
             
     except Exception as e:
         current_app.logger.error(f"Error generating preview: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': 'Failed to generate preview'}), 500
 
 @bp.route('/api/documents/<int:document_id>/download', methods=['GET'])
@@ -318,23 +395,23 @@ def preview_document(document_id):
 def download_document(document_id):
     """Generate download URL for a document"""
     try:
-        current_app.logger.info(f"Generating download URL for document {document_id}")
-        
         # Get document and verify access
         document = document_service.get_document_by_id(
             document_id, 
-            current_user.tennis_club.organisation_id  # CHANGED: use organisation_id
+            current_user.tennis_club.organisation_id
         )
         
         if not document:
-            current_app.logger.error(f"Document {document_id} not found")
             return jsonify({'error': 'Document not found'}), 404
+        
+        # Verify access: admins can download any document, users can only download their own
+        if not current_user.is_admin and document.uploaded_for_coach_id != current_user.id:
+            return jsonify({'error': 'You can only download your own documents'}), 403
         
         # Generate presigned URL
         download_url = document_service.generate_download_url(document)
         
         if not download_url:
-            current_app.logger.error(f"Failed to generate download URL for document {document_id}")
             return jsonify({'error': 'Failed to generate download URL'}), 500
         
         # Log the download
@@ -345,8 +422,6 @@ def download_document(document_id):
             user_agent=request.headers.get('User-Agent')
         )
         
-        current_app.logger.info(f"Download URL generated successfully for document {document_id}")
-        
         return jsonify({
             'download_url': download_url,
             'filename': document.filename
@@ -354,7 +429,6 @@ def download_document(document_id):
         
     except Exception as e:
         current_app.logger.error(f"Error generating download URL: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': 'Failed to generate download URL'}), 500
 
 @bp.route('/api/documents/<int:document_id>', methods=['DELETE'])
@@ -362,93 +436,38 @@ def download_document(document_id):
 def delete_document(document_id):
     """Delete a document"""
     try:
-        current_app.logger.info(f"Deleting document {document_id}")
-        
         # Get document and verify access
         document = document_service.get_document_by_id(
             document_id,
-            current_user.tennis_club.organisation_id  # CHANGED: use organisation_id
+            current_user.tennis_club.organisation_id
         )
         
         if not document:
             return jsonify({'error': 'Document not found'}), 404
         
-        # Check permissions
+        # Check permissions - only admin or uploader can delete, but must be for current user's documents
         if not (current_user.is_admin or document.uploaded_by_id == current_user.id):
-            current_app.logger.error(f"Permission denied for user {current_user.id} to delete document {document_id}")
             return jsonify({'error': 'Permission denied'}), 403
+            
+        # Non-admin users can only delete their own documents
+        if not current_user.is_admin and document.uploaded_for_coach_id != current_user.id:
+            return jsonify({'error': 'You can only delete your own documents'}), 403
         
         # Delete document
         success = document_service.delete_document(
             document_id,
-            current_user.tennis_club.organisation_id,  # CHANGED: use organisation_id
+            current_user.tennis_club.organisation_id,
             current_user.id
         )
         
         if success:
-            current_app.logger.info(f"Document {document_id} deleted successfully")
             return jsonify({'message': 'Document deleted successfully'})
         else:
             return jsonify({'error': 'Failed to delete document'}), 500
             
     except Exception as e:
         current_app.logger.error(f"Error deleting document: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': 'Failed to delete document'}), 500
-
-@bp.route('/api/documents/<int:document_id>', methods=['PUT'])
-@login_required
-def update_document(document_id):
-    """Update document metadata"""
-    try:
-        current_app.logger.info(f"Updating document {document_id}")
-        
-        # Get document and verify access
-        document = document_service.get_document_by_id(
-            document_id,
-            current_user.tennis_club.organisation_id  # CHANGED: use organisation_id
-        )
-        
-        if not document:
-            return jsonify({'error': 'Document not found'}), 404
-        
-        # Check permissions
-        if not (current_user.is_admin or document.uploaded_by_id == current_user.id):
-            return jsonify({'error': 'Permission denied'}), 403
-        
-        # Get updated metadata
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        metadata = {}
-        if 'category' in data:
-            if data['category'] in document_service.get_document_categories():
-                metadata['category'] = data['category']
-        
-        if 'description' in data:
-            metadata['description'] = data['description']
-        
-        # Update document
-        updated_document = document_service.update_document_metadata(
-            document_id,
-            current_user.tennis_club.organisation_id,  # CHANGED: use organisation_id
-            metadata
-        )
-        
-        if updated_document:
-            current_app.logger.info(f"Document {document_id} updated successfully")
-            return jsonify({
-                'message': 'Document updated successfully',
-                'document': updated_document.to_dict()
-            })
-        else:
-            return jsonify({'error': 'Failed to update document'}), 500
-            
-    except Exception as e:
-        current_app.logger.error(f"Error updating document: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
-        return jsonify({'error': 'Failed to update document'}), 500
 
 @bp.route('/api/documents/categories', methods=['GET'])
 @login_required
@@ -456,32 +475,16 @@ def get_document_categories():
     """Get available document categories"""
     try:
         categories = document_service.get_document_categories()
-        current_app.logger.info(f"Returning {len(categories)} categories")
         return jsonify(categories)
     except Exception as e:
         current_app.logger.error(f"Error getting categories: {str(e)}")
         return jsonify({'error': 'Failed to get categories'}), 500
 
-@bp.route('/api/documents/stats', methods=['GET'])
-@login_required
-def get_document_stats():
-    """Get document statistics for the organisation"""  # CHANGED: description
-    try:
-        stats = document_service.get_organisation_document_stats(current_user.tennis_club.organisation_id)  # CHANGED: method name and parameter
-        return jsonify(stats)
-    except Exception as e:
-        current_app.logger.error(f"Error getting document stats: {str(e)}")
-        return jsonify({'error': 'Failed to get statistics'}), 500
-
-# ADD NEW ENDPOINT: Get organisation-wide coaches
 @bp.route('/api/organisation/coaches', methods=['GET'])
 @login_required
 def get_organisation_coaches():
     """Get all coaches in the organisation"""
     try:
-        current_app.logger.info(f"Fetching coaches for organisation {current_user.tennis_club.organisation_id}")
-        
-        # Get all coaches in the organisation across all clubs
         coaches = User.query.join(TennisClub).filter(
             TennisClub.organisation_id == current_user.tennis_club.organisation_id,
             User.is_active == True
@@ -497,47 +500,29 @@ def get_organisation_coaches():
                 'role': coach.role.value if coach.role else 'coach'
             })
         
-        current_app.logger.info(f"Found {len(coach_data)} coaches in organisation")
         return jsonify(coach_data)
         
     except Exception as e:
         current_app.logger.error(f"Error fetching organisation coaches: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
         return jsonify({'error': 'Failed to fetch coaches'}), 500
 
-# Helper functions remain the same
+# Helper functions
 def _is_valid_file_size_safe(file):
     """Safely check if file size is within limits (10MB)"""
     MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB in bytes
     
     try:
-        if hasattr(file, 'closed') and file.closed:
-            current_app.logger.error("File is closed in size validation")
-            return False
-        
         current_pos = file.tell()
-        current_app.logger.debug(f"Current position in size validation: {current_pos}")
-        
         file.seek(0, 2)
         size = file.tell()
-        current_app.logger.debug(f"File size in validation: {size} bytes")
-        
         file.seek(current_pos)
-        
-        is_valid = size <= MAX_FILE_SIZE
-        current_app.logger.debug(f"File size validation result: {is_valid}")
-        return is_valid
-        
+        return size <= MAX_FILE_SIZE
     except Exception as e:
         current_app.logger.error(f"Error checking file size: {str(e)}")
-        try:
-            file.seek(0)
-        except:
-            current_app.logger.error("Cannot reset file position in size validation")
         return False
 
 def _is_allowed_file(filename):
-    """Check if file type is allowed - filename only, no file stream access"""
+    """Check if file type is allowed"""
     ALLOWED_EXTENSIONS = {
         'pdf', 'doc', 'docx', 'xls', 'csv', 'xlsx', 'ppt', 'pptx',
         'txt', 'rtf', 'odt', 'ods', 'odp',
@@ -547,5 +532,4 @@ def _is_allowed_file(filename):
         'zip', 'rar', '7z', 'tar', 'gz'
     }
     
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
