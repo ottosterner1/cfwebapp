@@ -626,9 +626,7 @@ def get_or_create_default_organisation(club_name):
     )
     
     db.session.add(organisation)
-    db.session.flush()  # Get the ID
-    
-    current_app.logger.info(f"Created default organisation: {organisation.name} (slug: {organisation.slug})")
+    db.session.flush() 
     
     return organisation
 
@@ -673,13 +671,10 @@ def get_organisation_clubs():
 @club_management.route('/onboard', methods=['GET', 'POST'])
 def onboard_club():
     """Handle onboarding of a new tennis club"""
-    current_app.logger.info("Onboarding club page accessed")
     
     # Check available authentication methods
     temp_user_info = session.get('temp_user_info')
     club_invitation = session.get('club_invitation')
-    
-    current_app.logger.info(f"Session data: temp_user_info={bool(temp_user_info)}, club_invitation={bool(club_invitation)}")
     
     # If neither exists, redirect to login
     if not temp_user_info and not club_invitation:
@@ -1729,7 +1724,6 @@ def super_admin_dashboard():
 @login_required
 def get_all_clubs():
     """API endpoint to get all tennis clubs for super admin with organisation info"""
-    current_app.logger.info(f"get_all_clubs called, super_admin: {current_user.is_super_admin}")
     
     if not current_user.is_super_admin:
         return jsonify({'error': 'Unauthorized'}), 403

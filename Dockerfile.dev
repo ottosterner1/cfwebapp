@@ -1,12 +1,19 @@
 FROM python:3.11.7-slim
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies including WeasyPrint requirements
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
-    python3-dev \
     libpq-dev \
+    python3-dev \
+    libpango-1.0-0 \
+    libpangoft2-1.0-0 \
     openssl \ 
+    libfontconfig1 \
+    libcairo2 \
+    libgdk-pixbuf2.0-0 \
+    libgtk-3-0 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

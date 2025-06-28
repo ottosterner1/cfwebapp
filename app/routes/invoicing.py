@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, current_app
 from flask_login import login_required, current_user
-from app.models import Invoice, InvoiceLineItem, CoachingRate, Register, User, UserRole, RegisterAssistantCoach, RateType
+from app.models import Invoice, InvoiceLineItem, CoachingRate, Register, User, UserRole, RegisterAssistantCoach, RateType, TennisGroupTimes
 from app.models.invoice import InvoiceStatus
 from app.utils.auth import admin_required
 from app import db
@@ -100,7 +100,6 @@ def manage_rates():
 @login_required
 def generate_invoice(year, month):
     """Generate or retrieve an invoice for specified month"""
-    # Check if invoice already exists
     existing_invoice = Invoice.query.filter_by(
         coach_id=current_user.id,
         tennis_club_id=current_user.tennis_club_id,
@@ -109,14 +108,13 @@ def generate_invoice(year, month):
     ).first()
     
     if existing_invoice:
-        # Return existing invoice data
         return jsonify({
             'invoice_id': existing_invoice.id,
             'status': existing_invoice.status.value,
             'message': 'Invoice already exists for this period'
         })
-    
-    # Create new invoice
+
+    # Create invoice
     invoice = Invoice(
         coach_id=current_user.id,
         tennis_club_id=current_user.tennis_club_id,
@@ -126,48 +124,64 @@ def generate_invoice(year, month):
         invoice_number=generate_invoice_number(current_user, month, year)
     )
     db.session.add(invoice)
-    db.session.flush()  # Get invoice ID
-    
-    # Get date range for the month
+    db.session.flush()
+
+    # Determine date range for the month
     last_day = calendar.monthrange(year, month)[1]
     start_date = datetime(year, month, 1).date()
     end_date = datetime(year, month, last_day).date()
-    
-    # === 1. Find all registers where this coach was the LEAD coach ===
-    lead_registers = Register.query.filter(
+
+    # Collect lead sessions
+    lead_registers = Register.query.join(Register.group_time).filter(
         Register.coach_id == current_user.id,
         Register.tennis_club_id == current_user.tennis_club_id,
         Register.date >= start_date,
         Register.date <= end_date
     ).all()
-    
-    # Process lead coach registers
-    for register in lead_registers:
-        _process_lead_coach_register(register, invoice, current_user.id)
-    
-    # === 2. Find all registers where this coach was an ASSISTANT coach ===
-    assistant_sessions = db.session.query(Register, RegisterAssistantCoach).join(
+
+    lead_sessions = [{
+        "type": "lead",
+        "register": r,
+        "datetime": datetime.combine(r.date, r.group_time.start_time) if r.group_time else datetime.min
+    } for r in lead_registers if r.group_time]
+
+    # Collect assistant sessions
+    assistant_query = db.session.query(Register, RegisterAssistantCoach).join(
         RegisterAssistantCoach, Register.id == RegisterAssistantCoach.register_id
-    ).filter(
+    ).join(Register.group_time).filter(
         RegisterAssistantCoach.coach_id == current_user.id,
         Register.tennis_club_id == current_user.tennis_club_id,
         Register.date >= start_date,
         Register.date <= end_date
     ).all()
-    
-    # Process assistant coach registers
-    for register, assistant_record in assistant_sessions:
-        _process_assistant_coach_register(register, invoice, current_user.id)
-    
-    # Calculate totals
+
+    assistant_sessions = [{
+        "type": "assistant",
+        "register": r,
+        "assistant_record": a,
+        "datetime": datetime.combine(r.date, r.group_time.start_time) if r.group_time else datetime.min
+    } for r, a in assistant_query if r.group_time]
+
+    # Merge and sort all sessions by datetime
+    all_sessions = lead_sessions + assistant_sessions
+    all_sessions.sort(key=lambda x: x["datetime"])
+
+    # Process sessions in chronological order
+    for session in all_sessions:
+        if session["type"] == "lead":
+            _process_lead_coach_register(session["register"], invoice, current_user.id)
+        elif session["type"] == "assistant":
+            _process_assistant_coach_register(session["register"], invoice, current_user.id)
+
     invoice.calculate_totals()
     db.session.commit()
-    
+
     return jsonify({
         'invoice_id': invoice.id,
         'status': invoice.status.value,
         'message': 'Invoice generated successfully'
     })
+
 
 def _process_lead_coach_register(register, invoice, coach_id):
     """Process a register where the coach was the lead coach"""
@@ -258,7 +272,7 @@ def _process_lead_coach_register(register, invoice, coach_id):
         register_id=register.id,
         item_type='group',
         is_deduction=False,
-        description=f"{group_name} - {group_time.day_of_week.value} (Lead Coach)",
+        description=f"{group_name}, {group_time.day_of_week.value} {start_time.strftime('%H:%M')}-{end_time.strftime('%H:%M')} (Lead Coach)",
         date=register.date,
         hours=duration_in_hours,
         rate=rate_value,
@@ -374,7 +388,7 @@ def _process_assistant_coach_register(register, invoice, coach_id):
         register_id=register.id,
         item_type='group',
         is_deduction=False,
-        description=f"{group_name} - {group_time.day_of_week.value} (Assistant Coach)",
+        description=f"{group_name}, {group_time.day_of_week.value} {start_time.strftime('%H:%M')}-{end_time.strftime('%H:%M')} (Assistant Coach)",
         date=register.date,
         hours=duration_in_hours,
         rate=rate_value,

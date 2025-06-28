@@ -1,5 +1,5 @@
 # app/utils/report_generator.py
-# Compact tennis report design with banner recommendation - optimized for single page
+# Complete updated tennis report generator with numeric-only rating display
 
 from io import BytesIO
 from datetime import datetime
@@ -12,46 +12,32 @@ import traceback
 try:
     from weasyprint import HTML
     HTML_AVAILABLE = True
-except ImportError:
+    WEASYPRINT_ERROR = None
+except ImportError as e:
     HTML_AVAILABLE = False
+    WEASYPRINT_ERROR = f"WeasyPrint import failed: {str(e)}"
+    print(f"WARNING: {WEASYPRINT_ERROR}")
+except OSError as e:
+    HTML_AVAILABLE = False
+    WEASYPRINT_ERROR = f"WeasyPrint system libraries missing: {str(e)}"
+    print(f"WARNING: {WEASYPRINT_ERROR}")
+except Exception as e:
+    HTML_AVAILABLE = False
+    WEASYPRINT_ERROR = f"WeasyPrint failed to load: {str(e)}"
+    print(f"WARNING: {WEASYPRINT_ERROR}")
 
-# Fallback ReportLab imports for when HTML isn't available
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.lib.units import inch, cm
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from reportlab.lib.colors import HexColor, white, black
-
-class HTMLTennisReportGenerator:
-    """Compact HTML/CSS tennis report generator with banner recommendation - single page optimized"""
+class CompactTennisReportGenerator:
+    """Simple and compact tennis report generator with numeric-only rating display"""
     
-    def __init__(self):
-        self.tennis_colors = {
-            'primary': '#1B5E20',      # Forest green
-            'secondary': '#4CAF50',    # Tennis green
-            'accent': '#FF6B35',       # Orange accent
-            'success': '#22C55E',      # Success green
-            'warning': '#F59E0B',      # Warning amber
-            'error': '#EF4444',        # Error red
-            'background': '#F8F9FA',   # Light background
-            'text': '#2D3748'          # Dark text
-        }
-
     def create_single_report_pdf(self, report, output_path):
-        """Generate a compact tennis report using HTML/CSS with banner recommendation"""
+        """Generate a simple tennis report using HTML/CSS"""
         try:
-            # Calculate student age
-            age_text = self._calculate_age(report.student)
-            
             # Process report content into HTML sections
             sections_html = self._process_content_to_html(report.content)
             
             # Generate complete HTML document
             html_content = self._generate_html_template(
                 report=report,
-                age_text=age_text,
                 sections_html=sections_html
             )
             
@@ -66,56 +52,77 @@ class HTMLTennisReportGenerator:
             return True
             
         except Exception as e:
-            print(f"Error generating HTML tennis report: {str(e)}")
+            print(f"Error generating tennis report: {str(e)}")
             raise
-
-    def _calculate_age(self, student):
-        """Calculate student age from date of birth"""
-        if not hasattr(student, 'date_of_birth') or not student.date_of_birth:
-            return "N/A"
-        
-        from datetime import date
-        today = date.today()
-        age = today.year - student.date_of_birth.year
-        
-        # Adjust for birthday not yet occurred this year
-        if (today.month, today.day) < (student.date_of_birth.month, student.date_of_birth.day):
-            age -= 1
-            
-        return f"{age} years old"
 
     def _process_content_to_html(self, content):
         """Convert report content to HTML sections"""
         if not content:
-            return '<div class="section"><h3 class="section-title">No Content Available</h3><div class="section-content"><p>No assessment data provided.</p></div></div>'
+            return '<div class="section"><h3>No Content Available</h3><p>No assessment data provided.</p></div>'
         
-        # Handle JSON string content
         if isinstance(content, str):
             try:
                 content = json.loads(content)
             except:
-                return self._create_text_section("General Assessment", content)
+                return self._create_text_section("Assessment", content)
         
-        # Handle non-dict content
         if not isinstance(content, dict):
             return self._create_text_section("Assessment", str(content))
         
         sections_html = ""
-        
         for section_name, section_content in content.items():
+            # Skip empty or None content
             if not section_content:
                 continue
                 
             if isinstance(section_content, dict):
-                # Check if this section contains skills data
-                if self._is_skills_section(section_content):
-                    sections_html += self._create_skills_section(section_name, section_content)
+                # Skip empty dictionaries
+                if not any(section_content.values()):
+                    continue
+                    
+                if self._is_rating_section(section_content):
+                    section_html = self._create_rating_section(section_name, section_content)
+                elif self._is_skills_section(section_content):
+                    section_html = self._create_skills_section(section_name, section_content)
                 else:
-                    sections_html += self._create_text_section(section_name, section_content)
+                    section_html = self._create_text_section(section_name, section_content)
+                
+                # Only add non-empty sections
+                if section_html.strip():
+                    sections_html += section_html
             else:
-                sections_html += self._create_text_section(section_name, section_content)
+                # Skip empty strings and whitespace
+                if not str(section_content).strip():
+                    continue
+                section_html = self._create_text_section(section_name, section_content)
+                if section_html.strip():
+                    sections_html += section_html
         
-        return sections_html if sections_html else '<div class="section"><h3 class="section-title">Assessment</h3><div class="section-content"><p>No detailed assessment provided.</p></div></div>'
+        return sections_html or '<div class="section"><h3>Assessment</h3><p>No assessment provided.</p></div>'
+
+    def _is_rating_section(self, content):
+        """Check if section content represents rating fields (1-5 scale)"""
+        if not isinstance(content, dict):
+            return False
+        
+        # Check for numeric ratings (1-5) - either as numbers or strings
+        rating_count = 0
+        for value in content.values():
+            try:
+                # Try to convert to int and check if it's in 1-5 range
+                if isinstance(value, (int, str)):
+                    num_val = int(str(value).strip())
+                    if 1 <= num_val <= 5:
+                        rating_count += 1
+            except (ValueError, TypeError):
+                # Also check for full format like "3 - Average"
+                if isinstance(value, str):
+                    rating_pattern = re.compile(r'^[1-5]\s*-\s*.+$')
+                    if rating_pattern.match(value.strip()):
+                        rating_count += 1
+        
+        # If most values (at least 50%) look like ratings, treat as rating section
+        return rating_count >= len(content) * 0.5
 
     def _is_skills_section(self, content):
         """Check if section content represents skills assessment"""
@@ -128,91 +135,175 @@ class HTMLTennisReportGenerator:
             for value in content.values()
         )
 
-    def _create_skills_section(self, section_name, skills_data):
-        """Create HTML for skills assessment section"""
-        html = f'<div class="section"><h3 class="section-title">{section_name}</h3><div class="section-content">'
+    def _create_rating_section(self, section_name, rating_data):
+        """Create compact HTML for rating assessment section with numeric scores only"""
+        html = f'<div class="section rating-section"><h3>{section_name}</h3>'
+        html += '<div class="rating-grid">'
         
-        for skill_name, skill_value in skills_data.items():
-            if isinstance(skill_value, str) and skill_value.lower() in ['yes', 'nearly', 'not yet', 'not_yet']:
-                status_class = skill_value.lower().replace(' ', '-').replace('_', '-')
-                display_value = skill_value.replace('_', ' ').replace('not yet', 'Not Yet').title()
-                
-                # Add status icon
-                icon = '✓' if skill_value.lower() == 'yes' else '◐' if skill_value.lower() == 'nearly' else '○'
+        has_content = False
+        
+        for skill_name, rating_value in rating_data.items():
+            rating_num = None
+            
+            # Handle different rating value formats
+            if isinstance(rating_value, str):
+                # Check if it's full format like "3 - Average"
+                rating_match = re.match(r'^([1-5])\s*-\s*(.+)$', rating_value.strip())
+                if rating_match:
+                    rating_num = int(rating_match.group(1))
+                else:
+                    # Try to parse as just a number
+                    try:
+                        rating_num = int(rating_value.strip())
+                        if not (1 <= rating_num <= 5):
+                            continue
+                    except ValueError:
+                        continue
+            elif isinstance(rating_value, (int, float)):
+                # Handle numeric values
+                rating_num = int(rating_value)
+                if not (1 <= rating_num <= 5):
+                    continue
+            
+            if rating_num:
+                rating_class = self._get_rating_class(rating_num)
                 
                 html += f'''
-                <div class="skill-item skill-{status_class}">
-                    <div class="skill-name">{skill_name}</div>
-                    <div class="skill-status">
-                        <span class="skill-icon">{icon}</span>
-                        <span class="status-badge status-{status_class}">{display_value}</span>
-                    </div>
+                <div class="rating-item {rating_class}">
+                    <div class="rating-skill">{skill_name}</div>
+                    <div class="rating-score">{rating_num}/5</div>
                 </div>
                 '''
+                has_content = True
         
         html += '</div></div>'
+        
+        # Return empty string if no valid ratings found
+        if not has_content:
+            return ''
+            
+        return html
+
+    def _get_rating_class(self, rating_num):
+        """Get CSS class based on rating number"""
+        if rating_num >= 5:
+            return 'rating-excellent'
+        elif rating_num >= 4:
+            return 'rating-good'
+        elif rating_num >= 3:
+            return 'rating-average'
+        elif rating_num >= 2:
+            return 'rating-below'
+        else:
+            return 'rating-poor'
+
+    def _create_skills_section(self, section_name, skills_data):
+        """Create HTML for skills assessment section"""
+        html = f'<div class="section"><h3>{section_name}</h3>'
+        
+        has_content = False
+        for skill_name, skill_value in skills_data.items():
+            if isinstance(skill_value, str) and skill_value.lower() in ['yes', 'nearly', 'not yet', 'not_yet']:
+                status_class = skill_value.lower().replace(' ', '_').replace('_', '_')
+                display_value = skill_value.replace('_', ' ').replace('not yet', 'Not Yet').title()
+                
+                icon = '✓' if skill_value.lower() == 'yes' else '◐' if skill_value.lower() == 'nearly' else '○'
+                
+                html += f'<div class="skill {status_class}"><span class="skill-name">{skill_name}</span><span class="skill-status">{icon} {display_value}</span></div>'
+                has_content = True
+        
+        html += '</div>'
+        
+        # Return empty string if no valid skills found
+        if not has_content:
+            return ''
+            
         return html
 
     def _create_text_section(self, section_name, content):
         """Create HTML for text content section"""
-        html = f'<div class="section"><h3 class="section-title">{section_name}</h3><div class="section-content">'
+        html = f'<div class="section"><h3>{section_name}</h3>'
+        
+        has_content = False
         
         if isinstance(content, dict):
-            # Format as key-value pairs
             for key, value in content.items():
-                formatted_value = self._format_text_content(value)
-                html += f'<div class="text-item"><strong>{key}:</strong> {formatted_value}</div>'
+                if value and str(value).strip():
+                    formatted_value = self._format_text_content(value)
+                    if formatted_value.strip():
+                        html += f'<div class="field"><strong>{key}:</strong><br>{formatted_value}</div>'
+                        has_content = True
         else:
-            # Format as simple text
-            formatted_content = self._format_text_content(content)
-            html += f'<div class="text-content">{formatted_content}</div>'
+            if content and str(content).strip():
+                formatted_content = self._format_text_content(content)
+                if formatted_content.strip():
+                    html += f'<div class="content">{formatted_content}</div>'
+                    has_content = True
         
-        html += '</div></div>'
+        html += '</div>'
+        
+        # Return empty string if no content
+        if not has_content:
+            return ''
+            
         return html
 
     def _format_text_content(self, text):
-        """Format text content for HTML display"""
+        """Format text content for HTML display with proper newline handling"""
         if not text:
-            return "No additional notes provided."
+            return ""
         
-        text = str(text)
+        text = str(text).strip()
+        if not text:
+            return ""
         
-        # Replace newlines with HTML breaks
-        text = text.replace('\\n', '<br>')
-        text = text.replace('\n', '<br>')
+        # Handle literal \n characters in the JSON string
+        text = text.replace('\\n', '\n')
         
-        # Format bullet points
-        text = re.sub(r'<br/>?[-•*]\s*', '<br>• ', text)
-        text = re.sub(r'^[-•*]\s*', '• ', text)
+        # Split into lines and process each one
+        lines = text.split('\n')
+        formatted_lines = []
         
-        # Basic formatting
-        text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)  # Bold
-        text = re.sub(r'\*(.*?)\*', r'<em>\1</em>', text)              # Italic
+        for line in lines:
+            line = line.strip()
+            if line:
+                # Format bullet points
+                if line.startswith('- '):
+                    line = '• ' + line[2:]
+                elif line.startswith('* '):
+                    line = '• ' + line[2:]
+                
+                # Basic text formatting
+                line = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line)
+                line = re.sub(r'\*(.*?)\*', r'<em>\1</em>', line)
+                
+                formatted_lines.append(line)
+            else:
+                formatted_lines.append('')
         
-        return text
+        # Join with HTML breaks, preserving paragraph spacing
+        result = []
+        for i, line in enumerate(formatted_lines):
+            if line:
+                result.append(line)
+            else:
+                if i < len(formatted_lines) - 1 and any(formatted_lines[j] for j in range(i + 1, len(formatted_lines))):
+                    result.append('<br>')
+        
+        return '<br>'.join(result)
 
-    def _generate_html_template(self, report, age_text, sections_html):
-        """Generate the compact HTML template with inline CSS and banner recommendation"""
+    def _generate_html_template(self, report, sections_html):
+        """Generate the ultra-compact HTML template with numeric rating styles"""
         club_name = report.programme_player.tennis_club.name
         term_name = report.teaching_period.name
         student_name = report.student.name
         coach_name = report.coach.name
         group_name = report.tennis_group.name
-        assessment_date = datetime.now().strftime('%B %d, %Y')
-        generation_time = datetime.now().strftime('%B %d, %Y at %I:%M %p')
         
-        # Compact banner recommendation section
+        # Recommendation section
         recommendation_html = ""
         if report.recommended_group:
-            recommendation_html = f'''
-            <div class="recommendation">
-                <h3 class="recommendation-title">🏆 Next Term Recommendation</h3>
-                <div class="recommendation-content">
-                    <p class="recommendation-text">Based on this assessment, we recommend:</p>
-                    <div class="recommended-group">{report.recommended_group.name}</div>
-                </div>
-            </div>
-            '''
+            recommendation_html = f'<div class="recommendation">🏆 Next Term Recommendation: <strong>{report.recommended_group.name}</strong></div>'
         
         return f'''
 <!DOCTYPE html>
@@ -222,7 +313,6 @@ class HTMLTennisReportGenerator:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tennis Report - {student_name}</title>
     <style>
-        /* Compact Tennis Report Styling - Single Page Optimized */
         * {{
             margin: 0;
             padding: 0;
@@ -230,549 +320,318 @@ class HTMLTennisReportGenerator:
         }}
         
         body {{
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: Arial, sans-serif;
             line-height: 1.4;
-            color: {self.tennis_colors['text']};
-            background: white;
-            font-size: 13px;
-        }}
-        
-        .report-container {{
-            max-width: 800px;
+            color: #333;
+            font-size: 11px;
+            max-width: 210mm;
             margin: 0 auto;
-            background: white;
+            padding: 10mm;
         }}
         
-        /* Compact Header Styling */
         .header {{
-            background: linear-gradient(135deg, {self.tennis_colors['primary']} 0%, {self.tennis_colors['secondary']} 100%);
+            background: #1B5E20;
             color: white;
-            padding: 25px 20px;
+            padding: 8px 15px;
             text-align: center;
-        }}
-        
-        .club-name {{
-            font-size: 2rem;
-            font-weight: 700;
             margin-bottom: 8px;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
         }}
         
-        .report-title {{
-            font-size: 1.1rem;
-            font-weight: 300;
-            opacity: 0.95;
-            margin-bottom: 5px;
+        .header h1 {{
+            font-size: 18px;
+            margin-bottom: 2px;
         }}
         
-        .term-info {{
-            font-size: 1rem;
-            opacity: 0.85;
-            font-weight: 500;
-        }}
-        
-        /* Compact Player Information Grid */
-        .player-info {{
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1px;
-            background: #E2E8F0;
-            margin: 15px;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-        }}
-        
-        .detail-item {{
-            background: white;
-            padding: 12px;
-            text-align: center;
-        }}
-        
-        .detail-label {{
-            font-weight: 600;
-            color: {self.tennis_colors['primary']};
-            font-size: 0.8rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 4px;
-        }}
-        
-        .detail-value {{
-            color: {self.tennis_colors['text']};
-            font-size: 0.9rem;
-            font-weight: 500;
-        }}
-        
-        /* Compact Banner Recommendation */
-        .recommendation {{
-            background: linear-gradient(135deg, {self.tennis_colors['accent']} 0%, #FF8A50 100%);
-            color: white;
-            padding: 18px 20px;
-            margin: 15px;
-            border-radius: 10px;
-            text-align: center;
-            box-shadow: 0 6px 20px rgba(255, 107, 53, 0.3);
-        }}
-        
-        .recommendation-title {{
-            font-size: 1.2rem;
-            font-weight: 700;
-            margin-bottom: 8px;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
-        }}
-        
-        .recommendation-text {{
-            font-size: 0.85rem;
-            margin-bottom: 10px;
-            opacity: 0.95;
-        }}
-        
-        .recommended-group {{
-            font-size: 1.3rem;
-            font-weight: 700;
-            background: rgba(255, 255, 255, 0.25);
-            border-radius: 8px;
-            padding: 10px 16px;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.4);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }}
-        
-        /* Compact Section Styling */
-        .section {{
-            margin: 12px 15px;
-            border-radius: 8px;
-            overflow: hidden;
-            border: 1px solid #E2E8F0;
-            break-inside: avoid;
-        }}
-        
-        .section-title {{
-            background: linear-gradient(135deg, {self.tennis_colors['primary']} 0%, {self.tennis_colors['secondary']} 100%);
-            color: white;
-            padding: 12px 16px;
+        .header p {{
+            font-size: 12px;
             margin: 0;
-            font-size: 1rem;
-            font-weight: 600;
+        }}
+        
+        .info-bar {{
+            display: flex;
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            margin-bottom: 8px;
+            font-size: 10px;
+        }}
+        
+        .info-item {{
+            flex: 1;
+            padding: 6px 8px;
+            border-right: 1px solid #ddd;
+            text-align: center;
+        }}
+        
+        .info-item:last-child {{
+            border-right: none;
+        }}
+        
+        .info-label {{
+            font-weight: bold;
+            color: #666;
+            font-size: 9px;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            display: block;
         }}
         
-        .section-content {{
-            background: white;
-            padding: 16px;
+        .info-value {{
+            font-size: 10px;
+            margin-top: 1px;
         }}
         
-        /* Compact Skills Grid */
-        .skill-item {{
-            background: white;
-            border-radius: 6px;
-            padding: 10px 12px;
-            margin: 8px 0;
+        .recommendation {{
+            background: #FF6B35;
+            color: white;
+            padding: 10px 15px;
+            margin-bottom: 12px;
+            text-align: center;
+            font-size: 12px;
+        }}
+        
+        .section {{
+            margin-bottom: 8px;
+            border: 1px solid #ddd;
+            page-break-inside: avoid;
+            overflow: hidden;
+        }}
+        
+        .section h3 {{
+            background: #f5f5f5;
+            padding: 6px 10px;
+            margin: 0;
+            font-size: 12px;
+            border-bottom: 1px solid #ddd;
+        }}
+        
+        .section .content,
+        .section .field {{
+            padding: 8px 10px;
+            line-height: 1.5;
+        }}
+        
+        .section:empty,
+        .section .content:empty,
+        .section .field:empty {{
+            display: none;
+        }}
+        
+        .field {{
+            border-bottom: 1px solid #eee;
+        }}
+        
+        .field:last-child {{
+            border-bottom: none;
+        }}
+        
+        .field strong {{
+            color: #1B5E20;
+            display: block;
+            margin-bottom: 3px;
+            font-size: 10px;
+        }}
+        
+        /* Compact Rating Section Styles */
+        .rating-section {{
+            background: #fafafa;
+        }}
+        
+        .rating-section:empty {{
+            display: none;
+        }}
+        
+        .rating-grid {{
+            padding: 4px;
+            display: block;
+        }}
+        
+        .rating-grid:empty {{
+            display: none;
+        }}
+        
+        .rating-item {{
+            border: 1px solid #e0e0e0;
+            border-radius: 3px;
+            padding: 6px 8px;
+            margin-bottom: 2px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 28px;
+        }}
+        
+        .rating-item:last-child {{
+            margin-bottom: 0;
+        }}
+        
+        .rating-skill {{
+            font-weight: 500;
+            font-size: 10px;
+            color: #2c3e50;
+            line-height: 1.2;
+            flex: 1;
+            margin-right: 8px;
+        }}
+        
+        .rating-score {{
+            font-weight: bold;
+            font-size: 11px;
+            color: white;
+            background: #34495e;
+            border-radius: 4px;
+            padding: 3px 8px;
+            min-width: 32px;
+            text-align: center;
+        }}
+        
+        /* Rating background colors */
+        .rating-excellent {{
+            background-color: #e8f5e8;
+            border-color: #2e7d32;
+        }}
+        
+        .rating-excellent .rating-score {{
+            background: #2e7d32;
+        }}
+        
+        .rating-good {{
+            background-color: #f1f8e9;
+            border-color: #388e3c;
+        }}
+        
+        .rating-good .rating-score {{
+            background: #388e3c;
+        }}
+        
+        .rating-average {{
+            background-color: #fff8e1;
+            border-color: #ffa000;
+        }}
+        
+        .rating-average .rating-score {{
+            background: #ffa000;
+        }}
+        
+        .rating-below {{
+            background-color: #fff3e0;
+            border-color: #f57c00;
+        }}
+        
+        .rating-below .rating-score {{
+            background: #f57c00;
+        }}
+        
+        .rating-poor {{
+            background-color: #ffebee;
+            border-color: #d32f2f;
+        }}
+        
+        .rating-poor .rating-score {{
+            background: #d32f2f;
+        }}
+        
+        /* Skills Section Styles */
+        .skill {{
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border: 1px solid transparent;
-            font-size: 0.9rem;
+            padding: 4px 10px;
+            border-bottom: 1px solid #eee;
+            font-size: 10px;
         }}
         
-        .skill-yes {{
-            background: linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%);
-            border-color: {self.tennis_colors['success']};
+        .skill:last-child {{
+            border-bottom: none;
         }}
         
-        .skill-nearly {{
-            background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%);
-            border-color: {self.tennis_colors['warning']};
+        .skill.yes {{
+            background: #f0f9ff;
         }}
         
-        .skill-not-yet {{
-            background: linear-gradient(135deg, #FEF2F2 0%, #FECACA 100%);
-            border-color: {self.tennis_colors['error']};
+        .skill.nearly {{
+            background: #fffbeb;
+        }}
+        
+        .skill.not_yet {{
+            background: #fef2f2;
         }}
         
         .skill-name {{
-            font-weight: 600;
-            flex: 1;
+            font-weight: 500;
         }}
         
         .skill-status {{
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            font-size: 9px;
+            color: #666;
         }}
         
-        .skill-icon {{
-            font-size: 1rem;
-            font-weight: bold;
-        }}
-        
-        .status-badge {{
-            padding: 4px 10px;
-            border-radius: 12px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-            color: white;
-            min-width: 65px;
-            text-align: center;
-        }}
-        
-        .status-yes {{
-            background: {self.tennis_colors['success']};
-        }}
-        
-        .status-nearly {{
-            background: {self.tennis_colors['warning']};
-        }}
-        
-        .status-not-yet {{
-            background: {self.tennis_colors['error']};
-        }}
-        
-        /* Compact Text Content */
-        .text-content {{
-            background: {self.tennis_colors['background']};
-            border-radius: 6px;
-            padding: 12px;
-            border-left: 3px solid {self.tennis_colors['secondary']};
-            line-height: 1.5;
-            font-size: 0.9rem;
-        }}
-        
-        .text-item {{
-            margin: 8px 0;
-            padding: 8px;
-            background: white;
-            border-radius: 4px;
-            border-left: 2px solid {self.tennis_colors['secondary']};
-            font-size: 0.85rem;
-        }}
-        
-        /* Compact Footer */
         .footer {{
-            background: {self.tennis_colors['background']};
-            padding: 12px 20px;
             text-align: center;
-            color: #6B7280;
-            font-size: 0.75rem;
-            border-top: 1px solid #E2E8F0;
-            margin-top: 20px;
+            font-size: 8px;
+            color: #666;
+            margin-top: 15px;
+            padding-top: 8px;
+            border-top: 1px solid #ddd;
         }}
         
-        .footer-divider {{
-            width: 40px;
-            height: 2px;
-            background: {self.tennis_colors['secondary']};
-            margin: 0 auto 8px;
-            border-radius: 1px;
+        @page {{
+            margin: 10mm;
+            size: A4;
         }}
         
-        /* Print Optimization for Single Page */
         @media print {{
-            body {{ 
-                background: white; 
-                font-size: 12px;
-            }}
-            .report-container {{ 
-                box-shadow: none; 
-                max-width: none;
-            }}
-            .section {{ 
-                margin: 8px 10px; 
-                page-break-inside: avoid;
-            }}
-            .recommendation {{ 
-                margin: 10px; 
-                padding: 12px 16px;
-                page-break-inside: avoid;
-            }}
-            .player-info {{ 
-                margin: 10px; 
-                page-break-inside: avoid;
-            }}
-            .header {{ 
-                padding: 20px 15px; 
-                page-break-after: avoid;
-            }}
-            @page {{ 
-                margin: 0.5cm; 
-                size: A4;
-            }}
-        }}
-        
-        /* Mobile Responsive */
-        @media (max-width: 768px) {{
-            .club-name {{ font-size: 1.5rem; }}
-            .player-info {{ 
-                grid-template-columns: repeat(2, 1fr); 
-                margin: 10px;
-            }}
-            .skill-item {{ 
-                flex-direction: column; 
-                align-items: flex-start; 
-                gap: 6px; 
-                padding: 8px;
-            }}
-            .section {{ margin: 8px 10px; }}
-            .recommendation {{ 
-                margin: 10px; 
-                padding: 14px 16px; 
-            }}
-            .recommended-group {{ 
-                font-size: 1.1rem; 
-                padding: 8px 12px; 
-            }}
-        }}
-        
-        /* Ultra-compact for very small content */
-        @media (max-height: 800px) {{
-            .header {{ padding: 20px 15px; }}
-            .section {{ margin: 8px 12px; }}
-            .section-content {{ padding: 12px; }}
-            .recommendation {{ 
-                padding: 14px 16px; 
-                margin: 10px 12px;
-            }}
-            .skill-item {{ 
-                padding: 8px 10px; 
-                margin: 6px 0;
+            body {{
+                padding: 0;
             }}
         }}
     </style>
 </head>
 <body>
-    <div class="report-container">
-        <!-- Compact Header -->
-        <div class="header">
-            <h1 class="club-name">{club_name}</h1>
-            <p class="report-title">Player Development Report</p>
-            <p class="term-info">{term_name}</p>
+    <div class="header">
+        <h1>{club_name}</h1>
+        <p>{term_name} • Player Development Report</p>
+    </div>
+    
+    <div class="info-bar">
+        <div class="info-item">
+            <span class="info-label">Player</span>
+            <span class="info-value">{student_name}</span>
         </div>
-        
-        <!-- Compact Player Information Grid -->
-        <div class="player-info">
-            <div class="detail-item">
-                <div class="detail-label">Player</div>
-                <div class="detail-value">{student_name}</div>
-            </div>
-            <div class="detail-item">
-                <div class="detail-label">Age</div>
-                <div class="detail-value">{age_text}</div>
-            </div>
-            <div class="detail-item">
-                <div class="detail-label">Coach</div>
-                <div class="detail-value">{coach_name}</div>
-            </div>
-            <div class="detail-item">
-                <div class="detail-label">Group</div>
-                <div class="detail-value">{group_name}</div>
-            </div>
-            <div class="detail-item">
-                <div class="detail-label">Assessment</div>
-                <div class="detail-value">{assessment_date}</div>
-            </div>
-            <div class="detail-item">
-                <div class="detail-label">Generated</div>
-                <div class="detail-value">{generation_time}</div>
-            </div>
+        <div class="info-item">
+            <span class="info-label">Coach</span>
+            <span class="info-value">{coach_name}</span>
         </div>
-        
-        <!-- Compact Banner Recommendation -->
-        {recommendation_html}
-        
-        <!-- Compact Assessment Sections -->
-        {sections_html}
-        
-        <!-- Compact Footer -->
-        <div class="footer">
-            <div class="footer-divider"></div>
-            <p><strong>{club_name}</strong> Player Development System</p>
-            <p>Generated on {generation_time}</p>
+        <div class="info-item">
+            <span class="info-label">Group</span>
+            <span class="info-value">{group_name}</span>
         </div>
+    </div>
+    
+    {recommendation_html}
+    
+    {sections_html}
+    
+    <div class="footer">
+        <p>{club_name} • Generated {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
     </div>
 </body>
 </html>
         '''
 
-class ReportLabFallbackGenerator:
-    """Compact ReportLab fallback generator"""
-    
-    def __init__(self):
-        self.styles = getSampleStyleSheet()
-        self._setup_styles()
-
-    def _setup_styles(self):
-        """Set up compact ReportLab styles"""
-        self.styles.add(ParagraphStyle(
-            name='SectionHeader',
-            parent=self.styles['Heading2'],
-            fontSize=14,
-            spaceBefore=8,
-            spaceAfter=6,
-            textColor=HexColor('#1B5E20'),
-            fontName='Helvetica-Bold',
-            backColor=HexColor('#F0FDF4'),
-            borderPadding=6
-        ))
-        
-        self.styles.add(ParagraphStyle(
-            name='FieldLabel',
-            parent=self.styles['Normal'],
-            fontSize=10,
-            spaceBefore=4,
-            spaceAfter=2,
-            textColor=HexColor('#1B5E20'),
-            fontName='Helvetica-Bold'
-        ))
-        
-        self.styles.add(ParagraphStyle(
-            name='FieldValue',
-            parent=self.styles['Normal'],
-            fontSize=9,
-            spaceAfter=3,
-            leading=11,
-            textColor=HexColor('#2D3748')
-        ))
-        
-        self.styles.add(ParagraphStyle(
-            name='RecommendationHeader',
-            parent=self.styles['Heading2'],
-            fontSize=14,
-            spaceBefore=8,
-            spaceAfter=6,
-            textColor=HexColor('#FF6B35'),
-            fontName='Helvetica-Bold',
-            alignment=1  # Center
-        ))
-
-    def create_single_report_pdf(self, report, output_path):
-        """Create compact report using ReportLab fallback"""
-        try:
-            is_buffer = not isinstance(output_path, str)
-            doc = SimpleDocTemplate(
-                output_path,
-                pagesize=A4,
-                rightMargin=30,
-                leftMargin=30,
-                topMargin=30,
-                bottomMargin=30
-            )
-
-            story = []
-
-            # Compact Header
-            story.append(Paragraph(f"{report.programme_player.tennis_club.name} Report", self.styles['Title']))
-            story.append(Paragraph(f"<b>Term:</b> {report.teaching_period.name}", self.styles['Normal']))
-            story.append(Spacer(1, 12))
-
-            # Compact Player details
-            details_data = [
-                ["Player:", report.student.name, "Coach:", report.coach.name],
-                ["Group:", report.tennis_group.name, "Date:", datetime.now().strftime('%d %B %Y')]
-            ]
-            
-            details_table = Table(details_data, colWidths=[doc.width*0.15, doc.width*0.35, doc.width*0.15, doc.width*0.35])
-            details_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (0, -1), HexColor('#F0FDF4')),
-                ('BACKGROUND', (2, 0), (2, -1), HexColor('#F0FDF4')),
-                ('TEXTCOLOR', (0, 0), (0, -1), HexColor('#1B5E20')),
-                ('TEXTCOLOR', (2, 0), (2, -1), HexColor('#1B5E20')),
-                ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-                ('FONTNAME', (2, 0), (2, -1), 'Helvetica-Bold'),
-                ('FONTNAME', (1, 0), (1, -1), 'Helvetica'),
-                ('FONTNAME', (3, 0), (3, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 0), (-1, -1), 9),
-                ('PADDING', (0, 0), (-1, -1), 4)
-            ]))
-            
-            story.append(details_table)
-            story.append(Spacer(1, 12))
-
-            # Compact Recommendation
-            if report.recommended_group:
-                story.append(Paragraph("🏆 Next Term Recommendation", self.styles['RecommendationHeader']))
-                rec_data = [[f"{report.recommended_group.name}"]]
-                rec_table = Table(rec_data, colWidths=[doc.width*0.6])
-                rec_table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (0, 0), HexColor('#FF6B35')),
-                    ('TEXTCOLOR', (0, 0), (0, 0), white),
-                    ('FONTNAME', (0, 0), (0, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (0, 0), 12),
-                    ('ALIGN', (0, 0), (0, 0), 'CENTER'),
-                    ('PADDING', (0, 0), (0, 0), 12),
-                    ('BOX', (0, 0), (0, 0), 2, HexColor('#FF6B35')),
-                ]))
-                
-                story.append(Table([[rec_table]], colWidths=[doc.width], style=TableStyle([
-                    ('ALIGN', (0, 0), (0, 0), 'CENTER')
-                ])))
-                story.append(Spacer(1, 15))
-
-            # Compact Content processing
-            if report.content:
-                content = report.content
-                if isinstance(content, str):
-                    try:
-                        content = json.loads(content)
-                    except:
-                        content = {"Assessment": content}
-                
-                if isinstance(content, dict):
-                    for section_name, section_content in content.items():
-                        if section_content:
-                            story.append(Paragraph(section_name, self.styles['SectionHeader']))
-                            
-                            if isinstance(section_content, dict):
-                                for field_name, field_value in section_content.items():
-                                    story.append(Paragraph(f"{field_name}:", self.styles['FieldLabel']))
-                                    
-                                    # Add icons for skill values
-                                    if isinstance(field_value, str):
-                                        if field_value.lower() == 'yes':
-                                            field_value = f"✓ {field_value}"
-                                        elif field_value.lower() == 'nearly':
-                                            field_value = f"◐ {field_value}"
-                                        elif field_value.lower() in ['not yet', 'not_yet']:
-                                            field_value = f"○ {field_value}"
-                                    
-                                    story.append(Paragraph(str(field_value), self.styles['FieldValue']))
-                                    story.append(Spacer(1, 2))
-                            else:
-                                story.append(Paragraph(str(section_content), self.styles['FieldValue']))
-                            
-                            story.append(Spacer(1, 8))
-
-            doc.build(story)
-            return True
-
-        except Exception as e:
-            print(f"Error generating ReportLab fallback report: {str(e)}")
-            raise
-
 def create_single_report_pdf(report, output_buffer):
-    """Create a compact tennis report PDF - HTML first, ReportLab fallback"""
+    """Create a compact tennis report PDF using HTML/CSS"""
+    if not HTML_AVAILABLE:
+        error_msg = f"WeasyPrint is not available for PDF generation. {WEASYPRINT_ERROR or 'Please install WeasyPrint and its system dependencies.'}"
+        raise Exception(error_msg)
+    
     try:
-        if HTML_AVAILABLE:
-            try:
-                generator = HTMLTennisReportGenerator()
-                return generator.create_single_report_pdf(report, output_buffer)
-            except Exception as e:
-                print(f"HTML generator failed: {e}, using ReportLab fallback")
-        
-        # Use ReportLab fallback
-        generator = ReportLabFallbackGenerator()
+        generator = CompactTennisReportGenerator()
         return generator.create_single_report_pdf(report, output_buffer)
-            
     except Exception as e:
         print(f"Error in create_single_report_pdf: {str(e)}")
         raise
 
 def batch_generate_reports(period_id):
-    """Generate reports for all completed reports in a teaching period using the compact generator."""
+    """Generate reports for all completed reports in a teaching period"""
     from flask import current_app
     from app.models import Report, TeachingPeriod
     from app import db
@@ -804,10 +663,6 @@ def batch_generate_reports(period_id):
         
         generated_reports = []
         errors = []
-        
-        # Log which generator we're using
-        generator_type = "HTML" if HTML_AVAILABLE else "ReportLab"
-        current_app.logger.info(f"Using {generator_type} generator for batch processing {len(reports)} reports")
         
         for report in reports:
             try:
@@ -841,9 +696,6 @@ def batch_generate_reports(period_id):
                 error_msg = f"Error generating report for {report.student.name}: {str(e)}"
                 errors.append(error_msg)
                 current_app.logger.error(error_msg)
-                current_app.logger.error(traceback.format_exc())
-                
-        current_app.logger.info(f"Batch generation complete: {len(generated_reports)} successful, {len(errors)} errors")
         
         return {
             'success': len(generated_reports),
@@ -854,7 +706,6 @@ def batch_generate_reports(period_id):
         
     except Exception as e:
         current_app.logger.error(f"Error in batch_generate_reports: {str(e)}")
-        current_app.logger.error(traceback.format_exc())
         return {
             'success': 0,
             'errors': 1,
