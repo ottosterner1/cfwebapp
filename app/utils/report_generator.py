@@ -1,5 +1,5 @@
 # app/utils/report_generator.py
-# Complete updated tennis report generator with numeric-only rating display
+# Complete updated tennis report generator with template-ordered sections
 
 from io import BytesIO
 from datetime import datetime
@@ -27,13 +27,13 @@ except Exception as e:
     print(f"WARNING: {WEASYPRINT_ERROR}")
 
 class CompactTennisReportGenerator:
-    """Simple and compact tennis report generator with numeric-only rating display"""
+    """Simple and compact tennis report generator with template-ordered sections"""
     
     def create_single_report_pdf(self, report, output_path):
         """Generate a simple tennis report using HTML/CSS"""
         try:
-            # Process report content into HTML sections
-            sections_html = self._process_content_to_html(report.content)
+            # Process report content into HTML sections using template order
+            sections_html = self._process_content_to_html_ordered(report)
             
             # Generate complete HTML document
             html_content = self._generate_html_template(
@@ -55,8 +55,11 @@ class CompactTennisReportGenerator:
             print(f"Error generating tennis report: {str(e)}")
             raise
 
-    def _process_content_to_html(self, content):
-        """Convert report content to HTML sections"""
+    def _process_content_to_html_ordered(self, report):
+        """Convert report content to HTML sections using template order"""
+        content = report.content
+        template = report.template
+        
         if not content:
             return '<div class="section"><h3>No Content Available</h3><p>No assessment data provided.</p></div>'
         
@@ -69,32 +72,295 @@ class CompactTennisReportGenerator:
         if not isinstance(content, dict):
             return self._create_text_section("Assessment", str(content))
         
+        # Check if template and sections exist
+        if not template or not template.sections:
+            return self._process_content_to_html_simple_ordered(content)
+        
+        # Get template sections ordered by their order field
+        ordered_sections = sorted(template.sections, key=lambda s: s.order)
+        
         sections_html = ""
-        for section_name, section_content in content.items():
-            # Skip empty or None content
-            if not section_content:
-                continue
+        processed_content_keys = set()
+        
+        # Process sections in template order
+        for template_section in ordered_sections:
+            section_name = template_section.name
+            
+            # Look for exact match first
+            section_content = self._find_matching_content_exact(content, section_name)
+            matched_key = None
+            
+            if section_content is not None:
+                matched_key = self._get_content_key_exact(content, section_name)
+            else:
+                # Fallback to flexible matching
+                section_content = self._find_matching_content(content, section_name)
+                if section_content is not None:
+                    matched_key = self._get_content_key(content, section_name)
+            
+            if section_content is not None and matched_key:
+                # Mark this content as processed
+                processed_content_keys.add(matched_key)
                 
-            if isinstance(section_content, dict):
-                # Skip empty dictionaries
-                if not any(section_content.values()):
+                # Skip empty or None content
+                if not section_content:
                     continue
                     
-                if self._is_rating_section(section_content):
-                    section_html = self._create_rating_section(section_name, section_content)
-                elif self._is_skills_section(section_content):
-                    section_html = self._create_skills_section(section_name, section_content)
+                # Handle nested structure (like Summary containing multiple fields)
+                if isinstance(section_content, dict):
+                    # Skip empty dictionaries
+                    if not any(section_content.values()):
+                        continue
+                    
+                    # Check if this is a section with template fields
+                    if template_section.fields:
+                        section_html = self._process_nested_section_with_fields(
+                            template_section, section_content
+                        )
+                    elif self._is_rating_section(section_content):
+                        section_html = self._create_rating_section(section_name, section_content)
+                    elif self._is_skills_section(section_content):
+                        section_html = self._create_skills_section(section_name, section_content)
+                    else:
+                        section_html = self._create_text_section(section_name, section_content)
+                    
+                    # Only add non-empty sections
+                    if section_html.strip():
+                        sections_html += section_html
                 else:
+                    # Skip empty strings and whitespace
+                    if not str(section_content).strip():
+                        continue
                     section_html = self._create_text_section(section_name, section_content)
+                    if section_html.strip():
+                        sections_html += section_html
+        
+        # Process any remaining content that wasn't matched to template sections
+        for key, value in content.items():
+            if key not in processed_content_keys:
+                if not value or (isinstance(value, dict) and not any(value.values())):
+                    continue
+                    
+                if isinstance(value, dict):
+                    if self._is_rating_section(value):
+                        section_html = self._create_rating_section(key, value)
+                    elif self._is_skills_section(value):
+                        section_html = self._create_skills_section(key, value)
+                    else:
+                        section_html = self._create_text_section(key, value)
+                else:
+                    if not str(value).strip():
+                        continue
+                    section_html = self._create_text_section(key, value)
                 
-                # Only add non-empty sections
                 if section_html.strip():
                     sections_html += section_html
+        
+        return sections_html or '<div class="section"><h3>Assessment</h3><p>No assessment provided.</p></div>'
+    
+    def _process_nested_section_with_fields(self, template_section, section_content):
+        """Process a section that contains multiple fields ordered by template"""
+        if not isinstance(section_content, dict) or not section_content:
+            return ""
+        
+        # Get template fields ordered by their order
+        ordered_fields = sorted(template_section.fields, key=lambda f: f.order)
+        
+        sections_html = ""
+        processed_content_keys = set()
+        
+        # Process fields in template order
+        for template_field in ordered_fields:
+            field_name = template_field.name
+            
+            # Look for exact match first
+            field_content = self._find_matching_content_exact(section_content, field_name)
+            matched_key = None
+            
+            if field_content is not None:
+                matched_key = self._get_content_key_exact(section_content, field_name)
             else:
-                # Skip empty strings and whitespace
-                if not str(section_content).strip():
+                # Fallback to flexible matching
+                field_content = self._find_matching_content(section_content, field_name)
+                if field_content is not None:
+                    matched_key = self._get_content_key(section_content, field_name)
+            
+            if field_content is not None and matched_key:
+                # Mark this content as processed
+                processed_content_keys.add(matched_key)
+                
+                # Skip empty content
+                if not field_content or (isinstance(field_content, str) and not field_content.strip()):
                     continue
-                section_html = self._create_text_section(section_name, section_content)
+                
+                # Create HTML section for this field
+                field_html = self._create_text_section(matched_key, field_content)
+                if field_html.strip():
+                    sections_html += field_html
+        
+        # Process any remaining content that wasn't matched to template fields
+        for key, value in section_content.items():
+            if key not in processed_content_keys:
+                if not value or (isinstance(value, str) and not value.strip()):
+                    continue
+                
+                field_html = self._create_text_section(key, value)
+                if field_html.strip():
+                    sections_html += field_html
+        
+        return sections_html
+    
+    def _find_matching_content_exact(self, content, section_name):
+        """Find content that exactly matches the section name (case-insensitive)"""
+        if not content or not isinstance(content, dict):
+            return None
+        
+        # Direct match (case-insensitive)
+        for key, value in content.items():
+            if key.lower().strip() == section_name.lower().strip():
+                return value
+        
+        return None
+    
+    def _get_content_key_exact(self, content, section_name):
+        """Get the exact key from content that matches the section name"""
+        if not content or not isinstance(content, dict):
+            return section_name
+        
+        # Direct match (case-insensitive)
+        for key in content.keys():
+            if key.lower().strip() == section_name.lower().strip():
+                return key
+        
+        return section_name
+
+    def _find_matching_content(self, content, section_name):
+        """Find content that matches the section name (case-insensitive, flexible matching)"""
+        if not content or not isinstance(content, dict):
+            return None
+        
+        # Direct match (case-insensitive)
+        for key, value in content.items():
+            if key.lower() == section_name.lower():
+                return value
+        
+        # Partial match (section name contains key or key contains section name)
+        for key, value in content.items():
+            if (section_name.lower() in key.lower() or 
+                key.lower() in section_name.lower()):
+                return value
+        
+        return None
+    
+    def _get_content_key(self, content, section_name):
+        """Get the actual key from content that matches the section name"""
+        if not content or not isinstance(content, dict):
+            return section_name
+        
+        # Direct match (case-insensitive)
+        for key in content.keys():
+            if key.lower() == section_name.lower():
+                return key
+        
+        # Partial match
+        for key in content.keys():
+            if (section_name.lower() in key.lower() or 
+                key.lower() in section_name.lower()):
+                return key
+        
+        return section_name
+
+    def _process_content_to_html_simple_ordered(self, content):
+        """Simple content processing with predefined order"""
+        if not content:
+            return '<div class="section"><h3>No Content Available</h3><p>No assessment data provided.</p></div>'
+        
+        if isinstance(content, str):
+            try:
+                content = json.loads(content)
+            except:
+                return self._create_text_section("Assessment", content)
+        
+        if not isinstance(content, dict):
+            return self._create_text_section("Assessment", str(content))
+        
+        # Flatten nested structures (like Summary containing multiple fields)
+        flattened_content = {}
+        for key, value in content.items():
+            if isinstance(value, dict):
+                # This is a nested structure, flatten it
+                for nested_key, nested_value in value.items():
+                    flattened_content[nested_key] = nested_value
+            else:
+                flattened_content[key] = value
+        
+        # Define preferred order for common section names
+        preferred_order = [
+            "what have we worked on this term?",
+            "what have we worked on this term",
+            "summary",
+            "skills assessment",
+            "skills",
+            "we also covered other tactics and movements such as:",
+            "we also covered other tactics and movements such as",
+            "additional activities",
+            "other activities",
+            "teaching points / tactics to focus on next term:",
+            "teaching points / tactics to focus on next term",
+            "teaching points",
+            "next term",
+            "next term recommendations",
+            "recommendations"
+        ]
+        
+        sections_html = ""
+        processed_keys = set()
+        
+        # Process content in preferred order
+        for preferred_key in preferred_order:
+            for actual_key, value in flattened_content.items():
+                if (actual_key.lower().strip() == preferred_key.lower().strip() and 
+                    actual_key not in processed_keys):
+                    
+                    processed_keys.add(actual_key)
+                    
+                    if not value or (isinstance(value, dict) and not any(value.values())):
+                        continue
+                        
+                    if isinstance(value, dict):
+                        if self._is_rating_section(value):
+                            section_html = self._create_rating_section(actual_key, value)
+                        elif self._is_skills_section(value):
+                            section_html = self._create_skills_section(actual_key, value)
+                        else:
+                            section_html = self._create_text_section(actual_key, value)
+                    else:
+                        if not str(value).strip():
+                            continue
+                        section_html = self._create_text_section(actual_key, value)
+                    
+                    if section_html.strip():
+                        sections_html += section_html
+                    break
+        
+        # Process any remaining content
+        for key, value in flattened_content.items():
+            if key not in processed_keys:
+                if not value or (isinstance(value, dict) and not any(value.values())):
+                    continue
+                    
+                if isinstance(value, dict):
+                    if self._is_rating_section(value):
+                        section_html = self._create_rating_section(key, value)
+                    elif self._is_skills_section(value):
+                        section_html = self._create_skills_section(key, value)
+                    else:
+                        section_html = self._create_text_section(key, value)
+                else:
+                    if not str(value).strip():
+                        continue
+                    section_html = self._create_text_section(key, value)
+                
                 if section_html.strip():
                     sections_html += section_html
         
@@ -644,7 +910,8 @@ def batch_generate_reports(period_id):
          .join(Report.teaching_period)\
          .options(
              db.joinedload(Report.recommended_group),
-             db.joinedload(Report.teaching_period)
+             db.joinedload(Report.teaching_period),
+             db.joinedload(Report.template).joinedload('sections').joinedload('fields')
          ).all()
         
         if not reports:
