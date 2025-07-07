@@ -1,5 +1,5 @@
 # app/utils/report_generator.py
-# Fixed tennis report generator with proper section organization and rating display
+# Complete rewritten tennis report generator with fixed mixed section support
 
 from io import BytesIO
 from datetime import datetime
@@ -27,7 +27,7 @@ except Exception as e:
     print(f"WARNING: {WEASYPRINT_ERROR}")
 
 class CompactTennisReportGenerator:
-    """Fixed tennis report generator with proper section organization"""
+    """Complete tennis report generator with proper mixed section support"""
     
     # Rating scale descriptions
     RATING_DESCRIPTIONS = {
@@ -124,13 +124,30 @@ class CompactTennisReportGenerator:
         if not section_data:
             return ""
         
-        # Determine section type based on the values
-        if self._is_rating_section(section_data):
-            return self._create_rating_section(section_name, section_data)
-        elif self._is_skills_section(section_data):
-            return self._create_skills_section(section_name, section_data)
+        # Check content types in this section
+        rating_fields = {}
+        skill_fields = {}
+        text_fields = {}
+        
+        for field_name, field_value in section_data.items():
+            if self._is_rating_field(field_value):
+                rating_fields[field_name] = field_value
+            elif self._is_skill_field(field_value):
+                skill_fields[field_name] = field_value
+            else:
+                text_fields[field_name] = field_value
+        
+        # Determine how to render this section
+        has_mixed_content = len([x for x in [rating_fields, skill_fields, text_fields] if x]) > 1
+        
+        if has_mixed_content:
+            return self._create_mixed_section(section_name, rating_fields, skill_fields, text_fields)
+        elif rating_fields:
+            return self._create_rating_section(section_name, rating_fields)
+        elif skill_fields:
+            return self._create_skills_section(section_name, skill_fields)
         else:
-            return self._create_text_section(section_name, section_data)
+            return self._create_text_section(section_name, text_fields)
     
     def _find_field_value_in_content(self, content, field_name):
         """Find a field value anywhere in the nested content structure"""
@@ -163,12 +180,101 @@ class CompactTennisReportGenerator:
         
         return content_clean == field_clean
     
-    def _create_title_section(self, title, description=None):
-        """Create a title section for the report template"""
-        html = f'<div class="section title-section"><h3>{title}</h3>'
-        if description and description.strip():
-            html += f'<div class="content"><em>{description}</em></div>'
-        html += '</div>'
+    def _is_rating_field(self, value):
+        """Check if a single field value is a rating"""
+        try:
+            if isinstance(value, (int, str)):
+                num_val = int(str(value).strip())
+                return 1 <= num_val <= 5
+        except (ValueError, TypeError):
+            if isinstance(value, str):
+                rating_pattern = re.compile(r'^[1-5]\s*-\s*.+$')
+                return rating_pattern.match(value.strip())
+        return False
+    
+    def _is_skill_field(self, value):
+        """Check if a single field value is a skill assessment"""
+        skill_values = ['yes', 'nearly', 'not yet', 'not_yet']
+        return isinstance(value, str) and value.lower() in skill_values
+    
+    def _extract_rating_number(self, value):
+        """Extract rating number from value"""
+        try:
+            if isinstance(value, (int, str)):
+                num_val = int(str(value).strip())
+                if 1 <= num_val <= 5:
+                    return num_val
+        except (ValueError, TypeError):
+            if isinstance(value, str):
+                rating_match = re.match(r'^([1-5])\s*-\s*(.+)$', value.strip())
+                if rating_match:
+                    return int(rating_match.group(1))
+        return None
+    
+    def _create_mixed_section(self, section_name, rating_fields, skill_fields, text_fields):
+        """Create HTML for mixed content section with proper separation"""
+        html = f'<div class="section mixed-section"><h3>{section_name}</h3>'
+        html += '<div class="mixed-content">'
+        
+        has_content = False
+        
+        # Process rating fields first
+        for field_name, field_value in rating_fields.items():
+            rating_num = self._extract_rating_number(field_value)
+            if rating_num:
+                clean_field_name = field_name.strip().lstrip('•').strip()
+                rating_class = self._get_rating_class(rating_num)
+                rating_description = self.RATING_DESCRIPTIONS.get(rating_num, "")
+                
+                html += f'''
+                <div class="assessment-item rating-item-mixed {rating_class}">
+                    <div class="item-label">{clean_field_name}:</div>
+                    <div class="rating-display">
+                        <span class="rating-score">{rating_num}/5</span>
+                        <span class="rating-description">{rating_description}</span>
+                    </div>
+                </div>
+                '''
+                has_content = True
+        
+        # Process skill fields
+        for field_name, field_value in skill_fields.items():
+            clean_field_name = field_name.strip().lstrip('•').strip()
+            status_class = field_value.lower().replace(' ', '_')
+            display_value = field_value.replace('_', ' ').replace('not yet', 'Not Yet').title()
+            icon = '✓' if field_value.lower() == 'yes' else '◐' if field_value.lower() == 'nearly' else '○'
+            
+            html += f'''
+            <div class="assessment-item skill-item-mixed {status_class}">
+                <div class="item-label">{clean_field_name}:</div>
+                <div class="skill-display">
+                    <span class="skill-icon">{icon}</span>
+                    <span class="skill-text">{display_value}</span>
+                </div>
+            </div>
+            '''
+            has_content = True
+        
+        # Process text fields
+        for field_name, field_value in text_fields.items():
+            if field_value and str(field_value).strip():
+                clean_field_name = field_name.strip().lstrip('•').strip()
+                formatted_value = self._format_text_content(field_value)
+                if formatted_value.strip():
+                    html += f'''
+                    <div class="assessment-item text-item-mixed">
+                        <div class="item-label">{clean_field_name}:</div>
+                        <div class="text-content">{formatted_value}</div>
+                    </div>
+                    '''
+                    has_content = True
+        
+        html += '</div></div>'
+        
+        # Return empty string if no content
+        if not has_content:
+            return ''
+            
         return html
     
     def _process_content_to_html_simple_ordered(self, content):
@@ -193,16 +299,25 @@ class CompactTennisReportGenerator:
                 continue
                 
             if isinstance(value, dict):
-                if self._is_rating_section(value):
-                    section_html = self._create_rating_section(key, value)
-                elif self._is_skills_section(value):
-                    section_html = self._create_skills_section(key, value)
+                # Separate content types
+                rating_fields = {k: v for k, v in value.items() if self._is_rating_field(v)}
+                skill_fields = {k: v for k, v in value.items() if self._is_skill_field(v)}
+                text_fields = {k: v for k, v in value.items() if not self._is_rating_field(v) and not self._is_skill_field(v)}
+                
+                # Check if mixed
+                content_types = [x for x in [rating_fields, skill_fields, text_fields] if x]
+                if len(content_types) > 1:
+                    section_html = self._create_mixed_section(key, rating_fields, skill_fields, text_fields)
+                elif rating_fields:
+                    section_html = self._create_rating_section(key, rating_fields)
+                elif skill_fields:
+                    section_html = self._create_skills_section(key, skill_fields)
                 else:
-                    section_html = self._create_text_section(key, value)
+                    section_html = self._create_text_section(key, text_fields)
             else:
                 if not str(value).strip():
                     continue
-                section_html = self._create_text_section(key, value)
+                section_html = self._create_text_section(key, {key: value})
             
             if section_html.strip():
                 sections_html += section_html
@@ -217,18 +332,8 @@ class CompactTennisReportGenerator:
         # Check for numeric ratings (1-5) - either as numbers or strings
         rating_count = 0
         for value in content.values():
-            try:
-                # Try to convert to int and check if it's in 1-5 range
-                if isinstance(value, (int, str)):
-                    num_val = int(str(value).strip())
-                    if 1 <= num_val <= 5:
-                        rating_count += 1
-            except (ValueError, TypeError):
-                # Also check for full format like "3 - Average"
-                if isinstance(value, str):
-                    rating_pattern = re.compile(r'^[1-5]\s*-\s*.+$')
-                    if rating_pattern.match(value.strip()):
-                        rating_count += 1
+            if self._is_rating_field(value):
+                rating_count += 1
         
         # If most values (at least 50%) look like ratings, treat as rating section
         return rating_count >= len(content) * 0.5 and rating_count > 0
@@ -238,11 +343,9 @@ class CompactTennisReportGenerator:
         if not isinstance(content, dict):
             return False
         
-        skill_values = ['yes', 'nearly', 'not yet', 'not_yet']
         skill_count = 0
-        
         for value in content.values():
-            if isinstance(value, str) and value.lower() in skill_values:
+            if self._is_skill_field(value):
                 skill_count += 1
         
         return skill_count > 0
@@ -255,45 +358,23 @@ class CompactTennisReportGenerator:
         has_content = False
         
         for skill_name, rating_value in rating_data.items():
-            rating_num = None
-            
-            # Clean up skill name
-            clean_skill_name = skill_name.strip().lstrip('•').strip()
-            
-            # Handle different rating value formats
-            if isinstance(rating_value, str):
-                # Check if it's full format like "3 - Average"
-                rating_match = re.match(r'^([1-5])\s*-\s*(.+)$', rating_value.strip())
-                if rating_match:
-                    rating_num = int(rating_match.group(1))
-                else:
-                    # Try to parse as just a number
-                    try:
-                        rating_num = int(rating_value.strip())
-                        if not (1 <= rating_num <= 5):
-                            continue
-                    except ValueError:
-                        continue
-            elif isinstance(rating_value, (int, float)):
-                # Handle numeric values
-                rating_num = int(rating_value)
-                if not (1 <= rating_num <= 5):
-                    continue
-            
-            if rating_num:
-                rating_class = self._get_rating_class(rating_num)
-                rating_description = self.RATING_DESCRIPTIONS.get(rating_num, "")
-                
-                html += f'''
-                <div class="rating-item {rating_class}">
-                    <div class="rating-skill">{clean_skill_name}</div>
-                    <div class="rating-score-container">
-                        <div class="rating-score">{rating_num}/5</div>
-                        <div class="rating-description">{rating_description}</div>
+            if self._is_rating_field(rating_value):
+                rating_num = self._extract_rating_number(rating_value)
+                if rating_num:
+                    clean_skill_name = skill_name.strip().lstrip('•').strip()
+                    rating_class = self._get_rating_class(rating_num)
+                    rating_description = self.RATING_DESCRIPTIONS.get(rating_num, "")
+                    
+                    html += f'''
+                    <div class="rating-item {rating_class}">
+                        <div class="rating-skill">{clean_skill_name}</div>
+                        <div class="rating-score-container">
+                            <div class="rating-score">{rating_num}/5</div>
+                            <div class="rating-description">{rating_description}</div>
+                        </div>
                     </div>
-                </div>
-                '''
-                has_content = True
+                    '''
+                    has_content = True
         
         html += '</div></div>'
         
@@ -323,7 +404,7 @@ class CompactTennisReportGenerator:
         
         has_content = False
         for skill_name, skill_value in skills_data.items():
-            if isinstance(skill_value, str) and skill_value.lower() in ['yes', 'nearly', 'not yet', 'not_yet']:
+            if self._is_skill_field(skill_value):
                 # Clean up skill name
                 clean_skill_name = skill_name.strip().lstrip('•').strip()
                 
@@ -393,7 +474,14 @@ class CompactTennisReportGenerator:
         # Handle literal \n characters in the JSON string
         text = text.replace('\\n', '\n')
         
-        # Split into lines and process each one
+        # For single-line text (no explicit line breaks), don't split into lines
+        if '\n' not in text:
+            # Just do basic formatting without breaking into lines
+            text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
+            text = re.sub(r'\*(.*?)\*(?!\*)', r'<em>\1</em>', text)  # Avoid double asterisks
+            return text
+        
+        # Split into lines and process each one only if there are explicit line breaks
         lines = text.split('\n')
         formatted_lines = []
         
@@ -408,7 +496,7 @@ class CompactTennisReportGenerator:
                 
                 # Basic text formatting
                 line = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line)
-                line = re.sub(r'\*(.*?)\*', r'<em>\1</em>', line)
+                line = re.sub(r'\*(.*?)\*(?!\*)', r'<em>\1</em>', line)
                 
                 formatted_lines.append(line)
             else:
@@ -563,55 +651,10 @@ class CompactTennisReportGenerator:
             font-size: 10px;
         }}
         
-        /* Title Section Styles */
-        .title-section {{
-            background: #e8f5e8;
-            border-color: #1B5E20;
-        }}
-        
-        .title-section h3 {{
-            background: #1B5E20;
-            color: white;
-            font-size: 14px;
-        }}
-        
         /* Enhanced Rating Section Styles */
         .rating-section {{
             background: #fafafa;
         }}
-        
-        .rating-legend {{
-            padding: 8px 10px;
-            background: #f0f8ff;
-            border-bottom: 1px solid #ddd;
-            font-size: 9px;
-        }}
-        
-        .legend-title {{
-            font-weight: bold;
-            color: #1B5E20;
-            margin-bottom: 4px;
-        }}
-        
-        .legend-items {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }}
-        
-        .legend-item {{
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 8px;
-            color: white;
-            font-weight: 500;
-        }}
-        
-        .legend-item.rating-excellent {{ background: #2e7d32; }}
-        .legend-item.rating-good {{ background: #388e3c; }}
-        .legend-item.rating-average {{ background: #ffa000; }}
-        .legend-item.rating-below {{ background: #f57c00; }}
-        .legend-item.rating-poor {{ background: #d32f2f; }}
         
         .rating-grid {{
             padding: 4px;
@@ -712,53 +755,9 @@ class CompactTennisReportGenerator:
             background: #d32f2f;
         }}
         
-        /* Enhanced Skills Section Styles */
+        /* Skills Section Styles */
         .skills-section {{
             background: #fafafa;
-        }}
-        
-        .skills-legend {{
-            padding: 8px 10px;
-            background: #f9f9f9;
-            border-bottom: 1px solid #ddd;
-            font-size: 9px;
-        }}
-        
-        .skills-legend .legend-title {{
-            font-weight: bold;
-            color: #1B5E20;
-            margin-bottom: 4px;
-        }}
-        
-        .skills-legend .legend-items {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }}
-        
-        .skills-legend .legend-item {{
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 8px;
-            font-weight: 500;
-        }}
-        
-        .skills-legend .skill-yes {{ 
-            background: #e8f5e8; 
-            color: #2e7d32; 
-            border: 1px solid #2e7d32;
-        }}
-        
-        .skills-legend .skill-nearly {{ 
-            background: #fff8e1; 
-            color: #f57c00; 
-            border: 1px solid #f57c00;
-        }}
-        
-        .skills-legend .skill-not-yet {{ 
-            background: #ffebee; 
-            color: #d32f2f; 
-            border: 1px solid #d32f2f;
         }}
         
         .skills-grid {{
@@ -815,6 +814,178 @@ class CompactTennisReportGenerator:
             font-size: 9px;
             color: #666;
             font-weight: 500;
+        }}
+        
+        /* Mixed Section Styles */
+        .mixed-section {{
+            background: #fafafa;
+        }}
+        
+        .mixed-content {{
+            padding: 4px;
+        }}
+        
+        .assessment-item {{
+            border: 1px solid #e0e0e0;
+            border-radius: 3px;
+            padding: 10px 12px;
+            margin-bottom: 4px;
+            background: white;
+        }}
+        
+        .assessment-item:last-child {{
+            margin-bottom: 0;
+        }}
+        
+        .item-label {{
+            font-weight: 500;
+            font-size: 10px;
+            color: #2c3e50;
+            margin-bottom: 6px;
+            line-height: 1.3;
+        }}
+        
+        /* Rating items in mixed sections */
+        .rating-item-mixed {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+        }}
+        
+        .rating-item-mixed .item-label {{
+            margin-bottom: 0;
+            margin-right: 10px;
+            flex: 1;
+        }}
+        
+        .rating-display {{
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 70px;
+        }}
+        
+        .rating-display .rating-score {{
+            font-weight: bold;
+            font-size: 11px;
+            color: white;
+            background: #34495e;
+            border-radius: 4px;
+            padding: 3px 8px;
+            margin-bottom: 2px;
+        }}
+        
+        .rating-display .rating-description {{
+            font-size: 8px;
+            color: #666;
+            text-align: center;
+            font-weight: 500;
+        }}
+        
+        /* Mixed rating colors */
+        .rating-item-mixed.rating-excellent {{
+            background-color: #e8f5e8;
+            border-color: #2e7d32;
+        }}
+        
+        .rating-item-mixed.rating-excellent .rating-score {{
+            background: #2e7d32;
+        }}
+        
+        .rating-item-mixed.rating-good {{
+            background-color: #f1f8e9;
+            border-color: #388e3c;
+        }}
+        
+        .rating-item-mixed.rating-good .rating-score {{
+            background: #388e3c;
+        }}
+        
+        .rating-item-mixed.rating-average {{
+            background-color: #fff8e1;
+            border-color: #ffa000;
+        }}
+        
+        .rating-item-mixed.rating-average .rating-score {{
+            background: #ffa000;
+        }}
+        
+        .rating-item-mixed.rating-below {{
+            background-color: #fff3e0;
+            border-color: #f57c00;
+        }}
+        
+        .rating-item-mixed.rating-below .rating-score {{
+            background: #f57c00;
+        }}
+        
+        .rating-item-mixed.rating-poor {{
+            background-color: #ffebee;
+            border-color: #d32f2f;
+        }}
+        
+        .rating-item-mixed.rating-poor .rating-score {{
+            background: #d32f2f;
+        }}
+        
+        /* Skill items in mixed sections */
+        .skill-item-mixed {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+        }}
+        
+        .skill-item-mixed .item-label {{
+            margin-bottom: 0;
+            margin-right: 10px;
+            flex: 1;
+        }}
+        
+        .skill-display {{
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }}
+        
+        .skill-display .skill-icon {{
+            font-size: 12px;
+            font-weight: bold;
+        }}
+        
+        .skill-display .skill-text {{
+            font-size: 9px;
+            color: #666;
+            font-weight: 500;
+        }}
+        
+        .skill-item-mixed.yes {{
+            background: #f0f9ff;
+            border-left: 3px solid #2e7d32;
+        }}
+        
+        .skill-item-mixed.nearly {{
+            background: #fffbeb;
+            border-left: 3px solid #f57c00;
+        }}
+        
+        .skill-item-mixed.not_yet {{
+            background: #fef2f2;
+            border-left: 3px solid #d32f2f;
+        }}
+        
+        /* Text items in mixed sections */
+        .text-item-mixed {{
+            padding: 10px 12px;
+        }}
+        
+        .text-content {{
+            font-size: 10px;
+            line-height: 1.4;
+            color: #444;
+            margin: 0;
+            padding: 0;
         }}
         
         /* Text Section Styles */
