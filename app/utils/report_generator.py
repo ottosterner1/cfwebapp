@@ -1,5 +1,5 @@
 # app/utils/report_generator.py
-# Complete updated tennis report generator with template-ordered sections
+# Fixed tennis report generator with proper section organization and rating display
 
 from io import BytesIO
 from datetime import datetime
@@ -27,10 +27,19 @@ except Exception as e:
     print(f"WARNING: {WEASYPRINT_ERROR}")
 
 class CompactTennisReportGenerator:
-    """Simple and compact tennis report generator with template-ordered sections"""
+    """Fixed tennis report generator with proper section organization"""
+    
+    # Rating scale descriptions
+    RATING_DESCRIPTIONS = {
+        5: "Excellent",
+        4: "Proficient", 
+        3: "Competent",
+        2: "Developing",
+        1: "Needs Development"
+    }
     
     def create_single_report_pdf(self, report, output_path):
-        """Generate a simple tennis report using HTML/CSS"""
+        """Generate a tennis report using HTML/CSS with proper section organization"""
         try:
             # Process report content into HTML sections using template order
             sections_html = self._process_content_to_html_ordered(report)
@@ -56,7 +65,7 @@ class CompactTennisReportGenerator:
             raise
 
     def _process_content_to_html_ordered(self, report):
-        """Convert report content to HTML sections using template order"""
+        """Convert report content to HTML sections with proper template organization"""
         content = report.content
         template = report.template
         
@@ -72,206 +81,98 @@ class CompactTennisReportGenerator:
         if not isinstance(content, dict):
             return self._create_text_section("Assessment", str(content))
         
+        sections_html = ""
+        
         # Check if template and sections exist
         if not template or not template.sections:
-            return self._process_content_to_html_simple_ordered(content)
+            return sections_html + self._process_content_to_html_simple_ordered(content)
         
         # Get template sections ordered by their order field
         ordered_sections = sorted(template.sections, key=lambda s: s.order)
         
-        sections_html = ""
-        processed_content_keys = set()
-        
-        # Process sections in template order
+        # Process each template section
         for template_section in ordered_sections:
-            section_name = template_section.name
-            
-            # Look for exact match first
-            section_content = self._find_matching_content_exact(content, section_name)
-            matched_key = None
-            
-            if section_content is not None:
-                matched_key = self._get_content_key_exact(content, section_name)
-            else:
-                # Fallback to flexible matching
-                section_content = self._find_matching_content(content, section_name)
-                if section_content is not None:
-                    matched_key = self._get_content_key(content, section_name)
-            
-            if section_content is not None and matched_key:
-                # Mark this content as processed
-                processed_content_keys.add(matched_key)
-                
-                # Skip empty or None content
-                if not section_content:
-                    continue
-                    
-                # Handle nested structure (like Summary containing multiple fields)
-                if isinstance(section_content, dict):
-                    # Skip empty dictionaries
-                    if not any(section_content.values()):
-                        continue
-                    
-                    # Check if this is a section with template fields
-                    if template_section.fields:
-                        section_html = self._process_nested_section_with_fields(
-                            template_section, section_content
-                        )
-                    elif self._is_rating_section(section_content):
-                        section_html = self._create_rating_section(section_name, section_content)
-                    elif self._is_skills_section(section_content):
-                        section_html = self._create_skills_section(section_name, section_content)
-                    else:
-                        section_html = self._create_text_section(section_name, section_content)
-                    
-                    # Only add non-empty sections
-                    if section_html.strip():
-                        sections_html += section_html
-                else:
-                    # Skip empty strings and whitespace
-                    if not str(section_content).strip():
-                        continue
-                    section_html = self._create_text_section(section_name, section_content)
-                    if section_html.strip():
-                        sections_html += section_html
-        
-        # Process any remaining content that wasn't matched to template sections
-        for key, value in content.items():
-            if key not in processed_content_keys:
-                if not value or (isinstance(value, dict) and not any(value.values())):
-                    continue
-                    
-                if isinstance(value, dict):
-                    if self._is_rating_section(value):
-                        section_html = self._create_rating_section(key, value)
-                    elif self._is_skills_section(value):
-                        section_html = self._create_skills_section(key, value)
-                    else:
-                        section_html = self._create_text_section(key, value)
-                else:
-                    if not str(value).strip():
-                        continue
-                    section_html = self._create_text_section(key, value)
-                
-                if section_html.strip():
-                    sections_html += section_html
+            section_html = self._process_template_section(template_section, content)
+            if section_html.strip():
+                sections_html += section_html
         
         return sections_html or '<div class="section"><h3>Assessment</h3><p>No assessment provided.</p></div>'
     
-    def _process_nested_section_with_fields(self, template_section, section_content):
-        """Process a section that contains multiple fields ordered by template"""
-        if not isinstance(section_content, dict) or not section_content:
-            return ""
+    def _process_template_section(self, template_section, content):
+        """Process a single template section with its fields"""
+        section_name = template_section.name
         
         # Get template fields ordered by their order
-        ordered_fields = sorted(template_section.fields, key=lambda f: f.order)
+        ordered_fields = sorted(template_section.fields, key=lambda f: f.order) if template_section.fields else []
         
-        sections_html = ""
-        processed_content_keys = set()
+        if not ordered_fields:
+            return ""
         
-        # Process fields in template order
+        # Collect field values for this section
+        section_data = {}
+        
         for template_field in ordered_fields:
             field_name = template_field.name
             
-            # Look for exact match first
-            field_content = self._find_matching_content_exact(section_content, field_name)
-            matched_key = None
+            # Look for this field in the content
+            field_value = self._find_field_value_in_content(content, field_name)
             
-            if field_content is not None:
-                matched_key = self._get_content_key_exact(section_content, field_name)
-            else:
-                # Fallback to flexible matching
-                field_content = self._find_matching_content(section_content, field_name)
-                if field_content is not None:
-                    matched_key = self._get_content_key(section_content, field_name)
-            
-            if field_content is not None and matched_key:
-                # Mark this content as processed
-                processed_content_keys.add(matched_key)
-                
-                # Skip empty content
-                if not field_content or (isinstance(field_content, str) and not field_content.strip()):
-                    continue
-                
-                # Create HTML section for this field
-                field_html = self._create_text_section(matched_key, field_content)
-                if field_html.strip():
-                    sections_html += field_html
+            if field_value is not None:
+                section_data[field_name] = field_value
         
-        # Process any remaining content that wasn't matched to template fields
-        for key, value in section_content.items():
-            if key not in processed_content_keys:
-                if not value or (isinstance(value, str) and not value.strip()):
-                    continue
-                
-                field_html = self._create_text_section(key, value)
-                if field_html.strip():
-                    sections_html += field_html
+        # If no data found for this section, skip it
+        if not section_data:
+            return ""
         
-        return sections_html
+        # Determine section type based on the values
+        if self._is_rating_section(section_data):
+            return self._create_rating_section(section_name, section_data)
+        elif self._is_skills_section(section_data):
+            return self._create_skills_section(section_name, section_data)
+        else:
+            return self._create_text_section(section_name, section_data)
     
-    def _find_matching_content_exact(self, content, section_name):
-        """Find content that exactly matches the section name (case-insensitive)"""
+    def _find_field_value_in_content(self, content, field_name):
+        """Find a field value anywhere in the nested content structure"""
         if not content or not isinstance(content, dict):
             return None
         
-        # Direct match (case-insensitive)
+        # Direct match in top level
         for key, value in content.items():
-            if key.lower().strip() == section_name.lower().strip():
+            if self._fields_match(key, field_name):
                 return value
+        
+        # Search in nested dictionaries
+        for key, value in content.items():
+            if isinstance(value, dict):
+                result = self._find_field_value_in_content(value, field_name)
+                if result is not None:
+                    return result
         
         return None
     
-    def _get_content_key_exact(self, content, section_name):
-        """Get the exact key from content that matches the section name"""
-        if not content or not isinstance(content, dict):
-            return section_name
+    def _fields_match(self, content_key, field_name):
+        """Check if a content key matches a field name"""
+        # Exact match (case-insensitive)
+        if content_key.lower().strip() == field_name.lower().strip():
+            return True
         
-        # Direct match (case-insensitive)
-        for key in content.keys():
-            if key.lower().strip() == section_name.lower().strip():
-                return key
+        # Remove common prefixes/suffixes and check again
+        content_clean = content_key.lower().strip().rstrip('*').lstrip('•').strip()
+        field_clean = field_name.lower().strip().rstrip('*').lstrip('•').strip()
         
-        return section_name
-
-    def _find_matching_content(self, content, section_name):
-        """Find content that matches the section name (case-insensitive, flexible matching)"""
-        if not content or not isinstance(content, dict):
-            return None
-        
-        # Direct match (case-insensitive)
-        for key, value in content.items():
-            if key.lower() == section_name.lower():
-                return value
-        
-        # Partial match (section name contains key or key contains section name)
-        for key, value in content.items():
-            if (section_name.lower() in key.lower() or 
-                key.lower() in section_name.lower()):
-                return value
-        
-        return None
+        return content_clean == field_clean
     
-    def _get_content_key(self, content, section_name):
-        """Get the actual key from content that matches the section name"""
-        if not content or not isinstance(content, dict):
-            return section_name
-        
-        # Direct match (case-insensitive)
-        for key in content.keys():
-            if key.lower() == section_name.lower():
-                return key
-        
-        # Partial match
-        for key in content.keys():
-            if (section_name.lower() in key.lower() or 
-                key.lower() in section_name.lower()):
-                return key
-        
-        return section_name
-
+    def _create_title_section(self, title, description=None):
+        """Create a title section for the report template"""
+        html = f'<div class="section title-section"><h3>{title}</h3>'
+        if description and description.strip():
+            html += f'<div class="content"><em>{description}</em></div>'
+        html += '</div>'
+        return html
+    
     def _process_content_to_html_simple_ordered(self, content):
-        """Simple content processing with predefined order"""
+        """Fallback simple content processing"""
         if not content:
             return '<div class="section"><h3>No Content Available</h3><p>No assessment data provided.</p></div>'
         
@@ -284,85 +185,27 @@ class CompactTennisReportGenerator:
         if not isinstance(content, dict):
             return self._create_text_section("Assessment", str(content))
         
-        # Flatten nested structures (like Summary containing multiple fields)
-        flattened_content = {}
-        for key, value in content.items():
-            if isinstance(value, dict):
-                # This is a nested structure, flatten it
-                for nested_key, nested_value in value.items():
-                    flattened_content[nested_key] = nested_value
-            else:
-                flattened_content[key] = value
-        
-        # Define preferred order for common section names
-        preferred_order = [
-            "what have we worked on this term?",
-            "what have we worked on this term",
-            "summary",
-            "skills assessment",
-            "skills",
-            "we also covered other tactics and movements such as:",
-            "we also covered other tactics and movements such as",
-            "additional activities",
-            "other activities",
-            "teaching points / tactics to focus on next term:",
-            "teaching points / tactics to focus on next term",
-            "teaching points",
-            "next term",
-            "next term recommendations",
-            "recommendations"
-        ]
-        
         sections_html = ""
-        processed_keys = set()
         
-        # Process content in preferred order
-        for preferred_key in preferred_order:
-            for actual_key, value in flattened_content.items():
-                if (actual_key.lower().strip() == preferred_key.lower().strip() and 
-                    actual_key not in processed_keys):
-                    
-                    processed_keys.add(actual_key)
-                    
-                    if not value or (isinstance(value, dict) and not any(value.values())):
-                        continue
-                        
-                    if isinstance(value, dict):
-                        if self._is_rating_section(value):
-                            section_html = self._create_rating_section(actual_key, value)
-                        elif self._is_skills_section(value):
-                            section_html = self._create_skills_section(actual_key, value)
-                        else:
-                            section_html = self._create_text_section(actual_key, value)
-                    else:
-                        if not str(value).strip():
-                            continue
-                        section_html = self._create_text_section(actual_key, value)
-                    
-                    if section_html.strip():
-                        sections_html += section_html
-                    break
-        
-        # Process any remaining content
-        for key, value in flattened_content.items():
-            if key not in processed_keys:
-                if not value or (isinstance(value, dict) and not any(value.values())):
-                    continue
-                    
-                if isinstance(value, dict):
-                    if self._is_rating_section(value):
-                        section_html = self._create_rating_section(key, value)
-                    elif self._is_skills_section(value):
-                        section_html = self._create_skills_section(key, value)
-                    else:
-                        section_html = self._create_text_section(key, value)
-                else:
-                    if not str(value).strip():
-                        continue
-                    section_html = self._create_text_section(key, value)
+        # Try to group content logically
+        for key, value in content.items():
+            if not value or (isinstance(value, dict) and not any(value.values())):
+                continue
                 
-                if section_html.strip():
-                    sections_html += section_html
+            if isinstance(value, dict):
+                if self._is_rating_section(value):
+                    section_html = self._create_rating_section(key, value)
+                elif self._is_skills_section(value):
+                    section_html = self._create_skills_section(key, value)
+                else:
+                    section_html = self._create_text_section(key, value)
+            else:
+                if not str(value).strip():
+                    continue
+                section_html = self._create_text_section(key, value)
+            
+            if section_html.strip():
+                sections_html += section_html
         
         return sections_html or '<div class="section"><h3>Assessment</h3><p>No assessment provided.</p></div>'
 
@@ -388,7 +231,7 @@ class CompactTennisReportGenerator:
                         rating_count += 1
         
         # If most values (at least 50%) look like ratings, treat as rating section
-        return rating_count >= len(content) * 0.5
+        return rating_count >= len(content) * 0.5 and rating_count > 0
 
     def _is_skills_section(self, content):
         """Check if section content represents skills assessment"""
@@ -396,13 +239,16 @@ class CompactTennisReportGenerator:
             return False
         
         skill_values = ['yes', 'nearly', 'not yet', 'not_yet']
-        return any(
-            isinstance(value, str) and value.lower() in skill_values 
-            for value in content.values()
-        )
+        skill_count = 0
+        
+        for value in content.values():
+            if isinstance(value, str) and value.lower() in skill_values:
+                skill_count += 1
+        
+        return skill_count > 0
 
     def _create_rating_section(self, section_name, rating_data):
-        """Create compact HTML for rating assessment section with numeric scores only"""
+        """Create enhanced HTML for rating assessment section with descriptions"""
         html = f'<div class="section rating-section"><h3>{section_name}</h3>'
         html += '<div class="rating-grid">'
         
@@ -410,6 +256,9 @@ class CompactTennisReportGenerator:
         
         for skill_name, rating_value in rating_data.items():
             rating_num = None
+            
+            # Clean up skill name
+            clean_skill_name = skill_name.strip().lstrip('•').strip()
             
             # Handle different rating value formats
             if isinstance(rating_value, str):
@@ -433,11 +282,15 @@ class CompactTennisReportGenerator:
             
             if rating_num:
                 rating_class = self._get_rating_class(rating_num)
+                rating_description = self.RATING_DESCRIPTIONS.get(rating_num, "")
                 
                 html += f'''
                 <div class="rating-item {rating_class}">
-                    <div class="rating-skill">{skill_name}</div>
-                    <div class="rating-score">{rating_num}/5</div>
+                    <div class="rating-skill">{clean_skill_name}</div>
+                    <div class="rating-score-container">
+                        <div class="rating-score">{rating_num}/5</div>
+                        <div class="rating-description">{rating_description}</div>
+                    </div>
                 </div>
                 '''
                 has_content = True
@@ -465,20 +318,32 @@ class CompactTennisReportGenerator:
 
     def _create_skills_section(self, section_name, skills_data):
         """Create HTML for skills assessment section"""
-        html = f'<div class="section"><h3>{section_name}</h3>'
+        html = f'<div class="section skills-section"><h3>{section_name}</h3>'
+        html += '<div class="skills-grid">'
         
         has_content = False
         for skill_name, skill_value in skills_data.items():
             if isinstance(skill_value, str) and skill_value.lower() in ['yes', 'nearly', 'not yet', 'not_yet']:
-                status_class = skill_value.lower().replace(' ', '_').replace('_', '_')
+                # Clean up skill name
+                clean_skill_name = skill_name.strip().lstrip('•').strip()
+                
+                status_class = skill_value.lower().replace(' ', '_')
                 display_value = skill_value.replace('_', ' ').replace('not yet', 'Not Yet').title()
                 
                 icon = '✓' if skill_value.lower() == 'yes' else '◐' if skill_value.lower() == 'nearly' else '○'
                 
-                html += f'<div class="skill {status_class}"><span class="skill-name">{skill_name}</span><span class="skill-status">{icon} {display_value}</span></div>'
+                html += f'''
+                <div class="skill-item {status_class}">
+                    <div class="skill-name">{clean_skill_name}</div>
+                    <div class="skill-status">
+                        <span class="skill-icon">{icon}</span>
+                        <span class="skill-text">{display_value}</span>
+                    </div>
+                </div>
+                '''
                 has_content = True
         
-        html += '</div>'
+        html += '</div></div>'
         
         # Return empty string if no valid skills found
         if not has_content:
@@ -488,16 +353,18 @@ class CompactTennisReportGenerator:
 
     def _create_text_section(self, section_name, content):
         """Create HTML for text content section"""
-        html = f'<div class="section"><h3>{section_name}</h3>'
+        html = f'<div class="section text-section"><h3>{section_name}</h3>'
         
         has_content = False
         
         if isinstance(content, dict):
             for key, value in content.items():
                 if value and str(value).strip():
+                    # Clean up key name
+                    clean_key = key.strip().lstrip('•').strip()
                     formatted_value = self._format_text_content(value)
                     if formatted_value.strip():
-                        html += f'<div class="field"><strong>{key}:</strong><br>{formatted_value}</div>'
+                        html += f'<div class="field"><strong>{clean_key}:</strong><br>{formatted_value}</div>'
                         has_content = True
         else:
             if content and str(content).strip():
@@ -559,7 +426,7 @@ class CompactTennisReportGenerator:
         return '<br>'.join(result)
 
     def _generate_html_template(self, report, sections_html):
-        """Generate the ultra-compact HTML template with numeric rating styles"""
+        """Generate the enhanced HTML template with improved styling"""
         club_name = report.programme_player.tennis_club.name
         term_name = report.teaching_period.name
         student_name = report.student.name
@@ -696,22 +563,59 @@ class CompactTennisReportGenerator:
             font-size: 10px;
         }}
         
-        /* Compact Rating Section Styles */
+        /* Title Section Styles */
+        .title-section {{
+            background: #e8f5e8;
+            border-color: #1B5E20;
+        }}
+        
+        .title-section h3 {{
+            background: #1B5E20;
+            color: white;
+            font-size: 14px;
+        }}
+        
+        /* Enhanced Rating Section Styles */
         .rating-section {{
             background: #fafafa;
         }}
         
-        .rating-section:empty {{
-            display: none;
+        .rating-legend {{
+            padding: 8px 10px;
+            background: #f0f8ff;
+            border-bottom: 1px solid #ddd;
+            font-size: 9px;
         }}
+        
+        .legend-title {{
+            font-weight: bold;
+            color: #1B5E20;
+            margin-bottom: 4px;
+        }}
+        
+        .legend-items {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }}
+        
+        .legend-item {{
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 8px;
+            color: white;
+            font-weight: 500;
+        }}
+        
+        .legend-item.rating-excellent {{ background: #2e7d32; }}
+        .legend-item.rating-good {{ background: #388e3c; }}
+        .legend-item.rating-average {{ background: #ffa000; }}
+        .legend-item.rating-below {{ background: #f57c00; }}
+        .legend-item.rating-poor {{ background: #d32f2f; }}
         
         .rating-grid {{
             padding: 4px;
             display: block;
-        }}
-        
-        .rating-grid:empty {{
-            display: none;
         }}
         
         .rating-item {{
@@ -722,7 +626,7 @@ class CompactTennisReportGenerator:
             display: flex;
             align-items: center;
             justify-content: space-between;
-            min-height: 28px;
+            min-height: 32px;
         }}
         
         .rating-item:last-child {{
@@ -738,6 +642,13 @@ class CompactTennisReportGenerator:
             margin-right: 8px;
         }}
         
+        .rating-score-container {{
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-width: 70px;
+        }}
+        
         .rating-score {{
             font-weight: bold;
             font-size: 11px;
@@ -745,8 +656,14 @@ class CompactTennisReportGenerator:
             background: #34495e;
             border-radius: 4px;
             padding: 3px 8px;
-            min-width: 32px;
+            margin-bottom: 2px;
+        }}
+        
+        .rating-description {{
+            font-size: 8px;
+            color: #666;
             text-align: center;
+            font-weight: 500;
         }}
         
         /* Rating background colors */
@@ -795,39 +712,114 @@ class CompactTennisReportGenerator:
             background: #d32f2f;
         }}
         
-        /* Skills Section Styles */
-        .skill {{
+        /* Enhanced Skills Section Styles */
+        .skills-section {{
+            background: #fafafa;
+        }}
+        
+        .skills-legend {{
+            padding: 8px 10px;
+            background: #f9f9f9;
+            border-bottom: 1px solid #ddd;
+            font-size: 9px;
+        }}
+        
+        .skills-legend .legend-title {{
+            font-weight: bold;
+            color: #1B5E20;
+            margin-bottom: 4px;
+        }}
+        
+        .skills-legend .legend-items {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }}
+        
+        .skills-legend .legend-item {{
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 8px;
+            font-weight: 500;
+        }}
+        
+        .skills-legend .skill-yes {{ 
+            background: #e8f5e8; 
+            color: #2e7d32; 
+            border: 1px solid #2e7d32;
+        }}
+        
+        .skills-legend .skill-nearly {{ 
+            background: #fff8e1; 
+            color: #f57c00; 
+            border: 1px solid #f57c00;
+        }}
+        
+        .skills-legend .skill-not-yet {{ 
+            background: #ffebee; 
+            color: #d32f2f; 
+            border: 1px solid #d32f2f;
+        }}
+        
+        .skills-grid {{
+            padding: 4px;
+        }}
+        
+        .skill-item {{
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 4px 10px;
+            padding: 6px 10px;
             border-bottom: 1px solid #eee;
             font-size: 10px;
+            min-height: 28px;
         }}
         
-        .skill:last-child {{
+        .skill-item:last-child {{
             border-bottom: none;
         }}
         
-        .skill.yes {{
+        .skill-item.yes {{
             background: #f0f9ff;
+            border-left: 3px solid #2e7d32;
         }}
         
-        .skill.nearly {{
+        .skill-item.nearly {{
             background: #fffbeb;
+            border-left: 3px solid #f57c00;
         }}
         
-        .skill.not_yet {{
+        .skill-item.not_yet {{
             background: #fef2f2;
+            border-left: 3px solid #d32f2f;
         }}
         
         .skill-name {{
             font-weight: 500;
+            flex: 1;
+            margin-right: 8px;
         }}
         
         .skill-status {{
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }}
+        
+        .skill-icon {{
+            font-size: 12px;
+            font-weight: bold;
+        }}
+        
+        .skill-text {{
             font-size: 9px;
             color: #666;
+            font-weight: 500;
+        }}
+        
+        /* Text Section Styles */
+        .text-section {{
+            background: #fff;
         }}
         
         .footer {{
@@ -884,7 +876,7 @@ class CompactTennisReportGenerator:
         '''
 
 def create_single_report_pdf(report, output_buffer):
-    """Create a compact tennis report PDF using HTML/CSS"""
+    """Create an enhanced tennis report PDF using HTML/CSS"""
     if not HTML_AVAILABLE:
         error_msg = f"WeasyPrint is not available for PDF generation. {WEASYPRINT_ERROR or 'Please install WeasyPrint and its system dependencies.'}"
         raise Exception(error_msg)
