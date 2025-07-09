@@ -1875,14 +1875,6 @@ const RegisterCalendar: React.FC<RegisterCalendarProps> = ({
             <span>Cancelled</span>
           </div>
         </div>
-        <div className="mt-3 text-xs text-gray-500">
-          <p>💡 <strong>Tip:</strong> Click on any session to view details and manage it. Right-click for quick actions.</p>
-          {userInfo && isUserAdmin() ? (
-            <p>🔧 <strong>Admin:</strong> You can cancel/reinstate individual sessions, entire days, or weeks (if no registers exist).</p>
-          ) : (
-            <p>👨‍🏫 <strong>Coach:</strong> You can cancel/reinstate sessions that you coach (except those with registers).</p>
-          )}
-        </div>
       </div>
     </div>
   );
