@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Download, Send, Menu, Filter, X, ChevronRight } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Download, Send, Menu, Search, Users, X } from 'lucide-react';
 import { DashboardStats } from './DashboardStats';
 import BulkEmailSender from '../email/BulkEmailSender';
 import { 
@@ -17,6 +17,214 @@ interface GroupedPlayers {
   };
 }
 
+type ReportStatus = 'all' | 'completed' | 'remaining';
+
+interface ComprehensiveFilterProps {
+  searchQuery: string;
+  onSearchChange: (query: string) => void;
+  selectedGroup: string | null;
+  onGroupChange: (group: string | null) => void;
+  selectedCoach: number | null;
+  onCoachChange: (coachId: number | null) => void;
+  selectedRecommendedGroup: string | null;
+  onRecommendedGroupChange: (group: string | null) => void;
+  reportStatus: ReportStatus;
+  onReportStatusChange: (status: ReportStatus) => void;
+  onClearAllFilters: () => void;
+  availableGroups: string[];
+  availableCoaches: {id: number, name: string}[];
+  availableRecommendedGroups: string[];
+  totalPlayers: number;
+  filteredCount: number;
+}
+
+// Comprehensive Search and Filter Bar Component
+const ComprehensiveFilterBar: React.FC<ComprehensiveFilterProps> = ({
+  searchQuery,
+  onSearchChange,
+  selectedGroup,
+  onGroupChange,
+  selectedCoach,
+  onCoachChange,
+  selectedRecommendedGroup,
+  onRecommendedGroupChange,
+  reportStatus,
+  onReportStatusChange,
+  onClearAllFilters,
+  availableGroups,
+  availableCoaches,
+  availableRecommendedGroups,
+  totalPlayers,
+  filteredCount
+}) => {
+  const hasActiveFilters = searchQuery || selectedGroup || selectedCoach || 
+                          selectedRecommendedGroup || reportStatus !== 'all';
+
+  const getSelectedCoachName = () => {
+    const coach = availableCoaches.find(c => c.id === selectedCoach);
+    return coach ? coach.name : '';
+  };
+
+  return (
+    <div className="mb-6 p-4 border rounded-lg bg-gray-50">
+      {/* Search and Filter Controls */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 mb-3">
+        {/* Search Input */}
+        <div className="relative lg:col-span-2">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <Search className="h-4 w-4 text-gray-400" />
+          </div>
+          <input
+            type="text"
+            placeholder="Search by student name..."
+            className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+          />
+        </div>
+        
+        {/* Group Filter */}
+        <select
+          className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+          value={selectedGroup || ''}
+          onChange={(e) => onGroupChange(e.target.value || null)}
+        >
+          <option value="">All Groups</option>
+          {availableGroups.map(group => (
+            <option key={group} value={group}>{group}</option>
+          ))}
+        </select>
+
+        {/* Coach Filter */}
+        <select
+          className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+          value={selectedCoach || ''}
+          onChange={(e) => onCoachChange(e.target.value ? Number(e.target.value) : null)}
+        >
+          <option value="">All Coaches</option>
+          {availableCoaches.map(coach => (
+            <option key={coach.id} value={coach.id}>{coach.name}</option>
+          ))}
+        </select>
+
+        {/* Recommended Group Filter */}
+        <select
+          className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+          value={selectedRecommendedGroup || ''}
+          onChange={(e) => onRecommendedGroupChange(e.target.value || null)}
+        >
+          <option value="">All Recommendations</option>
+          {availableRecommendedGroups.map(group => (
+            <option key={group} value={group}>Recommended for {group}</option>
+          ))}
+        </select>
+
+        {/* Report Status Filter */}
+        <select
+          className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+          value={reportStatus}
+          onChange={(e) => onReportStatusChange(e.target.value as ReportStatus)}
+        >
+          <option value="all">All Reports</option>
+          <option value="completed">Completed Only</option>
+          <option value="remaining">Remaining Only</option>
+        </select>
+      </div>
+
+      {/* Results Summary and Clear Button */}
+      <div className="flex justify-between items-center">
+        <div className="text-sm text-gray-600">
+          Showing {filteredCount} of {totalPlayers} reports
+          {searchQuery && ` matching "${searchQuery}"`}
+          {selectedGroup && ` in group "${selectedGroup}"`}
+          {selectedCoach && ` for coach "${getSelectedCoachName()}"`}
+          {selectedRecommendedGroup && ` recommended for "${selectedRecommendedGroup}"`}
+          {reportStatus !== 'all' && ` (${reportStatus} only)`}
+        </div>
+
+        {hasActiveFilters && (
+          <button 
+            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+            onClick={onClearAllFilters}
+          >
+            Clear All Filters
+          </button>
+        )}
+      </div>
+
+      {/* Active Filters Display */}
+      {hasActiveFilters && (
+        <div className="flex flex-wrap gap-2 mt-3">
+          {searchQuery && (
+            <div className="flex items-center bg-blue-50 border border-blue-200 p-2 rounded-md">
+              <Search className="w-4 h-4 text-blue-600 mr-2" />
+              <span className="text-blue-800 font-medium">Search: "{searchQuery}"</span>
+              <button 
+                onClick={() => onSearchChange('')}
+                className="ml-2 text-blue-600 hover:text-blue-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+          
+          {selectedGroup && (
+            <div className="flex items-center bg-green-50 border border-green-200 p-2 rounded-md">
+              <Users className="w-4 h-4 text-green-600 mr-2" />
+              <span className="text-green-800 font-medium">Group: {selectedGroup}</span>
+              <button 
+                onClick={() => onGroupChange(null)}
+                className="ml-2 text-green-600 hover:text-green-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {selectedCoach && (
+            <div className="flex items-center bg-purple-50 border border-purple-200 p-2 rounded-md">
+              <Users className="w-4 h-4 text-purple-600 mr-2" />
+              <span className="text-purple-800 font-medium">Coach: {getSelectedCoachName()}</span>
+              <button 
+                onClick={() => onCoachChange(null)}
+                className="ml-2 text-purple-600 hover:text-purple-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {selectedRecommendedGroup && (
+            <div className="flex items-center bg-orange-50 border border-orange-200 p-2 rounded-md">
+              <Users className="w-4 h-4 text-orange-600 mr-2" />
+              <span className="text-orange-800 font-medium">Recommended for: {selectedRecommendedGroup}</span>
+              <button 
+                onClick={() => onRecommendedGroupChange(null)}
+                className="ml-2 text-orange-600 hover:text-orange-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {reportStatus !== 'all' && (
+            <div className="flex items-center bg-indigo-50 border border-indigo-200 p-2 rounded-md">
+              <Users className="w-4 h-4 text-indigo-600 mr-2" />
+              <span className="text-indigo-800 font-medium">Status: {reportStatus}</span>
+              <button 
+                onClick={() => onReportStatusChange('all')}
+                className="ml-2 text-indigo-600 hover:text-indigo-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Dashboard = () => {
   const [selectedPeriod, setSelectedPeriod] = useState<number | null>(null);
   const [periods, setPeriods] = useState<TeachingPeriod[]>([]);
@@ -26,43 +234,122 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showBulkEmail, setShowBulkEmail] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [printing, setPrinting] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   
-  // Filter state variables
-  const [selectedCoach, setSelectedCoach] = useState<number | null>(null);
-  const [selectedCoachName, setSelectedCoachName] = useState<string>('');
-  const [showCoachFilter, setShowCoachFilter] = useState(false);
+  // Filter state variables - consolidated
+  const [playerSearchQuery, setPlayerSearchQuery] = useState<string>('');
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
-  const [showGroupFilter, setShowGroupFilter] = useState(false);
+  const [selectedCoach, setSelectedCoach] = useState<number | null>(null);
+  const [selectedRecommendedGroup, setSelectedRecommendedGroup] = useState<string | null>(null);
+  const [reportStatus, setReportStatus] = useState<ReportStatus>('all');
+
+  // Additional state for recommendations data
+  const [groupRecommendations, setGroupRecommendations] = useState<any[]>([]);
   const [allCoaches, setAllCoaches] = useState<{id: number, name: string}[]>([]);
-  const [filteredPlayers, setFilteredPlayers] = useState<ProgrammePlayer[]>([]);
-  const [groupFilterPlayers, setGroupFilterPlayers] = useState<number[]>([]); // IDs of players recommended for a group
 
-  // New state variables for improved movement analysis
-  const [analysisTab, setAnalysisTab] = useState<'group' | 'session'>('group');
-  const [analysisSearchTerm, setAnalysisSearchTerm] = useState<string>('');
-  const [analysisSortOrder, setAnalysisSortOrder] = useState<string>('alphabetical');
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
-  const [expandedSessionGroups, setExpandedSessionGroups] = useState<Record<string, boolean>>({});
-  const [movementAnalysisExpanded, setMovementAnalysisExpanded] = useState(false);
+  // Extract unique groups from players for filter dropdown
+  const availableGroups = useMemo(() => {
+    const groupsSet = new Set<string>();
+    players.forEach(player => {
+      groupsSet.add(player.group_name);
+    });
+    return Array.from(groupsSet).sort();
+  }, [players]);
 
-  // Toggle expanded state for a group
-  const toggleGroupExpanded = (groupName: string) => {
-    setExpandedGroups(prev => ({
-      ...prev,
-      [groupName]: !prev[groupName]
-    }));
-  };
+  // Extract unique recommended groups from recommendations data
+  const availableRecommendedGroups = useMemo(() => {
+    const groupsSet = new Set<string>();
+    groupRecommendations.forEach(rec => {
+      groupsSet.add(rec.to_group);
+    });
+    return Array.from(groupsSet).sort();
+  }, [groupRecommendations]);
 
-  // Toggle expanded state for a session group
-  const toggleSessionGroupExpanded = (groupName: string) => {
-    setExpandedSessionGroups(prev => ({
-      ...prev,
-      [groupName]: !prev[groupName]
-    }));
-  };
+  // Get players that are recommended for the selected group
+  const getRecommendedPlayerIds = useCallback(async (groupName: string): Promise<number[]> => {
+    if (!selectedPeriod) return [];
+    
+    try {
+      const response = await fetch(`/api/group-recommendations/players?to_group=${encodeURIComponent(groupName)}&period=${selectedPeriod}`);
+      if (response.ok) {
+        const data = await response.json();
+        return data.players.map((id: string | number) => 
+          typeof id === 'string' ? parseInt(id, 10) : id
+        );
+      }
+    } catch (error) {
+      console.error('Error fetching recommended players:', error);
+    }
+    return [];
+  }, [selectedPeriod]);
+
+  // Enhanced filtering logic with all filters
+  const filteredPlayers = useMemo(() => {
+    return players.filter(player => {
+      // Search filter
+      if (playerSearchQuery) {
+        const searchLower = playerSearchQuery.toLowerCase();
+        if (!player.student_name.toLowerCase().includes(searchLower)) {
+          return false;
+        }
+      }
+      
+      // Group filter
+      if (selectedGroup && player.group_name !== selectedGroup) {
+        return false;
+      }
+      
+      // Coach filter
+      if (selectedCoach && player.assigned_coach_id !== selectedCoach) {
+        return false;
+      }
+      
+      // Report status filter
+      if (reportStatus === 'completed' && !player.report_submitted) {
+        return false;
+      }
+      if (reportStatus === 'remaining') {
+        // For remaining: show only non-submitted reports that have templates available for creation
+        if (player.report_submitted) {
+          return false; // Already submitted
+        }
+        // Only show if they can create a report (has template and can edit, and no existing report)
+        if (!player.can_edit || !player.has_template || player.report_id) {
+          return false;
+        }
+      }
+      
+      return true;
+    });
+  }, [players, playerSearchQuery, selectedGroup, selectedCoach, reportStatus]);
+
+  // Apply recommended group filter separately since it's async
+  const [recommendedPlayerIds, setRecommendedPlayerIds] = useState<number[]>([]);
+
+  useEffect(() => {
+    if (selectedRecommendedGroup) {
+      getRecommendedPlayerIds(selectedRecommendedGroup).then(setRecommendedPlayerIds);
+    } else {
+      setRecommendedPlayerIds([]);
+    }
+  }, [selectedRecommendedGroup, getRecommendedPlayerIds]);
+
+  const finalFilteredPlayers = useMemo(() => {
+    if (selectedRecommendedGroup && recommendedPlayerIds.length > 0) {
+      const playerIds = new Set(recommendedPlayerIds.map(id => Number(id)));
+      return filteredPlayers.filter(player => playerIds.has(Number(player.id)));
+    }
+    return filteredPlayers;
+  }, [filteredPlayers, selectedRecommendedGroup, recommendedPlayerIds]);
+
+  // Clear all filters
+  const clearAllFilters = useCallback(() => {
+    setPlayerSearchQuery('');
+    setSelectedGroup(null);
+    setSelectedCoach(null);
+    setSelectedRecommendedGroup(null);
+    setReportStatus('all');
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -87,6 +374,17 @@ const Dashboard = () => {
         }
         
         setStats(statsData.stats);
+        
+        // Set group recommendations and coaches from stats
+        if (statsData.stats?.groupRecommendations) {
+          setGroupRecommendations(statsData.stats.groupRecommendations);
+        }
+        if (statsData.stats?.coachSummaries) {
+          setAllCoaches(statsData.stats.coachSummaries.map((coach: any) => ({
+            id: coach.id,
+            name: coach.name
+          })));
+        }
   
         const playersResponse = await fetch(`/api/programme-players${selectedPeriod ? `?period=${selectedPeriod}` : ''}`);
         if (!playersResponse.ok) throw new Error('Failed to fetch programme players');
@@ -112,138 +410,6 @@ const Dashboard = () => {
     fetchData();
   }, [selectedPeriod, currentUser?.id]);
 
-  // Extract coaches from stats
-  useEffect(() => {
-    if (stats?.coachSummaries) {
-      setAllCoaches(stats.coachSummaries.map(coach => ({
-        id: coach.id,
-        name: coach.name
-      })));
-    }
-  }, [stats]);
-
-  // Apply filters (coach and group) to players
-  useEffect(() => {
-    let filtered = [...players];
-    
-    // Apply coach filter
-    if (selectedCoach !== null) {
-      filtered = filtered.filter(player => player.assigned_coach_id === selectedCoach);
-    }
-    
-    // Apply group recommendation filter
-    if (selectedGroup !== null && groupFilterPlayers.length > 0) {
-      filtered = filtered.filter(player => groupFilterPlayers.includes(player.id));
-    }
-    
-    setFilteredPlayers(filtered);
-  }, [selectedCoach, selectedGroup, groupFilterPlayers, players]);
-
-  const handleCoachClick = (coachId: number, coachName: string) => {
-    setSelectedCoach(coachId);
-    setSelectedCoachName(coachName);
-    setShowCoachFilter(true);
-  };
-
-  const clearCoachFilter = () => {
-    setSelectedCoach(null);
-    setSelectedCoachName('');
-    setShowCoachFilter(false);
-  };
-
-  // Updated handleGroupClick function and useEffect for filtering
-  
-  const handleGroupClick = async (groupName: string) => {
-    try {
-      setSelectedGroup(groupName);
-      setShowGroupFilter(true);
-      
-      // Fetch players that are recommended for this group
-      if (selectedPeriod) {
-        try {
-          // Add logging to debug API requests
-          console.log(`Fetching players recommended for ${groupName} in period ${selectedPeriod}`);
-          
-          const response = await fetch(`/api/group-recommendations/players?to_group=${encodeURIComponent(groupName)}&period=${selectedPeriod}`);
-          
-          if (response.ok) {
-            const data = await response.json();
-            console.log('API response:', data);
-            
-            // Extract player IDs for filtering - ensure they are numbers
-            const playerIds = data.players.map((id: string | number) => typeof id === 'string' ? parseInt(id, 10) : id);
-            console.log('Filtered player IDs:', playerIds);
-            
-            setGroupFilterPlayers(playerIds);
-            
-            // If no players found, show a more helpful message
-            if (playerIds.length === 0) {
-              console.warn('No players found with this recommendation, but they might exist in the database');
-            }
-          } else {
-            // Log error response
-            const errorText = await response.text();
-            console.error('Error response:', errorText);
-            setGroupFilterPlayers([]);
-          }
-        } catch (error) {
-          console.error('Error fetching group player details:', error);
-          setGroupFilterPlayers([]);
-        }
-      }
-    } catch (error) {
-      console.error('Error setting group filter:', error);
-    }
-  };
-
-  // Fix filtering effect to handle player IDs correctly
-  // Place this inside your component
-  useEffect(() => {
-    // Add debugging for filter values
-    console.log('Filtering state:', {
-      selectedCoach,
-      selectedGroup,
-      groupFilterPlayers: groupFilterPlayers.length > 0 ? `${groupFilterPlayers.length} players` : 'empty',
-      totalPlayers: players.length
-    });
-    
-    // Always start with a fresh copy of players
-    let filtered = [...players];
-    
-    // Apply coach filter
-    if (selectedCoach !== null) {
-      filtered = filtered.filter(player => player.assigned_coach_id === selectedCoach);
-      console.log(`After coach filter: ${filtered.length} players`);
-    }
-    
-    // Apply group recommendation filter
-    if (selectedGroup !== null && groupFilterPlayers.length > 0) {
-      // Ensure we're comparing numbers to numbers, not strings to numbers
-      const playerIds = new Set(groupFilterPlayers.map(id => Number(id)));
-      filtered = filtered.filter(player => playerIds.has(Number(player.id)));
-      console.log(`After group filter: ${filtered.length} players`);
-    } else if (selectedGroup !== null) {
-      // If we have a selected group but no players, the filtering should return empty
-      // Don't return an empty array here - let's log the issue and continue with the same list
-      console.warn(`Group '${selectedGroup}' is selected but no matching player IDs were found`);
-    }
-    
-    // Store filtered players for rendering
-    setFilteredPlayers(filtered);
-  }, [selectedCoach, selectedGroup, groupFilterPlayers, players]);
-  
-
-  const clearGroupFilter = () => {
-    setSelectedGroup(null);
-    setShowGroupFilter(false);
-    setGroupFilterPlayers([]);
-  };
-
-  const clearAllFilters = () => {
-    clearCoachFilter();
-    clearGroupFilter();
-  };
-
   const handleSendReportsClick = () => {
     if (!selectedPeriod) {
       alert('Please select a teaching period before sending reports');
@@ -257,40 +423,6 @@ const Dashboard = () => {
     setShowMobileMenu(false);
   };
 
-  const handleDownloadAllReports = async () => {
-    if (!selectedPeriod) {
-      alert('Please select a teaching period');
-      return;
-    }
-  
-    try {
-      setDownloading(true);
-      const response = await fetch(`/api/reports/download-all/${selectedPeriod}`, {
-        method: 'GET',
-        credentials: 'include'
-      });
-  
-      if (!response.ok) {
-        const errorData = response.headers.get('content-type')?.includes('application/json') 
-          ? await response.json()
-          : { error: 'Failed to download reports' };
-        throw new Error(errorData.error || 'Failed to download reports');
-      }
-  
-      const blob = await response.blob();
-      const filename = getFilenameFromResponse(response) || 'reports.zip';
-      downloadFile(blob, filename);
-  
-    } catch (error) {
-      console.error('Error downloading reports:', error);
-      alert('Error downloading reports: ' + (error instanceof Error ? error.message : 'Unknown error'));
-    } finally {
-      setDownloading(false);
-      setShowMobileMenu(false);
-    }
-  };
-
-  // TypeScript-safe function to handle single report downloads
   const handleSingleReportDownload = (reportId: number | undefined): void => {
     if (!reportId) {
       console.error('No report ID provided');
@@ -298,11 +430,9 @@ const Dashboard = () => {
     }
 
     try {
-      // Simply open the PDF in a new tab - most reliable cross-browser approach
       window.open(`/download_single_report/${reportId}`, '_blank');
     } catch (error: unknown) {
       console.error('Error opening report:', error);
-      // TypeScript-safe error handling
       let errorMessage = 'Unknown error occurred';
       if (error instanceof Error) {
         errorMessage = error.message;
@@ -311,61 +441,18 @@ const Dashboard = () => {
     }
   };
 
-  const handlePrintAllReports = async () => {
-    if (!selectedPeriod) {
-      alert('Please select a teaching period');
-      return;
-    }
-  
-    try {
-      setPrinting(true);
-      const response = await fetch(`/api/reports/print-all/${selectedPeriod}`, {
-        method: 'GET',
-        credentials: 'include'
-      });
-  
-      if (!response.ok) {
-        const errorData = response.headers.get('content-type')?.includes('application/json') 
-          ? await response.json()
-          : { error: 'Failed to print reports' };
-        throw new Error(errorData.error || 'Failed to print reports');
-      }
-  
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      window.open(url, '_blank');
-      window.URL.revokeObjectURL(url);
-  
-    } catch (error) {
-      console.error('Error printing reports:', error);
-      alert('Error printing reports: ' + (error instanceof Error ? error.message : 'Unknown error'));
-    } finally {
-      setPrinting(false);
-      setShowMobileMenu(false);
-    }
-  };
-
   const sortTimeSlots = (aTime: string, bTime: string): number => {
-    // Handle "Unscheduled" case
     if (aTime === 'Unscheduled') return 1;
     if (bTime === 'Unscheduled') return -1;
     
-    // Extract day and time components
     const [aDay, aTimeRange] = aTime.split(' ');
     const [bDay, bTimeRange] = bTime.split(' ');
     
-    // Define day order
     const dayOrder: { [key: string]: number } = {
-      'Monday': 1,
-      'Tuesday': 2,
-      'Wednesday': 3,
-      'Thursday': 4,
-      'Friday': 5,
-      'Saturday': 6,
-      'Sunday': 7
+      'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4,
+      'Friday': 5, 'Saturday': 6, 'Sunday': 7
     };
     
-    // First compare days
     const aDayValue = dayOrder[aDay] || 8;
     const bDayValue = dayOrder[bDay] || 8;
     
@@ -373,7 +460,6 @@ const Dashboard = () => {
       return aDayValue - bDayValue;
     }
     
-    // If days are same, compare start times
     const aStartTime = aTimeRange?.split('-')[0];
     const bStartTime = bTimeRange?.split('-')[0];
     
@@ -404,30 +490,6 @@ const Dashboard = () => {
     }, {});
   };
 
-  const getFilenameFromResponse = (response: Response): string | null => {
-    const disposition = response.headers.get('Content-Disposition');
-    if (disposition) {
-      const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(disposition);
-      if (matches?.[1]) {
-        return matches[1].replace(/['"]/g, '');
-      }
-    }
-    return null;
-  };
-
-  const downloadFile = (blob: Blob, filename: string) => {
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.style.display = 'none';
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
-  };
-
-  // Function to get a count of draft reports
   const getDraftCount = () => {
     return players.filter(player => player.has_draft).length;
   };
@@ -436,7 +498,7 @@ const Dashboard = () => {
   if (error) return <div className="text-red-600">Error: {error}</div>;
   if (!stats || !currentUser) return <div>No data available</div>;
 
-  const groupedPlayers = groupPlayersByGroupAndTime(filteredPlayers);
+  const groupedPlayers = groupPlayersByGroupAndTime(finalFilteredPlayers);
   const isAdmin = currentUser.is_admin || currentUser.is_super_admin;
   const draftCount = getDraftCount();
 
@@ -460,49 +522,6 @@ const Dashboard = () => {
           )}
         </div>
 
-        {/* Active Filters Section */}
-        {(showCoachFilter || showGroupFilter) && (
-          <div className="flex flex-wrap gap-2">
-            {/* Coach Filter Badge */}
-            {showCoachFilter && (
-              <div className="flex items-center bg-blue-50 border border-blue-200 p-2 rounded-md">
-                <Filter className="w-4 h-4 text-blue-600 mr-2" />
-                <span className="text-blue-800 font-medium">Coach: {selectedCoachName}</span>
-                <button 
-                  onClick={clearCoachFilter}
-                  className="ml-2 text-blue-600 hover:text-blue-800"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-            
-            {/* Group Filter Badge */}
-            {showGroupFilter && (
-              <div className="flex items-center bg-green-50 border border-green-200 p-2 rounded-md">
-                <Filter className="w-4 h-4 text-green-600 mr-2" />
-                <span className="text-green-800 font-medium">Recommended for: {selectedGroup}</span>
-                <button 
-                  onClick={clearGroupFilter}
-                  className="ml-2 text-green-600 hover:text-green-800"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-            
-            {/* Clear All Filters Button - Show only when multiple filters are active */}
-            {showCoachFilter && showGroupFilter && (
-              <button
-                onClick={clearAllFilters}
-                className="text-sm text-gray-600 hover:text-gray-900 underline"
-              >
-                Clear all filters
-              </button>
-            )}
-          </div>
-        )}
-
         {/* Draft Reports Alert - Show if there are drafts */}
         {draftCount > 0 && (
           <div className="bg-indigo-50 border border-indigo-200 p-3 rounded-md text-indigo-800">
@@ -511,9 +530,9 @@ const Dashboard = () => {
           </div>
         )}
 
-        {/* Controls Section */}
+        {/* Controls Section - Simplified */}
         <div className={`flex flex-col md:flex-row gap-4 ${showMobileMenu ? 'block' : 'hidden md:flex'}`}>
-          {/* Period Selector - Full width on mobile */}
+          {/* Period Selector */}
           <select
             className="w-full md:w-auto rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
             value={selectedPeriod || ''}
@@ -524,63 +543,9 @@ const Dashboard = () => {
             ))}
           </select>
 
-          {/* Coach Filter Dropdown - For admins only */}
-          {isAdmin && allCoaches.length > 0 && (
-            <select
-              className="w-full md:w-auto rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              value={selectedCoach || ''}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (value === '') {
-                  clearCoachFilter();
-                } else {
-                  const coachId = Number(value);
-                  const coach = allCoaches.find(c => c.id === coachId);
-                  if (coach) {
-                    handleCoachClick(coachId, coach.name);
-                  }
-                }
-              }}
-            >
-              <option value="">All Coaches</option>
-              {allCoaches.map((coach) => (
-                <option key={coach.id} value={coach.id}>{coach.name}</option>
-              ))}
-            </select>
-          )}
-
           {/* Admin Actions */}
           {isAdmin && (
             <div className="flex flex-col md:flex-row gap-2">
-              <button
-                onClick={handleDownloadAllReports}
-                disabled={!selectedPeriod || !stats?.submittedReports || downloading}
-                className="w-full md:w-auto px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 
-                         flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Download className="w-4 h-4" />
-                <span className="md:hidden lg:inline">Download All</span>
-                {stats?.submittedReports > 0 && !downloading && (
-                  <span className="bg-blue-500 px-2 py-0.5 rounded-full text-sm">
-                    {stats.submittedReports}
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={handlePrintAllReports}
-                disabled={!selectedPeriod || !stats?.submittedReports || printing}
-                className="w-full md:w-auto px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 
-                         flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <span>{printing ? 'Preparing...' : 'Print All'}</span>
-                {stats?.submittedReports > 0 && !printing && (
-                  <span className="bg-purple-500 px-2 py-0.5 rounded-full text-sm">
-                    {stats.submittedReports}
-                  </span>
-                )}
-              </button>
-
               <button
                 onClick={handleSendReportsClick}
                 disabled={!selectedPeriod || !stats?.submittedReports}
@@ -611,7 +576,7 @@ const Dashboard = () => {
         />
       )}
 
-      {/* Admin Analytics Section */}
+      {/* Admin Analytics Section - Non-clickable */}
       {isAdmin && stats.coachSummaries && (
         <>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -619,7 +584,7 @@ const Dashboard = () => {
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Group Progress</h3>
               <div className="space-y-3 max-h-[300px] overflow-y-auto">
-                {stats.currentGroups.map((group) => (
+                {stats.currentGroups.map((group: any) => (
                   <div 
                     key={group.name} 
                     className="p-3 bg-gray-50 rounded-lg flex flex-col"
@@ -649,26 +614,17 @@ const Dashboard = () => {
               </div>
             </div>
 
-            {/* Coach Progress Card - ENHANCED: Made coach names clickable */}
+            {/* Coach Progress Card - Non-clickable */}
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Coach Progress</h3>
               <div className="space-y-3 max-h-[300px] overflow-y-auto">
-                {stats.coachSummaries.map((coach) => (
+                {stats.coachSummaries.map((coach: any) => (
                   <div 
                     key={coach.id} 
-                    className={`p-3 ${selectedCoach === coach.id ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50'} 
-                      rounded-lg flex flex-col transition-colors duration-150 ease-in-out`}
+                    className="p-3 bg-gray-50 rounded-lg flex flex-col"
                   >
                     <div className="flex justify-between items-center">
-                      <button 
-                        onClick={() => handleCoachClick(coach.id, coach.name)}
-                        className="font-medium text-left hover:text-blue-700 transition-colors flex items-center"
-                      >
-                        <span className={selectedCoach === coach.id ? 'text-blue-700' : 'text-gray-900'}>
-                          {coach.name}
-                        </span>
-                        <ChevronRight className={`w-4 h-4 ml-1 ${selectedCoach === coach.id ? 'text-blue-500' : 'text-gray-400'}`} />
-                      </button>
+                      <span className="font-medium text-gray-900">{coach.name}</span>
                       <div className="text-sm text-gray-500">
                         <span>
                           {coach.reports_completed}/{coach.total_assigned}
@@ -682,7 +638,7 @@ const Dashboard = () => {
                     </div>
                     <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
                       <div 
-                        className={`h-2 rounded-full ${selectedCoach === coach.id ? 'bg-blue-500' : 'bg-blue-600'}`} 
+                        className="bg-blue-600 h-2 rounded-full" 
                         style={{ width: `${((coach.reports_completed / coach.total_assigned) * 100)}%` }}
                       />
                     </div>
@@ -694,50 +650,38 @@ const Dashboard = () => {
               </div>
             </div>
 
-            {/* Group Recommendations Card - Made group names clickable filters */}
+            {/* Group Recommendations Card - Non-clickable */}
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Group Recommendations</h3>
               {stats.groupRecommendations && stats.groupRecommendations.length > 0 ? (
                 <div className="space-y-3">
-                  {/* Destination Groups - With proper deduplication */}
                   <div className="space-y-2 max-h-[300px] overflow-y-auto">
                     {(() => {
-                      // Create a mapping of destination groups to total counts
                       const destinationGroups: Record<string, number> = {};
                       let totalPlayers = 0;
                       
-                      // First pass: aggregate all recommendations by destination
-                      stats.groupRecommendations.forEach(rec => {
+                      stats.groupRecommendations.forEach((rec: any) => {
                         destinationGroups[rec.to_group] = (destinationGroups[rec.to_group] || 0) + rec.count;
                         totalPlayers += rec.count;
                       });
                       
-                      // Sort and render the groups
                       return Object.entries(destinationGroups)
-                        .sort((a, b) => b[1] - a[1]) // Sort by count descending
+                        .sort((a, b) => b[1] - a[1])
                         .map(([group, count], index) => {
                           const percentage = Math.round((count / totalPlayers) * 100);
                           return (
-                            <button 
+                            <div 
                               key={`group-rec-${index}`} 
-                              className={`p-3 ${selectedGroup === group ? 'bg-green-50 border border-green-200' : 'bg-gray-50'} 
-                                w-full rounded-lg flex justify-between items-center text-left transition-colors 
-                                hover:bg-green-50 hover:border hover:border-green-200`}
-                              onClick={() => handleGroupClick(group)}
+                              className="p-3 bg-gray-50 w-full rounded-lg flex justify-between items-center"
                             >
+                              <span className="font-medium text-gray-900">{group}</span>
                               <div className="flex items-center">
-                                <span className={`font-medium ${selectedGroup === group ? 'text-green-700' : 'text-gray-900'}`}>
-                                  {group}
-                                </span>
-                                <ChevronRight className={`w-4 h-4 ml-1 ${selectedGroup === group ? 'text-green-500' : 'text-gray-400'}`} />
-                              </div>
-                              <div className="flex items-center">
-                                <span className={`text-sm ${selectedGroup === group ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'} px-3 py-1 rounded-full`}>
+                                <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full">
                                   {count} {count === 1 ? 'player' : 'players'}
                                 </span>
                                 <span className="text-xs text-gray-500 ml-2">({percentage}%)</span>
                               </div>
-                            </button>
+                            </div>
                           );
                         });
                     })()}
@@ -750,435 +694,17 @@ const Dashboard = () => {
               )}
             </div>
           </div>
-
-          {/* Movement Analysis Section - Collapsible by default */}
-          {stats.groupRecommendations && stats.groupRecommendations.length > 0 && (
-            <div className="mt-6">
-              {/* Section header with toggle */}
-              <div 
-                className="bg-white rounded-t-lg shadow p-4 flex justify-between items-center cursor-pointer hover:bg-gray-50"
-                onClick={() => setMovementAnalysisExpanded(prev => !prev)}
-              >
-                <h3 className="text-lg font-medium text-gray-900">Movement Analysis</h3>
-                <div className="flex items-center">
-                  <span className="text-sm text-gray-500 mr-2">
-                    {movementAnalysisExpanded ? 'Collapse' : 'Expand'} section
-                  </span>
-                  <button className="text-gray-500 p-1">
-                    {movementAnalysisExpanded ? (
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                      </svg>
-                    ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    )}
-                  </button>
-                </div>
-              </div>
-              
-              {/* Expanded content - only shown when toggled */}
-              {movementAnalysisExpanded && (
-                <div className="bg-white rounded-b-lg shadow">
-                  {/* Tabs for switching between analysis views */}
-                  <div className="flex border-b">
-                    <button 
-                      onClick={() => setAnalysisTab('group')}
-                      className={`px-4 py-3 text-sm font-medium ${analysisTab === 'group' 
-                        ? 'border-b-2 border-blue-500 text-blue-600' 
-                        : 'text-gray-500 hover:text-gray-700'}`}
-                    >
-                      Group Movement
-                    </button>
-                    <button 
-                      onClick={() => setAnalysisTab('session')}
-                      className={`px-4 py-3 text-sm font-medium ${analysisTab === 'session' 
-                        ? 'border-b-2 border-blue-500 text-blue-600' 
-                        : 'text-gray-500 hover:text-gray-700'}`}
-                    >
-                      Session Movement
-                    </button>
-                  </div>
-                  
-                  {/* Search and Filter Controls */}
-                  <div className="p-4 border-b">
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <div className="relative grow">
-                        <input
-                          type="text"
-                          placeholder={`Search ${analysisTab === 'group' ? 'groups' : 'sessions'}...`}
-                          value={analysisSearchTerm}
-                          onChange={(e) => setAnalysisSearchTerm(e.target.value)}
-                          className="w-full rounded-md border-gray-300 pl-10 focus:border-blue-500 focus:ring-blue-500"
-                        />
-                        <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                          </svg>
-                        </div>
-                      </div>
-                      
-                      <select 
-                        className="rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500"
-                        value={analysisSortOrder}
-                        onChange={(e) => setAnalysisSortOrder(e.target.value)}
-                      >
-                        <option value="alphabetical">Sort Alphabetically</option>
-                        <option value="count">Sort by Count</option>
-                        <option value="percentage">Sort by Percentage</option>
-                      </select>
-                    </div>
-                  </div>
-                  
-                  {/* Group Movement Analysis Tab Content */}
-                  {analysisTab === 'group' && (
-                    <div className="p-4">
-                      <div className="space-y-4 max-h-[500px] overflow-y-auto">
-                        {(() => {
-                          // Define types for our data structures
-                          type Movement = {
-                            from_group: string;
-                            to_group: string;
-                            count: number;
-                          };
-                          
-                          type GroupMovementMap = Record<string, Record<string, number>>;
-                          
-                          // First, create a deduplicated map of source groups to destination groups
-                          const sourceGroups: GroupMovementMap = {};
-                          
-                          // Group recommendations by source group and deduplicate
-                          stats.groupRecommendations.forEach(rec => {
-                            if (!sourceGroups[rec.from_group]) {
-                              sourceGroups[rec.from_group] = {};
-                            }
-                            
-                            // Add or increment the count for this destination
-                            sourceGroups[rec.from_group][rec.to_group] = 
-                              (sourceGroups[rec.from_group][rec.to_group] || 0) + rec.count;
-                          });
-                          
-                          // Get sorted list of groups based on current search and sort settings
-                          let groupEntries = Object.entries(sourceGroups);
-                          
-                          // Apply search filter
-                          if (analysisSearchTerm) {
-                            groupEntries = groupEntries.filter(([groupName]) => 
-                              groupName.toLowerCase().includes(analysisSearchTerm.toLowerCase())
-                            );
-                          }
-                          
-                          // Apply sort
-                          if (analysisSortOrder === 'alphabetical') {
-                            groupEntries.sort(([aGroup], [bGroup]) => aGroup.localeCompare(bGroup));
-                          } else if (analysisSortOrder === 'count') {
-                            groupEntries.sort(([, aDestinations], [, bDestinations]) => {
-                              const aTotal = Object.values(aDestinations).reduce((sum, count) => sum + count, 0);
-                              const bTotal = Object.values(bDestinations).reduce((sum, count) => sum + count, 0);
-                              return bTotal - aTotal; // Descending
-                            });
-                          }
-                          
-                          // If no groups to show
-                          if (groupEntries.length === 0) {
-                            return (
-                              <div className="text-center py-8 text-gray-500">
-                                No groups match your search criteria
-                              </div>
-                            );
-                          }
-                          
-                          // Convert the nested objects to the format needed for rendering
-                          return groupEntries.map(([groupName, destinations]) => {
-                            // Convert destinations object to array of {to_group, count} objects
-                            const movements: Movement[] = Object.entries(destinations).map(([toGroup, count]) => ({
-                              from_group: groupName,
-                              to_group: toGroup,
-                              count
-                            }));
-                            
-                            const totalPlayers = movements.reduce((sum, m) => sum + m.count, 0);
-                            
-                            // Determine if this group should be expanded
-                            const isExpanded = expandedGroups[groupName] !== false; // Default to expanded
-                            
-                            return (
-                              <div key={`group-${groupName}`} className="border border-gray-200 rounded-lg overflow-hidden">
-                                <div 
-                                  className="bg-gray-100 p-3 flex justify-between items-center cursor-pointer hover:bg-gray-200"
-                                  onClick={() => toggleGroupExpanded(groupName)}
-                                >
-                                  <h4 className="font-medium text-gray-900">{groupName} ({totalPlayers} players)</h4>
-                                  <button className="text-gray-500 p-1">
-                                    {isExpanded ? (
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                      </svg>
-                                    ) : (
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                      </svg>
-                                    )}
-                                  </button>
-                                </div>
-                                
-                                {isExpanded && (
-                                  <div className="p-3">
-                                    <div className="space-y-2">
-                                      {movements
-                                        .sort((a, b) => b.count - a.count) // Sort by count descending
-                                        .map((move, idx) => (
-                                          <button 
-                                            key={`move-${groupName}-${idx}`} 
-                                            className={`flex justify-between items-center p-2 rounded-md w-full text-left
-                                              ${selectedGroup === move.to_group ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}
-                                              hover:bg-green-50 hover:border hover:border-green-200 transition-colors`}
-                                            onClick={() => handleGroupClick(move.to_group)}
-                                          >
-                                            <div className="flex items-center">
-                                              <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-2"></span>
-                                              <span className={`font-medium ${selectedGroup === move.to_group ? 'text-green-700' : 'text-gray-900'}`}>
-                                                {move.to_group}
-                                              </span>
-                                              <ChevronRight className={`w-4 h-4 ml-1 ${selectedGroup === move.to_group ? 'text-green-500' : 'text-gray-400'}`} />
-                                            </div>
-                                            <div className="flex items-center space-x-2">
-                                              <span className="text-sm">{move.count}</span>
-                                              <span className="text-xs text-gray-500">({Math.round((move.count/totalPlayers)*100)}%)</span>
-                                            </div>
-                                          </button>
-                                        ))
-                                      }
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          });
-                        })()}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Session Movement Analysis Tab Content */}
-                  {analysisTab === 'session' && (
-                    <div className="p-4">
-                      <div className="space-y-4 max-h-[500px] overflow-y-auto">
-                        {(() => {
-                          // Define types for our data structures
-                          type SessionRecommendation = {
-                            to_group: string;
-                            count: number;
-                            staying: boolean;
-                          };
-                          
-                          type SessionData = {
-                            group: string;
-                            timeSlot: string;
-                            recommendations: Record<string, number>;
-                          };
-                          
-                          type SessionMap = Record<string, SessionData>;
-                          
-                          // Create a map of session keys to session data with deduplicated recommendations
-                          const sessionMap: SessionMap = {};
-                          
-                          // Group recommendations by session and deduplicate
-                          stats.groupRecommendations.forEach(rec => {
-                            // Create session key
-                            const sessionKey = rec.session
-                              ? `${rec.from_group} ${rec.session.day_of_week} ${rec.session.start_time}-${rec.session.end_time}`
-                              : `${rec.from_group} Unscheduled`;
-                            
-                            // Initialize session data if not exists
-                            if (!sessionMap[sessionKey]) {
-                              sessionMap[sessionKey] = {
-                                group: rec.from_group,
-                                timeSlot: rec.session 
-                                  ? `${rec.session.day_of_week} ${rec.session.start_time}-${rec.session.end_time}` 
-                                  : 'Unscheduled',
-                                recommendations: {}
-                              };
-                            }
-                            
-                            // Add or increment the count for this destination
-                            sessionMap[sessionKey].recommendations[rec.to_group] = 
-                              (sessionMap[sessionKey].recommendations[rec.to_group] || 0) + rec.count;
-                          });
-                          
-                          // Days array for sorting
-                          const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-                          
-                          // Get entries from the session map
-                          let sessionEntries = Object.entries(sessionMap);
-                          
-                          // Apply search filter
-                          if (analysisSearchTerm) {
-                            sessionEntries = sessionEntries.filter(([, sessionData]) => {
-                              const searchText = `${sessionData.group} ${sessionData.timeSlot}`.toLowerCase();
-                              return searchText.includes(analysisSearchTerm.toLowerCase());
-                            });
-                          }
-                          
-                          // Group sessions by group name for collapsible display
-                          const sessionsByGroup: Record<string, [string, SessionData][]> = {};
-                          sessionEntries.forEach(([, sessionData]) => {
-                            const groupName = sessionData.group;
-                            if (!sessionsByGroup[groupName]) {
-                              sessionsByGroup[groupName] = [];
-                            }
-                            sessionsByGroup[groupName].push(['', sessionData]);
-                          });
-                          
-                          // Sort group names
-                          let groupNames = Object.keys(sessionsByGroup);
-                          groupNames.sort((a, b) => a.localeCompare(b));
-                          
-                          // If no sessions to show
-                          if (groupNames.length === 0) {
-                            return (
-                              <div className="text-center py-8 text-gray-500">
-                                No sessions match your search criteria
-                              </div>
-                            );
-                          }
-                          
-                          return groupNames.map(groupName => {
-                            const isExpanded = expandedSessionGroups[groupName] !== false; // Default to expanded
-                            
-                            // Get and sort sessions for this group
-                            const groupSessions = sessionsByGroup[groupName];
-                            groupSessions.sort(([, aData], [, bData]) => {
-                              // Unscheduled sessions go last
-                              if (aData.timeSlot === 'Unscheduled') return 1;
-                              if (bData.timeSlot === 'Unscheduled') return -1;
-                              
-                              // Extract day and sort by day order
-                              const aDay = aData.timeSlot.split(' ')[0];
-                              const bDay = bData.timeSlot.split(' ')[0];
-                              
-                              const aDayIndex = days.indexOf(aDay);
-                              const bDayIndex = days.indexOf(bDay);
-                              
-                              if (aDayIndex !== bDayIndex) {
-                                return aDayIndex - bDayIndex;
-                              }
-                              
-                              // Then sort by time
-                              const aTime = aData.timeSlot.split(' ')[1]?.split('-')[0];
-                              const bTime = bData.timeSlot.split(' ')[1]?.split('-')[0];
-                              
-                              return aTime?.localeCompare(bTime || '') || 0;
-                            });
-                            
-                            return (
-                              <div key={`session-group-${groupName}`} className="border border-gray-200 rounded-lg overflow-hidden mb-4">
-                                <div 
-                                  className="bg-gray-100 p-3 flex justify-between items-center cursor-pointer hover:bg-gray-200"
-                                  onClick={() => toggleSessionGroupExpanded(groupName)}
-                                >
-                                  <h4 className="font-medium text-gray-900">{groupName} ({groupSessions.length} sessions)</h4>
-                                  <button className="text-gray-500 p-1">
-                                    {isExpanded ? (
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                      </svg>
-                                    ) : (
-                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                      </svg>
-                                    )}
-                                  </button>
-                                </div>
-                                
-                                {isExpanded && (
-                                  <div className="p-3">
-                                    <div className="grid gap-4 md:grid-cols-1 lg:grid-cols-2">
-                                      {groupSessions.map(([, sessionData], sessionIdx) => {
-                                        // Convert recommendations object to array for rendering
-                                        const recommendations: SessionRecommendation[] = Object.entries(sessionData.recommendations)
-                                          .map(([toGroup, count]) => ({
-                                            to_group: toGroup,
-                                            count,
-                                            staying: sessionData.group === toGroup
-                                          }));
-                                        
-                                        const totalPlayers = recommendations.reduce((sum, rec) => sum + rec.count, 0);
-                                        
-                                        return (
-                                          <div key={`session-${sessionIdx}`} className="border border-gray-200 rounded-lg overflow-hidden">
-                                            <div className="bg-gray-50 p-3">
-                                              <p className="text-sm font-medium text-gray-900">{sessionData.timeSlot}</p>
-                                            </div>
-                                            <div className="p-3">
-                                              <div className="space-y-2">
-                                                {recommendations
-                                                  .sort((a, b) => b.count - a.count) // Sort only by count descending
-                                                  .map((rec, recIdx) => (
-                                                    <button 
-                                                      key={`session-rec-${sessionIdx}-${recIdx}`}
-                                                      className={`flex justify-between items-center p-2 rounded-md w-full text-left
-                                                        ${selectedGroup === rec.to_group ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}
-                                                        hover:bg-green-50 hover:border hover:border-green-200 transition-colors`}
-                                                      onClick={() => handleGroupClick(rec.to_group)}
-                                                    >
-                                                      <div className="flex items-center">
-                                                        <span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-2"></span>
-                                                        <span className={`font-medium ${selectedGroup === rec.to_group ? 'text-green-700' : 'text-gray-900'}`}>
-                                                          {rec.to_group}
-                                                        </span>
-                                                        <ChevronRight className={`w-4 h-4 ml-1 ${selectedGroup === rec.to_group ? 'text-green-500' : 'text-gray-400'}`} />
-                                                      </div>
-                                                      <div className="flex items-center space-x-2">
-                                                        <span className="text-sm">{rec.count}</span>
-                                                        <span className="text-xs text-gray-500">({Math.round((rec.count/totalPlayers)*100)}%)</span>
-                                                      </div>
-                                                    </button>
-                                                  ))
-                                                }
-                                              </div>
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          });
-                        })()}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
         </>
       )}
 
-      {/* Reports Management Section */}
+      {/* Reports Management Section with Comprehensive Filtering */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-medium text-gray-900">
-            {isAdmin ? (
-              (() => {
-                if (selectedCoach && selectedGroup) {
-                  return `Reports for ${selectedCoachName} recommended for ${selectedGroup}`;
-                } else if (selectedCoach) {
-                  return `Reports for ${selectedCoachName}`;
-                } else if (selectedGroup) {
-                  return `Reports recommended for ${selectedGroup}`;
-                } else {
-                  return 'All Reports';
-                }
-              })()
-            ) : 'My Reports'}
+            {isAdmin ? 'All Reports' : 'My Reports'}
           </h2>
           
-          {/* Report Status Filter */}
+          {/* Report Status Legend */}
           <div className="flex space-x-3">
             <div className="flex items-center space-x-1">
               <div className="w-3 h-3 rounded-full bg-green-500"></div>
@@ -1194,20 +720,30 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
+
+        {/* Comprehensive Search and Filter Bar */}
+        <ComprehensiveFilterBar
+          searchQuery={playerSearchQuery}
+          onSearchChange={setPlayerSearchQuery}
+          selectedGroup={selectedGroup}
+          onGroupChange={setSelectedGroup}
+          selectedCoach={selectedCoach}
+          onCoachChange={setSelectedCoach}
+          selectedRecommendedGroup={selectedRecommendedGroup}
+          onRecommendedGroupChange={setSelectedRecommendedGroup}
+          reportStatus={reportStatus}
+          onReportStatusChange={setReportStatus}
+          onClearAllFilters={clearAllFilters}
+          availableGroups={availableGroups}
+          availableCoaches={allCoaches}
+          availableRecommendedGroups={availableRecommendedGroups}
+          totalPlayers={players.length}
+          filteredCount={finalFilteredPlayers.length}
+        />
         
         {Object.keys(groupedPlayers).length === 0 ? (
           <p className="text-gray-500">
-            {(() => {
-              if (selectedCoach && selectedGroup) {
-                return `No reports available for ${selectedCoachName} recommended for ${selectedGroup}.`;
-              } else if (selectedCoach) {
-                return `No reports available for ${selectedCoachName}.`;
-              } else if (selectedGroup) {
-                return `No reports available recommended for ${selectedGroup}.`;
-              } else {
-                return 'No reports available for this period.';
-              }
-            })()}
+            No reports match your current filter criteria.
           </p>
         ) : (
           <div className="space-y-8">
@@ -1264,7 +800,6 @@ const Dashboard = () => {
                             </div>
                             <div className="flex gap-2">
                               {player.report_id ? (
-                                // For reports that exist (either draft or submitted)
                                 <>
                                   {player.report_submitted && (
                                     <button 
@@ -1295,7 +830,6 @@ const Dashboard = () => {
                                 )}
                                 </>
                               ) : (
-                                // For reports that don't exist yet
                                 player.can_edit && player.has_template ? (
                                   <a 
                                     href={`/api/report/new/${player.id}`}
