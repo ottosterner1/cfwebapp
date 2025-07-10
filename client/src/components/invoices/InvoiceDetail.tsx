@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { InvoiceDetail as InvoiceDetailType, InvoiceStatus } from '../../types/invoice';
 import { 
   ArrowLeft, Download, Edit, Send, Check, X, 
-  FileText, User, Calendar, PoundSterlingIcon, Clock,
-  CheckCircle, XCircle
+  FileText, User, Calendar, PoundSterling, Clock,
+  CheckCircle, XCircle, ChevronDown, ChevronRight
 } from 'lucide-react';
 
 // Define types for PDF export data
@@ -47,12 +47,463 @@ interface ExportData {
   notes: string | null;
 }
 
+// Types for grouped line items
+type LineItem = InvoiceDetailType['line_items'][0];
+
+interface GroupedLineItem {
+  groupKey: string;
+  groupName: string;
+  timeSlot: string;
+  roleType: 'lead' | 'assistant';
+  sessions: LineItem[];
+  totalHours: number;
+  totalAmount: number;
+  sessionCount: number;
+  rate: number;
+  dateRange: string;
+  isExpanded: boolean;
+}
+
 interface InvoiceDetailProps {
   invoiceId: number;
   onBack: () => void;
   onEdit: () => void;
   userRole: 'coach' | 'admin' | 'super_admin';
 }
+
+// Custom hook for grouping line items with Monday-Sunday ordering
+const useGroupedLineItems = (lineItems: LineItem[]) => {
+  return useMemo(() => {
+    const manualEntries: LineItem[] = [];
+    const deductions: LineItem[] = [];
+    const registerItems: LineItem[] = [];
+
+    lineItems.forEach(item => {
+      if (item.is_deduction) {
+        deductions.push(item);
+      } else if (!item.register_id) {
+        manualEntries.push(item);
+      } else {
+        registerItems.push(item);
+      }
+    });
+
+    // Group register items by session type and role
+    const groups: { [key: string]: GroupedLineItem } = {};
+
+    registerItems.forEach(item => {
+      const roleType = item.description.includes('Lead Coach') ? 'lead' : 
+                      item.description.includes('Assistant Coach') ? 'assistant' : 'lead';
+      
+      const descParts = item.description.split(',');
+      const groupName = descParts[0]?.trim() || 'Unknown Group';
+      const timeSlot = descParts[1]?.trim().replace(/\s*\((Lead|Assistant)\s*Coach\)/, '') || 'Unknown Time';
+      
+      const groupKey = `${groupName}-${timeSlot}-${roleType}`;
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          groupKey,
+          groupName,
+          timeSlot,
+          roleType,
+          sessions: [],
+          totalHours: 0,
+          totalAmount: 0,
+          sessionCount: 0,
+          rate: item.rate,
+          dateRange: '',
+          isExpanded: false
+        };
+      }
+
+      groups[groupKey].sessions.push(item);
+      groups[groupKey].totalHours += item.hours;
+      groups[groupKey].totalAmount += item.amount;
+      groups[groupKey].sessionCount += 1;
+    });
+
+    // Calculate date ranges for each group
+    Object.values(groups).forEach(group => {
+      const dates = group.sessions
+        .map(s => new Date(s.date))
+        .sort((a, b) => a.getTime() - b.getTime());
+      
+      if (dates.length === 1) {
+        group.dateRange = dates[0].toLocaleDateString();
+      } else if (dates.length > 1) {
+        const firstDate = dates[0].toLocaleDateString();
+        const lastDate = dates[dates.length - 1].toLocaleDateString();
+        group.dateRange = `${firstDate} - ${lastDate}`;
+      }
+    });
+
+    // Order groups by day of week, then by time
+    const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    
+    const sortedGroups = Object.values(groups).sort((a, b) => {
+      // Extract day from timeSlot
+      const dayA = dayOrder.findIndex(day => a.timeSlot.toLowerCase().includes(day));
+      const dayB = dayOrder.findIndex(day => b.timeSlot.toLowerCase().includes(day));
+      
+      // If both have days, sort by day order first
+      if (dayA !== -1 && dayB !== -1) {
+        if (dayA !== dayB) return dayA - dayB;
+        
+        // Same day - now sort by time
+        // Extract start time from timeSlot (format: "Monday 13:30-14:20")
+        const extractStartTime = (timeSlot: string) => {
+          const timeMatch = timeSlot.match(/(\d{1,2}):(\d{2})/);
+          if (timeMatch) {
+            const hours = parseInt(timeMatch[1]);
+            const minutes = parseInt(timeMatch[2]);
+            return hours * 60 + minutes; // Convert to minutes for easy comparison
+          }
+          return 0;
+        };
+        
+        const timeA = extractStartTime(a.timeSlot);
+        const timeB = extractStartTime(b.timeSlot);
+        
+        if (timeA !== timeB) return timeA - timeB;
+      }
+      
+      // Fallback: sort by group name, then time slot
+      if (a.groupName !== b.groupName) {
+        return a.groupName.localeCompare(b.groupName);
+      }
+      
+      return a.timeSlot.localeCompare(b.timeSlot);
+    });
+
+    return {
+      groupedItems: sortedGroups,
+      manualEntries: manualEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+      deductions: deductions.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    };
+  }, [lineItems]);
+};
+
+// Component for displaying a grouped line item - MOBILE ONLY
+const GroupedLineItemComponent: React.FC<{
+  group: GroupedLineItem;
+  onToggleExpand: (groupKey: string) => void;
+  isLast: boolean;
+}> = ({ group, onToggleExpand }) => {
+  return (
+    <div className={`p-4 border-b last:border-b-0 ${group.isExpanded ? 'bg-gray-50' : 'bg-white'}`}>
+      <div 
+        className="cursor-pointer"
+        onClick={() => onToggleExpand(group.groupKey)}
+      >
+        <div className="space-y-3">
+          <div>
+            <div className="flex items-start justify-between mb-1">
+              <h4 className="text-sm font-medium text-gray-900 flex-1 mr-2">
+                {group.groupName} - {group.timeSlot}
+              </h4>
+              <div className="flex flex-col items-end gap-1">
+                <div className="flex items-center gap-1">
+                  {group.isExpanded ? (
+                    <ChevronDown className="h-4 w-4 text-gray-500" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-gray-500" />
+                  )}
+                  <span className={`px-2 py-1 text-xs rounded-full font-medium ${
+                    group.roleType === 'lead' 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {group.roleType === 'lead' ? 'Lead' : 'Assistant'}
+                  </span>
+                </div>
+                <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800 font-medium">
+                  Register
+                </span>
+              </div>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <span className="text-gray-600">Sessions:</span>
+              <div className="font-medium text-gray-900">
+                {group.sessionCount} session{group.sessionCount !== 1 ? 's' : ''}
+              </div>
+            </div>
+            <div>
+              <span className="text-gray-600">Hours:</span>
+              <div className="font-medium text-gray-900">
+                {group.totalHours.toFixed(2)}
+              </div>
+            </div>
+            <div>
+              <span className="text-gray-600">Rate:</span>
+              <div className="font-medium text-gray-900">
+                £{group.rate.toFixed(2)}
+              </div>
+            </div>
+            <div>
+              <span className="text-gray-600">Amount:</span>
+              <div className="font-bold text-gray-900">
+                £{group.totalAmount.toFixed(2)}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Expanded Sessions for Mobile */}
+      {group.isExpanded && (
+        <div className="mt-4 pt-4 border-t border-gray-200">
+          <div className="space-y-2">
+            {group.sessions.map((session, index) => (
+              <div key={index} className="bg-white p-3 rounded border">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-gray-600">Date:</span>
+                    <div className="font-medium text-gray-900">
+                      {new Date(session.date).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Hours:</span>
+                    <div className="font-medium text-gray-900">
+                      {session.hours.toFixed(2)}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Rate:</span>
+                    <div className="font-medium text-gray-900">
+                      £{session.rate.toFixed(2)}
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-gray-600">Amount:</span>
+                    <div className="font-bold text-gray-900">
+                      £{session.amount.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Component for rendering grouped items in desktop table
+const GroupedTableRows: React.FC<{
+  group: GroupedLineItem;
+  onToggleExpand: (groupKey: string) => void;
+}> = ({ group, onToggleExpand }) => {
+  return (
+    <>
+      <tr className={group.isExpanded ? 'bg-gray-50' : ''}>
+        <td 
+          className="px-6 py-4 text-sm text-gray-900 cursor-pointer"
+          onClick={() => onToggleExpand(group.groupKey)}
+        >
+          <div className="flex items-center">
+            {group.isExpanded ? (
+              <ChevronDown className="h-4 w-4 text-gray-500 mr-2" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-gray-500 mr-2" />
+            )}
+            {group.groupName} - {group.timeSlot}
+            <span className={`ml-2 px-1.5 py-0.5 text-xs rounded ${
+              group.roleType === 'lead'
+                ? 'bg-green-100 text-green-800'
+                : 'bg-blue-100 text-blue-800'
+            }`}>
+              {group.roleType === 'lead' ? 'Lead' : 'Assistant'}
+            </span>
+          </div>
+          <div className="text-xs text-gray-600 mt-1">
+            {group.sessionCount} session{group.sessionCount !== 1 ? 's' : ''} • {group.dateRange}
+          </div>
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+          {group.dateRange}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+          {group.totalHours.toFixed(2)}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+          £{group.rate.toFixed(2)}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+          £{group.totalAmount.toFixed(2)}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+          <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+            Register
+          </span>
+        </td>
+      </tr>
+      
+      {/* Expanded Sessions for Desktop */}
+      {group.isExpanded && group.sessions.map((session, index) => (
+        <tr key={index} className="bg-gray-50">
+          <td className="px-6 py-3 text-sm text-gray-700 pl-12">
+            <div className="flex items-center">
+              <div className="w-4 h-4 mr-2"></div>
+              {new Date(session.date).toLocaleDateString()}
+            </div>
+          </td>
+          <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600">
+            {new Date(session.date).toLocaleDateString()}
+          </td>
+          <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600">
+            {session.hours.toFixed(2)}
+          </td>
+          <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600">
+            £{session.rate.toFixed(2)}
+          </td>
+          <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-900">
+            £{session.amount.toFixed(2)}
+          </td>
+          <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-600">
+            <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+              Register
+            </span>
+          </td>
+        </tr>
+      ))}
+    </>
+  );
+};
+
+// Component for individual table rows
+const IndividualTableRow: React.FC<{ item: LineItem }> = ({ item }) => {
+  const isLeadSession = item.item_type === 'group' && 
+                       (item.description && item.description.includes('Lead Coach'));
+  const isAssistantSession = item.item_type === 'group' && 
+                            (item.description && item.description.includes('Assistant Coach'));
+
+  return (
+    <tr className={item.is_deduction ? 'bg-red-50' : ''}>
+      <td className="px-6 py-4 text-sm text-gray-900">
+        {item.is_deduction && <span className="text-red-600 font-medium">[Deduction] </span>}
+        {item.description}
+        {isLeadSession && (
+          <span className="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800">
+            Lead
+          </span>
+        )}
+        {isAssistantSession && (
+          <span className="ml-1 px-1.5 py-0.5 text-xs rounded bg-blue-100 text-blue-800">
+            Assistant
+          </span>
+        )}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+        {new Date(item.date).toLocaleDateString()}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+        {item.hours.toFixed(2)}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+        £{item.rate.toFixed(2)}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+        {item.is_deduction ? (
+          <span className="text-red-600">-£{item.amount.toFixed(2)}</span>
+        ) : (
+          `£${item.amount.toFixed(2)}`
+        )}
+      </td>
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+        {item.register_id ? (
+          <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+            Register
+          </span>
+        ) : (
+          <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+            Manual
+          </span>
+        )}
+      </td>
+    </tr>
+  );
+};
+
+// Component for displaying individual line items - MOBILE ONLY
+const IndividualLineItem: React.FC<{
+  item: LineItem;
+  isLast: boolean;
+  showType?: boolean;
+}> = ({ item, isLast }) => {
+  const isLeadSession = item.item_type === 'group' && 
+                       (item.description && item.description.includes('Lead Coach'));
+  const isAssistantSession = item.item_type === 'group' && 
+                            (item.description && item.description.includes('Assistant Coach'));
+
+  return (
+    <div className={`p-4 border-b last:border-b-0 ${item.is_deduction ? 'bg-red-50' : isLast ? '' : 'bg-gray-50'}`}>
+      <div className="space-y-3">
+        <div>
+          <div className="flex items-start justify-between mb-1">
+            <h4 className="text-sm font-medium text-gray-900 flex-1 mr-2">
+              {item.is_deduction && <span className="text-red-600 font-medium">[Deduction] </span>}
+              {item.description}
+            </h4>
+            <div className="flex flex-col items-end gap-1">
+              {isLeadSession && (
+                <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800 font-medium">
+                  Lead
+                </span>
+              )}
+              {isAssistantSession && (
+                <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800 font-medium">
+                  Assistant
+                </span>
+              )}
+              {item.register_id ? (
+                <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800 font-medium">
+                  Register
+                </span>
+              ) : (
+                <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800 font-medium">
+                  Manual
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <span className="text-gray-600">Date:</span>
+            <div className="font-medium text-gray-900">
+              {new Date(item.date).toLocaleDateString()}
+            </div>
+          </div>
+          <div>
+            <span className="text-gray-600">Hours:</span>
+            <div className="font-medium text-gray-900">
+              {item.hours.toFixed(2)}
+            </div>
+          </div>
+          <div>
+            <span className="text-gray-600">Rate:</span>
+            <div className="font-medium text-gray-900">
+              £{item.rate.toFixed(2)}
+            </div>
+          </div>
+          <div>
+            <span className="text-gray-600">Amount:</span>
+            <div className={`font-bold ${item.is_deduction ? 'text-red-600' : 'text-gray-900'}`}>
+              {item.is_deduction ? `-£${item.amount.toFixed(2)}` : `£${item.amount.toFixed(2)}`}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const InvoiceDetail: React.FC<InvoiceDetailProps> = ({ 
   invoiceId, 
@@ -70,13 +521,33 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
   const [markingAsPaid, setMarkingAsPaid] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectionForm, setShowRejectionForm] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   
-  // Role-based helper functions
   const isAdmin = userRole === 'admin' || userRole === 'super_admin';
-  
-  // Create a ref for the content to export
   const printRef = useRef<HTMLDivElement>(null);
   
+  // Group line items
+  const { groupedItems, manualEntries, deductions } = useGroupedLineItems(
+    invoice?.line_items || []
+  );
+  
+  // Calculate total counts for display
+  const totalOriginalItems = invoice?.line_items?.length || 0;
+  const totalGroupedSections = groupedItems.length + 
+    (manualEntries.length > 0 ? 1 : 0) + 
+    (deductions.length > 0 ? 1 : 0);
+  
+  // Handle group expansion
+  const handleToggleExpand = (groupKey: string) => {
+    const newExpanded = new Set(expandedGroups);
+    if (newExpanded.has(groupKey)) {
+      newExpanded.delete(groupKey);
+    } else {
+      newExpanded.add(groupKey);
+    }
+    setExpandedGroups(newExpanded);
+  };
+
   // Fetch invoice details
   useEffect(() => {
     const fetchInvoiceDetails = async () => {
@@ -102,257 +573,6 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     fetchInvoiceDetails();
   }, [invoiceId]);
   
-  // Handle PDF export
-  const handleExport = async () => {
-    if (!invoice) return;
-    
-    try {
-      setExportLoading(true);
-      
-      const exportData = await fetchExportData(invoiceId);
-      const jsPDFModule = await import('jspdf');
-      const jsPDF = jsPDFModule.default;
-      const pdf = new jsPDF();
-      
-      // PDF generation logic
-      const margin = 20;
-      let yPos = margin;
-      const lineHeight = 10;
-      const pageWidth = 210;
-      const contentWidth = pageWidth - (2 * margin);
-      
-      const addText = (text: string, fontSize: number = 12, isBold: boolean = false, align: 'left' | 'center' | 'right' = 'left') => {
-        pdf.setFontSize(fontSize);
-        pdf.setFont('helvetica', isBold ? 'bold' : 'normal');
-        pdf.text(text, align === 'left' ? margin : align === 'right' ? pageWidth - margin : pageWidth / 2, yPos, { align });
-        yPos += lineHeight;
-      };
-      
-      const checkPageBreak = (height: number = lineHeight) => {
-        if (yPos + height > 280) {
-          pdf.addPage();
-          yPos = margin;
-        }
-      };
-      
-      // Add invoice header
-      addText(`INVOICE #${exportData.invoice_number}`, 24, true, 'center');
-      addText(`${exportData.month_name} ${exportData.year}`, 16, false, 'center');
-      if (exportData.status === 'paid') {
-        pdf.setTextColor(4, 120, 87);
-        addText('PAID', 14, true, 'center');
-        pdf.setTextColor(0, 0, 0);
-      }
-      
-      yPos += 10;
-      
-      // Create two columns for invoice details and financial summary
-      const colWidth = (contentWidth / 2) - 5;
-      
-      // Invoice Details heading
-      const invoiceDetailsX = margin;
-      pdf.setDrawColor(200, 200, 200);
-      pdf.setFontSize(12);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('INVOICE DETAILS', invoiceDetailsX, yPos);
-      yPos += 5;
-      pdf.line(invoiceDetailsX, yPos, invoiceDetailsX + colWidth, yPos);
-      yPos += 10;
-      
-      // Financial Summary heading
-      const financialX = margin + colWidth + 10;
-      pdf.setFontSize(12);
-      pdf.text('FINANCIAL SUMMARY', financialX, yPos - 15);
-      pdf.line(financialX, yPos - 10, financialX + colWidth, yPos - 10);
-      
-      // Invoice Details content
-      pdf.setFontSize(10);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Coach', invoiceDetailsX, yPos);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(exportData.coach.name, invoiceDetailsX + 40, yPos);
-      yPos += lineHeight;
-      
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Period', invoiceDetailsX, yPos);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(`${exportData.month_name} ${exportData.year}`, invoiceDetailsX + 40, yPos);
-      yPos += lineHeight;
-      
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Created', invoiceDetailsX, yPos);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(exportData.dates.created_at, invoiceDetailsX + 40, yPos);
-      yPos += lineHeight;
-      
-      if (exportData.dates.submitted_at) {
-        pdf.setFont('helvetica', 'bold');
-        pdf.text('Submitted', invoiceDetailsX, yPos);
-        pdf.setFont('helvetica', 'normal');
-        pdf.text(exportData.dates.submitted_at, invoiceDetailsX + 40, yPos);
-        yPos += lineHeight;
-      }
-      
-      if (exportData.dates.approved_at) {
-        pdf.setFont('helvetica', 'bold');
-        pdf.text('Approved', invoiceDetailsX, yPos);
-        pdf.setFont('helvetica', 'normal');
-        pdf.text(exportData.dates.approved_at, invoiceDetailsX + 40, yPos);
-        yPos += lineHeight;
-      }
-      
-      if (exportData.dates.paid_at) {
-        pdf.setFont('helvetica', 'bold');
-        pdf.text('Paid', invoiceDetailsX, yPos);
-        pdf.setFont('helvetica', 'normal');
-        pdf.text(exportData.dates.paid_at, invoiceDetailsX + 40, yPos);
-        yPos += lineHeight;
-      }
-      
-      // Financial Summary content
-      let finYPos = yPos - (lineHeight * (exportData.dates.submitted_at ? 4 : 3) + 
-                          (exportData.dates.approved_at ? lineHeight : 0) + 
-                          (exportData.dates.paid_at ? lineHeight : 0));
-      
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Subtotal', financialX, finYPos);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(`£${exportData.financial.subtotal.toFixed(2)}`, financialX + 40, finYPos);
-      finYPos += lineHeight;
-      
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Deductions', financialX, finYPos);
-      pdf.setFont('helvetica', 'normal');
-      pdf.text(`£${exportData.financial.deductions.toFixed(2)}`, financialX + 40, finYPos);
-      finYPos += lineHeight;
-      
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Total', financialX, finYPos);
-      pdf.setFont('helvetica', 'bold');
-      pdf.text(`£${exportData.financial.total.toFixed(2)}`, financialX + 40, finYPos);
-      
-      // Set yPos to the maximum of both columns
-      yPos = Math.max(yPos, finYPos + lineHeight);
-      yPos += 20;
-      
-      // Line Items heading
-      checkPageBreak();
-      addText('Line Items', 16, true);
-      yPos += 5;
-      
-      // Line Items table
-      const colWidths = [80, 30, 20, 25, 25];
-      const colPositions = [
-        margin,
-        margin + colWidths[0],
-        margin + colWidths[0] + colWidths[1],
-        margin + colWidths[0] + colWidths[1] + colWidths[2],
-        margin + colWidths[0] + colWidths[1] + colWidths[2] + colWidths[3]
-      ];
-      
-      // Table header
-      pdf.setFillColor(243, 244, 246);
-      pdf.rect(margin, yPos, contentWidth, 10, 'F');
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(9);
-      pdf.text('Description', colPositions[0] + 2, yPos + 7);
-      pdf.text('Date', colPositions[1] + 2, yPos + 7);
-      pdf.text('Hours', colPositions[2] + 2, yPos + 7);
-      pdf.text('Rate', colPositions[3] + 2, yPos + 7);
-      pdf.text('Amount', colPositions[4] + 2, yPos + 7);
-      yPos += 10;
-      
-      // Table rows
-      const lineItems = exportData.line_items;
-      
-      for (let i = 0; i < lineItems.length; i++) {
-        const item = lineItems[i];
-        
-        checkPageBreak(15);
-        
-        if (item.is_deduction) {
-          pdf.setFillColor(254, 226, 226);
-          pdf.rect(margin, yPos, contentWidth, 12, 'F');
-        } else if (i % 2 === 1) {
-          pdf.setFillColor(249, 250, 251);
-          pdf.rect(margin, yPos, contentWidth, 12, 'F');
-        }
-        
-        pdf.setFont('helvetica', 'normal');
-        
-        let description = item.description;
-        if (item.is_deduction) {
-          pdf.setTextColor(220, 38, 38);
-          description = `[Deduction] ${description}`;
-        }
-        if (item.register_id) {
-          description = `${description} (Register)`;
-        }
-        
-        if (description.length > 30) {
-          description = description.substring(0, 27) + '...';
-        }
-        
-        pdf.text(description, colPositions[0] + 2, yPos + 7);
-        pdf.setTextColor(0, 0, 0);
-        
-        pdf.text(new Date(item.date).toLocaleDateString(), colPositions[1] + 2, yPos + 7);
-        pdf.text(item.hours.toFixed(2), colPositions[2] + 2, yPos + 7);
-        pdf.text(`£${item.rate.toFixed(2)}`, colPositions[3] + 2, yPos + 7);
-        
-        if (item.is_deduction) {
-          pdf.setTextColor(220, 38, 38);
-          pdf.text(`-£${item.amount.toFixed(2)}`, colPositions[4] + 2, yPos + 7);
-          pdf.setTextColor(0, 0, 0);
-        } else {
-          pdf.text(`£${item.amount.toFixed(2)}`, colPositions[4] + 2, yPos + 7);
-        }
-        
-        yPos += 12;
-      }
-      
-      // Table footer
-      checkPageBreak();
-      pdf.setFillColor(243, 244, 246);
-      pdf.rect(margin, yPos, contentWidth, 12, 'F');
-      
-      pdf.setFont('helvetica', 'bold');
-      pdf.text('Total:', colPositions[3] - 5, yPos + 7, { align: 'right' as const });
-      pdf.text(`£${exportData.financial.total.toFixed(2)}`, colPositions[4] + 2, yPos + 7);
-      
-      yPos += 20;
-      
-      // Notes section if available
-      if (exportData.notes) {
-        checkPageBreak();
-        addText('Notes', 12, true);
-        
-        pdf.setFillColor(249, 250, 251);
-        pdf.setDrawColor(221, 221, 221);
-        pdf.roundedRect(margin, yPos, contentWidth, 40, 3, 3, 'FD');
-        
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(10);
-        
-        const maxWidth = contentWidth - 10;
-        const lines = pdf.splitTextToSize(exportData.notes, maxWidth);
-        
-        for (let i = 0; i < lines.length && i < 10; i++) {
-          checkPageBreak();
-          pdf.text(lines[i], margin + 5, yPos + 8 + (i * 6));
-        }
-      }
-      
-      pdf.save(`Invoice-${exportData.invoice_number}.pdf`);
-      
-    } catch (err) {
-      console.error('Error generating PDF:', err);
-      setError('Failed to generate PDF. Please try again.');
-    } finally {
-      setExportLoading(false);
-    }
-  };
-  
   // Fetch the export data
   const fetchExportData = async (id: number): Promise<ExportData> => {
     const response = await fetch(`/api/invoices/export/${id}`);
@@ -362,7 +582,201 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     return await response.json();
   };
 
-  // Handle invoice submission
+  // Handle PDF export with proper error handling
+  const handleExport = async () => {
+    if (!invoice) return;
+    
+    try {
+      setExportLoading(true);
+      console.log('Starting PDF export...');
+      
+      // Fetch export data
+      const exportData = await fetchExportData(invoiceId);
+      console.log('Export data received:', exportData);
+      
+      // Dynamic import of jsPDF
+      const jsPDFModule = await import('jspdf');
+      const jsPDF = jsPDFModule.default;
+      
+      // Create new PDF document
+      const pdf = new jsPDF();
+      
+      // Set up variables
+      let yPosition = 20;
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const margin = 20;
+      
+      // Helper function to add text and increment position
+      const addText = (text: string, x: number, y: number, options?: any) => {
+        pdf.text(text, x, y, options);
+      };
+      
+      // Helper function to check page break
+      const checkPageBreak = () => {
+        if (yPosition > 250) {
+          pdf.addPage();
+          yPosition = 20;
+        }
+      };
+      
+      // Add header
+      pdf.setFontSize(20);
+      pdf.setFont('helvetica', 'bold');
+      addText(`INVOICE #${exportData.invoice_number}`, pageWidth / 2, yPosition, { align: 'center' });
+      yPosition += 15;
+      
+      pdf.setFontSize(14);
+      pdf.setFont('helvetica', 'normal');
+      addText(`${exportData.month_name} ${exportData.year}`, pageWidth / 2, yPosition, { align: 'center' });
+      yPosition += 10;
+      
+      // Add status if paid
+      if (exportData.status === 'paid') {
+        pdf.setFontSize(12);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setTextColor(0, 128, 0);
+        addText('PAID', pageWidth / 2, yPosition, { align: 'center' });
+        pdf.setTextColor(0, 0, 0);
+        yPosition += 15;
+      } else {
+        yPosition += 10;
+      }
+      
+      // Add coach information
+      pdf.setFontSize(12);
+      pdf.setFont('helvetica', 'bold');
+      addText('Coach:', margin, yPosition);
+      pdf.setFont('helvetica', 'normal');
+      addText(exportData.coach.name, margin + 35, yPosition);
+      yPosition += 10;
+      
+      // Add period
+      pdf.setFont('helvetica', 'bold');
+      addText('Period:', margin, yPosition);
+      pdf.setFont('helvetica', 'normal');
+      addText(`${exportData.month_name} ${exportData.year}`, margin + 35, yPosition);
+      yPosition += 15;
+      
+      // Add financial summary
+      pdf.setFont('helvetica', 'bold');
+      addText('FINANCIAL SUMMARY', margin, yPosition);
+      yPosition += 10;
+      
+      pdf.setFont('helvetica', 'normal');
+      addText(`Subtotal: £${exportData.financial.subtotal.toFixed(2)}`, margin, yPosition);
+      yPosition += 8;
+      addText(`Deductions: £${exportData.financial.deductions.toFixed(2)}`, margin, yPosition);
+      yPosition += 8;
+      
+      pdf.setFont('helvetica', 'bold');
+      addText(`Total: £${exportData.financial.total.toFixed(2)}`, margin, yPosition);
+      yPosition += 20;
+      
+      // Add line items header
+      pdf.setFont('helvetica', 'bold');
+      addText('LINE ITEMS', margin, yPosition);
+      yPosition += 10;
+      
+      // Add grouped items if available
+      if (groupedItems.length > 0) {
+        groupedItems.forEach(group => {
+          checkPageBreak();
+          
+          pdf.setFont('helvetica', 'bold');
+          pdf.setFontSize(10);
+          addText(`${group.groupName} - ${group.timeSlot}`, margin, yPosition);
+          
+          // Add role badge
+          const roleText = `(${group.roleType === 'lead' ? 'Lead' : 'Assistant'})`;
+          addText(roleText, margin + 120, yPosition);
+          yPosition += 6;
+          
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(9);
+          addText(`${group.sessionCount} sessions • ${group.dateRange}`, margin + 5, yPosition);
+          addText(`£${group.totalAmount.toFixed(2)}`, pageWidth - margin, yPosition, { align: 'right' });
+          yPosition += 8;
+        });
+        
+        // Add manual entries
+        manualEntries.forEach(item => {
+          checkPageBreak();
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(9);
+          addText(`Manual: ${item.description}`, margin, yPosition);
+          addText(`£${item.amount.toFixed(2)}`, pageWidth - margin, yPosition, { align: 'right' });
+          yPosition += 6;
+        });
+        
+        // Add deductions
+        deductions.forEach(item => {
+          checkPageBreak();
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(9);
+          pdf.setTextColor(200, 0, 0);
+          addText(`Deduction: ${item.description}`, margin, yPosition);
+          addText(`-£${item.amount.toFixed(2)}`, pageWidth - margin, yPosition, { align: 'right' });
+          pdf.setTextColor(0, 0, 0);
+          yPosition += 6;
+        });
+      } else {
+        // Fallback to individual items
+        exportData.line_items.forEach(item => {
+          checkPageBreak();
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(9);
+          
+          if (item.is_deduction) {
+            pdf.setTextColor(200, 0, 0);
+            addText(`[Deduction] ${item.description}`, margin, yPosition);
+            addText(`-£${item.amount.toFixed(2)}`, pageWidth - margin, yPosition, { align: 'right' });
+            pdf.setTextColor(0, 0, 0);
+          } else {
+            addText(item.description, margin, yPosition);
+            addText(`£${item.amount.toFixed(2)}`, pageWidth - margin, yPosition, { align: 'right' });
+          }
+          yPosition += 6;
+        });
+      }
+      
+      // Add total line
+      yPosition += 10;
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(12);
+      addText('TOTAL:', pageWidth - margin - 50, yPosition, { align: 'right' });
+      addText(`£${exportData.financial.total.toFixed(2)}`, pageWidth - margin, yPosition, { align: 'right' });
+      
+      // Add notes if present
+      if (exportData.notes) {
+        yPosition += 20;
+        checkPageBreak();
+        pdf.setFont('helvetica', 'bold');
+        addText('NOTES:', margin, yPosition);
+        yPosition += 10;
+        
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(10);
+        const splitNotes = pdf.splitTextToSize(exportData.notes, pageWidth - 2 * margin);
+        splitNotes.forEach((line: string) => {
+          checkPageBreak();
+          addText(line, margin, yPosition);
+          yPosition += 6;
+        });
+      }
+      
+      // Save the PDF
+      pdf.save(`Invoice-${exportData.invoice_number}.pdf`);
+      console.log('PDF generated successfully');
+      
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      setError('Failed to generate PDF. Please try again.');
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  // Invoice action handlers
   const handleSubmit = async () => {
     if (!invoice || (invoice.status !== 'draft' && invoice.status !== 'rejected')) return;
     
@@ -370,9 +784,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       setSubmitting(true);
       const response = await fetch(`/api/invoices/${invoiceId}/submit`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Content-Type': 'application/json' }
       });
       
       if (!response.ok) {
@@ -381,10 +793,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       }
       
       const data = await response.json();
-      setInvoice({
-        ...invoice,
-        status: data.status as InvoiceStatus
-      });
+      setInvoice({ ...invoice, status: data.status as InvoiceStatus });
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit invoice');
@@ -393,7 +802,6 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     }
   };
   
-  // Handle invoice approval
   const handleApprove = async () => {
     if (!invoice || invoice.status !== 'submitted' || !isAdmin) return;
     
@@ -401,9 +809,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       setApproving(true);
       const response = await fetch(`/api/invoices/${invoiceId}/approve`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Content-Type': 'application/json' }
       });
       
       if (!response.ok) {
@@ -412,10 +818,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       }
       
       const data = await response.json();
-      setInvoice({
-        ...invoice,
-        status: data.status as InvoiceStatus
-      });
+      setInvoice({ ...invoice, status: data.status as InvoiceStatus });
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to approve invoice');
@@ -424,7 +827,6 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     }
   };
   
-  // Handle marking invoice as paid
   const handleMarkAsPaid = async () => {
     if (!invoice || invoice.status !== 'approved' || !isAdmin) return;
     
@@ -432,9 +834,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       setMarkingAsPaid(true);
       const response = await fetch(`/api/invoices/${invoiceId}/mark_paid`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Content-Type': 'application/json' }
       });
       
       if (!response.ok) {
@@ -443,10 +843,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       }
       
       const data = await response.json();
-      setInvoice({
-        ...invoice,
-        status: data.status as InvoiceStatus
-      });
+      setInvoice({ ...invoice, status: data.status as InvoiceStatus });
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to mark invoice as paid');
@@ -455,7 +852,6 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     }
   };
   
-  // Handle invoice rejection
   const handleReject = async () => {
     if (!invoice || invoice.status !== 'submitted' || !isAdmin) return;
     
@@ -468,9 +864,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       setRejecting(true);
       const response = await fetch(`/api/invoices/${invoiceId}/reject`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: rejectionReason })
       });
       
@@ -480,10 +874,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       }
       
       const data = await response.json();
-      setInvoice({
-        ...invoice,
-        status: data.status as InvoiceStatus
-      });
+      setInvoice({ ...invoice, status: data.status as InvoiceStatus });
       setShowRejectionForm(false);
       
     } catch (err) {
@@ -493,50 +884,31 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     }
   };
   
-  // Get status badge color and icon
+  // Status info
   const getStatusInfo = (status: InvoiceStatus) => {
     switch (status) {
       case 'draft': 
-        return { 
-          color: 'bg-gray-100 text-gray-800 border-gray-200', 
-          icon: <FileText className="h-4 w-4" />
-        };
+        return { color: 'bg-gray-100 text-gray-800 border-gray-200', icon: <FileText className="h-4 w-4" /> };
       case 'submitted': 
-        return { 
-          color: 'bg-blue-100 text-blue-800 border-blue-200', 
-          icon: <Send className="h-4 w-4" />
-        };
+        return { color: 'bg-blue-100 text-blue-800 border-blue-200', icon: <Send className="h-4 w-4" /> };
       case 'approved': 
-        return { 
-          color: 'bg-green-100 text-green-800 border-green-200', 
-          icon: <CheckCircle className="h-4 w-4" />
-        };
+        return { color: 'bg-green-100 text-green-800 border-green-200', icon: <CheckCircle className="h-4 w-4" /> };
       case 'rejected': 
-        return { 
-          color: 'bg-red-100 text-red-800 border-red-200', 
-          icon: <XCircle className="h-4 w-4" />
-        };
+        return { color: 'bg-red-100 text-red-800 border-red-200', icon: <XCircle className="h-4 w-4" /> };
       case 'paid': 
-        return { 
-          color: 'bg-purple-100 text-purple-800 border-purple-200', 
-          icon: <PoundSterlingIcon className="h-4 w-4" />
-        };
+        return { color: 'bg-purple-100 text-purple-800 border-purple-200', icon: <PoundSterling className="h-4 w-4" /> };
       default: 
-        return { 
-          color: 'bg-gray-100 text-gray-800 border-gray-200', 
-          icon: <FileText className="h-4 w-4" />
-        };
+        return { color: 'bg-gray-100 text-gray-800 border-gray-200', icon: <FileText className="h-4 w-4" /> };
     }
   };
   
-  // Check if invoice can be edited
   const canEditInvoice = () => {
     if (!invoice) return false;
     if (isAdmin && invoice.status !== 'paid') return true;
     return invoice.status === 'draft' || invoice.status === 'rejected';
   };
   
-  // Render loading state
+  // Loading state
   if (loading) {
     return (
       <div className="flex justify-center items-center py-12">
@@ -545,7 +917,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     );
   }
   
-  // Render error state
+  // Error state
   if (error) {
     return (
       <div className="space-y-4">
@@ -566,7 +938,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
     );
   }
   
-  // Render empty state
+  // Empty state
   if (!invoice) {
     return (
       <div className="space-y-4">
@@ -594,7 +966,6 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="min-w-0 flex-1 overflow-hidden">
-          {/* Mobile: Stack title and badge vertically */}
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2">
             <h1 className="text-lg sm:text-xl lg:text-2xl font-bold text-gray-800 min-w-0 break-all leading-tight">
               Invoice #{invoice.invoice_number}
@@ -696,7 +1067,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
               {invoice.paid_at && (
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-gray-700 flex items-center">
-                    <PoundSterlingIcon className="h-4 w-4 mr-2" />
+                    <PoundSterling className="h-4 w-4 mr-2" />
                     Paid
                   </span>
                   <span className="text-sm text-gray-900">{new Date(invoice.paid_at).toLocaleDateString()}</span>
@@ -708,7 +1079,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
           {/* Financial Summary Card */}
           <div className="bg-white rounded-lg border shadow-sm p-4 lg:p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-              <PoundSterlingIcon className="h-5 w-5 mr-2 text-green-600" />
+              <PoundSterling className="h-5 w-5 mr-2 text-green-600" />
               Financial Summary
             </h3>
             <div className="space-y-3">
@@ -730,7 +1101,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
           </div>
         </div>
         
-        {/* Status and actions - Moved above line items */}
+        {/* Status and actions */}
         <div className="bg-white rounded-lg border shadow-sm p-4 lg:p-6">
           <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-4">
             <div className="flex items-center gap-3">
@@ -742,7 +1113,6 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
             </div>
             
             <div className="flex flex-col sm:flex-row gap-2">
-              {/* Submit/Resubmit button */}
               {(invoice.status === 'draft' || invoice.status === 'rejected') && (
                 <button
                   onClick={handleSubmit}
@@ -756,7 +1126,6 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
                 </button>
               )}
               
-              {/* Admin approval buttons */}
               {invoice.status === 'submitted' && isAdmin && (
                 <>
                   <button
@@ -781,7 +1150,6 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
                 </>
               )}
               
-              {/* Mark as Paid button */}
               {invoice.status === 'approved' && isAdmin && (
                 <button
                   onClick={handleMarkAsPaid}
@@ -790,7 +1158,7 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
                     markingAsPaid ? 'bg-purple-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700'
                   }`}
                 >
-                  <PoundSterlingIcon className="h-4 w-4 mr-1" />
+                  <PoundSterling className="h-4 w-4 mr-1" />
                   {markingAsPaid ? 'Processing...' : 'Mark as Paid'}
                 </button>
               )}
@@ -842,90 +1210,65 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
           </div>
         )}
         
-        {/* Line items */}
+        {/* Line items - Grouped view only */}
         <div className="bg-white rounded-lg border shadow-sm">
           <div className="p-4 lg:p-6 border-b">
-            <h3 className="text-lg font-medium text-gray-900 flex items-center">
-              <FileText className="h-5 w-5 mr-2 text-indigo-600" />
-              Line Items ({invoice.line_items.length})
-            </h3>
+            <div>
+              <h3 className="text-lg font-medium text-gray-900 flex items-center">
+                <FileText className="h-5 w-5 mr-2 text-indigo-600" />
+                Line Items ({totalOriginalItems})
+              </h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {totalGroupedSections} group{totalGroupedSections !== 1 ? 's' : ''} ({totalOriginalItems} original items)
+              </p>
+            </div>
           </div>
           
           {/* Mobile Card Layout */}
           <div className="block lg:hidden">
-            {invoice.line_items.map((item, index) => {
-              const isLeadSession = item.item_type === 'group' && 
-                                  (item.description && item.description.includes('Lead Coach'));
-              const isAssistantSession = item.item_type === 'group' && 
-                                      (item.description && item.description.includes('Assistant Coach'));
-              
-              return (
-                <div key={index} className={`p-4 border-b last:border-b-0 ${item.is_deduction ? 'bg-red-50' : index % 2 === 1 ? 'bg-gray-50' : 'bg-white'}`}>
-                  <div className="space-y-3">
-                    {/* Description */}
-                    <div>
-                      <div className="flex items-start justify-between mb-1">
-                        <h4 className="text-sm font-medium text-gray-900 flex-1 mr-2">
-                          {item.is_deduction && <span className="text-red-600 font-medium">[Deduction] </span>}
-                          {item.description}
-                        </h4>
-                        <div className="flex flex-col items-end gap-1">
-                          {isLeadSession && (
-                            <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800 font-medium">
-                              Lead
-                            </span>
-                          )}
-                          {isAssistantSession && (
-                            <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800 font-medium">
-                              Assistant
-                            </span>
-                          )}
-                          {item.register_id ? (
-                            <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800 font-medium">
-                              Register
-                            </span>
-                          ) : (
-                            <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800 font-medium">
-                              Manual
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Details Grid */}
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <span className="text-gray-600">Date:</span>
-                        <div className="font-medium text-gray-900">
-                          {new Date(item.date).toLocaleDateString()}
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">Hours:</span>
-                        <div className="font-medium text-gray-900">
-                          {item.hours.toFixed(2)}
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">Rate:</span>
-                        <div className="font-medium text-gray-900">
-                          £{item.rate.toFixed(2)}
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-gray-600">Amount:</span>
-                        <div className={`font-bold ${item.is_deduction ? 'text-red-600' : 'text-gray-900'}`}>
-                          {item.is_deduction ? `-£${item.amount.toFixed(2)}` : `£${item.amount.toFixed(2)}`}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {groupedItems.map((group, index) => (
+              <GroupedLineItemComponent
+                key={group.groupKey}
+                group={{ ...group, isExpanded: expandedGroups.has(group.groupKey) }}
+                onToggleExpand={handleToggleExpand}
+                isLast={index === groupedItems.length - 1 && manualEntries.length === 0 && deductions.length === 0}
+              />
+            ))}
             
-            {/* Mobile Total */}
+            {manualEntries.length > 0 && (
+              <div className="p-4 bg-blue-50 border-b">
+                <h4 className="text-sm font-medium text-blue-900 flex items-center">
+                  <FileText className="h-4 w-4 mr-2" />
+                  Manual Entries ({manualEntries.length})
+                </h4>
+              </div>
+            )}
+            {manualEntries.map((item, index) => (
+              <IndividualLineItem
+                key={`manual-${index}`}
+                item={item}
+                isLast={index === manualEntries.length - 1 && deductions.length === 0}
+                showType={false}
+              />
+            ))}
+            
+            {deductions.length > 0 && (
+              <div className="p-4 bg-red-50 border-b">
+                <h4 className="text-sm font-medium text-red-900 flex items-center">
+                  <X className="h-4 w-4 mr-2" />
+                  Deductions ({deductions.length})
+                </h4>
+              </div>
+            )}
+            {deductions.map((item, index) => (
+              <IndividualLineItem
+                key={`deduction-${index}`}
+                item={item}
+                isLast={index === deductions.length - 1}
+                showType={false}
+              />
+            ))}
+            
             <div className="p-4 bg-gray-50 border-t-2">
               <div className="flex justify-between items-center">
                 <span className="text-base font-bold text-gray-900">Total:</span>
@@ -960,58 +1303,21 @@ const InvoiceDetail: React.FC<InvoiceDetailProps> = ({
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {invoice.line_items.map((item, index) => {
-                  const isLeadSession = item.item_type === 'group' && 
-                                      (item.description && item.description.includes('Lead Coach'));
-                  const isAssistantSession = item.item_type === 'group' && 
-                                          (item.description && item.description.includes('Assistant Coach'));
-                                          
-                  return (
-                    <tr key={index} className={item.is_deduction ? 'bg-red-50' : ''}>
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        {item.is_deduction && <span className="text-red-600 font-medium">[Deduction] </span>}
-                        {item.description}
-                        {isLeadSession && (
-                          <span className="ml-1 px-1.5 py-0.5 text-xs rounded bg-green-100 text-green-800">
-                            Lead
-                          </span>
-                        )}
-                        {isAssistantSession && (
-                          <span className="ml-1 px-1.5 py-0.5 text-xs rounded bg-blue-100 text-blue-800">
-                            Assistant
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {new Date(item.date).toLocaleDateString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {item.hours.toFixed(2)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        £{item.rate.toFixed(2)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {item.is_deduction ? (
-                          <span className="text-red-600">-£{item.amount.toFixed(2)}</span>
-                        ) : (
-                          `£${item.amount.toFixed(2)}`
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                        {item.register_id ? (
-                          <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
-                            Register
-                          </span>
-                        ) : (
-                          <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
-                            Manual
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {groupedItems.map((group) => (
+                  <GroupedTableRows
+                    key={group.groupKey}
+                    group={{ ...group, isExpanded: expandedGroups.has(group.groupKey) }}
+                    onToggleExpand={handleToggleExpand}
+                  />
+                ))}
+                
+                {manualEntries.map((item, index) => (
+                  <IndividualTableRow key={`manual-${index}`} item={item} />
+                ))}
+                
+                {deductions.map((item, index) => (
+                  <IndividualTableRow key={`deduction-${index}`} item={item} />
+                ))}
               </tbody>
               <tfoot className="bg-gray-50">
                 <tr>
