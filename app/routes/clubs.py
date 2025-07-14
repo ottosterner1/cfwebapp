@@ -635,6 +635,7 @@ def get_or_create_default_organisation(club_name):
 @club_management.route('/api/organisation-clubs', methods=['GET'])
 @login_required
 @admin_required
+@verify_club_access()
 def get_organisation_clubs():
     """Get all clubs in the current user's organisation"""
     try:
@@ -783,6 +784,7 @@ def onboard_club():
 
 @club_management.route('/manage/<int:club_id>/club', methods=['GET', 'POST'])
 @login_required
+@verify_club_access()
 def manage_club(club_id):
    
    club = TennisClub.query.get_or_404(club_id)
@@ -821,6 +823,7 @@ def manage_club(club_id):
 
 @club_management.route('/manage/<int:club_id>/teaching-periods', methods=['GET', 'POST'])
 @login_required
+@verify_club_access()
 def manage_teaching_periods(club_id):
     
     club = TennisClub.query.get_or_404(club_id)
@@ -988,6 +991,7 @@ def onboard_coach():
 @club_management.route('/manage/<int:club_id>/groups', methods=['GET', 'POST'])
 @login_required
 @admin_required
+@verify_club_access()
 def manage_groups(club_id):
     try:
         club = TennisClub.query.get_or_404(club_id)
@@ -1247,6 +1251,7 @@ def get_groups():
 @club_management.route('/manage/<int:club_id>/coaches', methods=['GET'])
 @login_required
 @admin_required
+@verify_club_access()
 def manage_coaches(club_id):
     club = TennisClub.query.get_or_404(club_id)
     
@@ -1342,6 +1347,7 @@ def manage_coaches(club_id):
 @club_management.route('/manage/<int:club_id>/coaches/<int:coach_id>/edit', methods=['GET', 'POST'])
 @login_required
 @admin_required
+@verify_club_access()
 def edit_coach(club_id, coach_id):
     club = TennisClub.query.get_or_404(club_id)
     coach = User.query.get_or_404(coach_id)
@@ -1409,6 +1415,7 @@ def edit_coach(club_id, coach_id):
 @club_management.route('/manage/<int:club_id>/coaches/invite', methods=['POST'])
 @login_required
 @admin_required
+@verify_club_access()
 def invite_coach(club_id):
     """Invite a new coach to the tennis club"""
     club = TennisClub.query.get_or_404(club_id)
@@ -1505,6 +1512,7 @@ def accept_invitation(token):
 @club_management.route('/manage/<int:club_id>/players', methods=['GET'])
 @login_required
 @admin_required
+@verify_club_access()
 def manage_players(club_id):
     club = TennisClub.query.get_or_404(club_id)
     
@@ -1566,6 +1574,7 @@ def manage_players(club_id):
 @club_management.route('/manage/<int:club_id>/players/add')
 @login_required
 @admin_required
+@verify_club_access()
 def add_player_page(club_id):
     """Serve the React add player page"""
     club = TennisClub.query.get_or_404(club_id)
@@ -1578,6 +1587,7 @@ def add_player_page(club_id):
 @club_management.route('/manage/<int:club_id>/players/<int:player_id>/edit')
 @login_required
 @admin_required
+@verify_club_access()
 def edit_player_page(club_id, player_id):
     """Serve the React edit player page"""
 
@@ -1599,6 +1609,7 @@ def edit_player_page(club_id, player_id):
 @club_management.route('/manage/<int:club_id>/upload-logo', methods=['POST'])
 @login_required
 @admin_required
+@verify_club_access()
 def upload_logo(club_id):
     """Handle club logo upload"""
     
@@ -1678,6 +1689,7 @@ def upload_logo(club_id):
 
 @club_management.route('/api/clubs/<int:club_id>/logo-url')
 @login_required
+@verify_club_access()
 def get_logo_url(club_id):
     """Get a fresh presigned URL for the club logo"""
     try:
@@ -1712,6 +1724,7 @@ def get_logo_url(club_id):
 
 @club_management.route('/super-admin', methods=['GET'])
 @login_required
+@verify_club_access()
 def super_admin_dashboard():
     # Ensure only super admins can access this page
     if not current_user.is_super_admin:
@@ -1722,6 +1735,7 @@ def super_admin_dashboard():
 
 @club_management.route('/api/clubs', methods=['GET'])
 @login_required
+@verify_club_access()
 def get_all_clubs():
     """API endpoint to get all tennis clubs for super admin with organisation info"""
     
@@ -1772,6 +1786,7 @@ def get_all_clubs():
 
 @club_management.route('/api/super-admin/switch-club', methods=['POST'])
 @login_required
+@verify_club_access()
 def switch_club_api():
     """API endpoint to switch the current club for super admin"""
     if not current_user.is_super_admin:
@@ -1809,6 +1824,7 @@ def switch_club_api():
     
 @club_management.route('/api/switch-club', methods=['POST'])
 @login_required
+@verify_club_access()
 def switch_club_context():
     """Permanently switch user's club assignment"""
     try:
@@ -1855,6 +1871,7 @@ def switch_club_context():
 @club_management.route('/api/switch-clubs', methods=['POST'])
 @login_required
 @admin_required
+@verify_club_access()
 def cycle_clubs():
     """Permanently cycle to the next available club"""
     try:
@@ -1906,6 +1923,7 @@ def cycle_clubs():
 
 @club_management.route('/api/super-admin/invite-club', methods=['POST'])
 @login_required
+@verify_club_access()
 def invite_club():
     """API endpoint for super admins to invite new tennis clubs"""
     if not current_user.is_super_admin:
@@ -2051,6 +2069,7 @@ def accept_club_invitation(token):
 
 @club_management.route('/api/clubs/<int:club_id>/users', methods=['GET'])
 @login_required
+@verify_club_access()
 def get_club_users(club_id):
     """API endpoint to get all users in a club for super admin"""
     if not current_user.is_super_admin:
@@ -2080,6 +2099,7 @@ def get_club_users(club_id):
 
 @club_management.route('/api/super-admin/update-user-role', methods=['POST'])
 @login_required
+@verify_club_access()
 def update_user_role():
     """API endpoint to update a user's role (e.g., promote a coach to admin)"""
     if not current_user.is_super_admin:
@@ -2133,6 +2153,7 @@ def update_user_role():
 @club_management.route('/api/coaches')
 @login_required
 @admin_required
+@verify_club_access()
 def get_coaches():
     """API endpoint for getting all coaches in the club"""
     
@@ -2297,6 +2318,7 @@ def bulk_upload_players():
 @club_management.route('/api/players/bulk-upload/<validation_token>/start', methods=['POST'])
 @login_required
 @admin_required
+@verify_club_access()
 def start_bulk_upload_processing(validation_token):
     """Start processing the validated CSV file"""
     
@@ -2356,6 +2378,7 @@ def start_bulk_upload_processing(validation_token):
 @club_management.route('/api/players/bulk-upload/<validation_token>/reject', methods=['POST'])
 @login_required
 @admin_required
+@verify_club_access()
 def reject_bulk_upload(validation_token):
     """Reject the validated CSV file and clean up"""
     
@@ -2388,6 +2411,7 @@ def reject_bulk_upload(validation_token):
 @club_management.route('/api/players/bulk-upload/<token>/process', methods=['POST'])
 @login_required
 @admin_required 
+@verify_club_access()
 def process_csv_chunk(token):
     """Process a chunk of the uploaded CSV file with update capability"""
     
@@ -2548,6 +2572,7 @@ def process_csv_chunk(token):
 @club_management.route('/api/players', methods=['POST'])
 @login_required
 @admin_required
+@verify_club_access()
 def create_player():
     """API endpoint for creating a new player"""
     try:
@@ -2674,6 +2699,7 @@ def create_player():
 @club_management.route('/api/players/<int:player_id>', methods=['GET', 'PUT', 'DELETE'])
 @login_required
 @admin_required
+@verify_club_access()
 def player_api(player_id):
     """API endpoint for managing a single player"""
     player = ProgrammePlayers.query.get_or_404(player_id)
@@ -2808,6 +2834,7 @@ def player_api(player_id):
 @club_management.route('/api/groups/<int:group_id>/times')
 @login_required
 @admin_required
+@verify_club_access()
 def get_group_times(group_id):
     """API endpoint for getting all time slots for a specific group"""
     try:
@@ -2856,6 +2883,7 @@ def get_group_times(group_id):
 @club_management.route('/api/template/download')
 @login_required
 @admin_required
+@verify_club_access()
 def download_template():
     """API endpoint for downloading the updated CSV template with Y/N walk_home format"""
     club = TennisClub.query.get_or_404(current_user.tennis_club_id)
@@ -2876,6 +2904,7 @@ def download_template():
 @club_management.route('/api/players/export/<int:teaching_period_id>')
 @login_required
 @admin_required
+@verify_club_access()
 def export_players(teaching_period_id):
     """Export all players for a specific teaching period as CSV"""
     
@@ -2964,6 +2993,7 @@ def export_players(teaching_period_id):
     
 @club_management.route('/api/super-admin/create-club', methods=['POST'])
 @login_required
+@verify_club_access()
 def create_club():
     """API endpoint for super admins to create new tennis clubs"""
     if not current_user.is_super_admin:

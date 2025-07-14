@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Building, Plus, Edit2, Mail, CheckCircle, 
-  AlertCircle, Clock, RefreshCw, Save, X, ChevronDown, ChevronUp
+  AlertCircle, Clock, RefreshCw, Save, X, ChevronDown, ChevronUp,
+  Crown, Calendar, Pause, RotateCcw, XCircle,
 } from 'lucide-react';
 
 interface Organisation {
@@ -14,7 +15,17 @@ interface Organisation {
   admin_count: number;
   template_count: number;
   created_at?: string;
-  clubs: TennisClub[];
+  clubs?: TennisClub[]; // Make clubs optional since it might not be in the response
+  // Subscription fields
+  subscription_status: 'TRIAL' | 'ACTIVE' | 'EXPIRED' | 'SUSPENDED';
+  access_level: string;
+  trial_end_date?: string;
+  days_remaining: number;
+  user_count: number;
+  status_message: string;
+  manually_activated_at?: string;
+  has_access: boolean;
+  admin_notes?: string;
 }
 
 interface TennisClub {
@@ -32,6 +43,14 @@ interface EmailStatus {
   error?: string;
 }
 
+interface SubscriptionStats {
+  total: number;
+  trial: number;
+  active: number;
+  expired: number;
+  suspended: number;
+}
+
 interface Notification {
   type: 'success' | 'error' | 'warning';
   message: string;
@@ -43,8 +62,12 @@ interface OrganisationManagementProps {
 
 const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotification }) => {
   const [organisations, setOrganisations] = useState<Organisation[]>([]);
+  const [subscriptionStats, setSubscriptionStats] = useState<SubscriptionStats>({
+    total: 0, trial: 0, active: 0, expired: 0, suspended: 0
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isActionLoading, setIsActionLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   
   // Create/Edit organisation state
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -59,12 +82,57 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
   const [emailStatuses, setEmailStatuses] = useState<Record<number, EmailStatus>>({});
   const [isVerifying, setIsVerifying] = useState<Record<number, boolean>>({});
   const [expandedOrg, setExpandedOrg] = useState<number | null>(null);
+  const [expandedOrgDetails, setExpandedOrgDetails] = useState<Record<number, any>>({});
 
-  // Fetch organisations
+  // Helper to set action loading state
+  const setActionLoadingState = (orgId: number, action: string, isLoading: boolean) => {
+    setActionLoading(prev => ({
+      ...prev,
+      [`${orgId}-${action}`]: isLoading
+    }));
+  };
+
+  // Toggle expanded org details
+  const toggleExpandedOrg = async (e: React.MouseEvent, orgId: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (expandedOrg === orgId) {
+      setExpandedOrg(null);
+      return;
+    }
+    
+    setExpandedOrg(orgId);
+    
+    // Fetch detailed org data if not already loaded
+    if (!expandedOrgDetails[orgId]) {
+      try {
+        const response = await fetch(`/api/organisations/${orgId}`, {
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        });
+        
+        if (response.ok) {
+          const orgDetails = await response.json();
+          setExpandedOrgDetails(prev => ({
+            ...prev,
+            [orgId]: orgDetails
+          }));
+        }
+      } catch (error) {
+        console.error('Error fetching org details:', error);
+      }
+    }
+  };
+
+  // Fetch organisations with subscription data
   const fetchOrganisations = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/organisations/', {
+      const response = await fetch('/clubs/api/super-admin/subscriptions', {
         credentials: 'include',
         headers: {
           'Accept': 'application/json',
@@ -73,13 +141,16 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
       });
       
       if (response.ok) {
-        const data = await response.json() as Organisation[];
-        setOrganisations(Array.isArray(data) ? data : []);
+        const data = await response.json();
+        setOrganisations(Array.isArray(data.organisations) ? data.organisations : []);
+        setSubscriptionStats(data.stats || {
+          total: 0, trial: 0, active: 0, expired: 0, suspended: 0
+        });
         
         // Fetch email statuses for organizations with sender emails
-        const statusPromises = data
-          .filter(org => org.sender_email)
-          .map(org => fetchEmailStatus(org.id));
+        const statusPromises = data.organisations
+          .filter((org: Organisation) => org.sender_email)
+          .map((org: Organisation) => fetchEmailStatus(org.id));
         
         await Promise.all(statusPromises);
       } else {
@@ -122,9 +193,165 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
     }
   };
 
-  // Handle form submission
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Subscription Management Actions
+  const handleActivate = async (e: React.MouseEvent, orgId: number, orgName: string) => {
     e.preventDefault();
+    e.stopPropagation();
+    
+    if (!confirm(`Activate subscription for "${orgName}"?`)) return;
+
+    setActionLoadingState(orgId, 'activate', true);
+    try {
+      const response = await fetch(`/clubs/api/super-admin/organisations/${orgId}/activate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          notes: 'Manually activated by super admin'
+        })
+      });
+
+      if (response.ok) {
+        await fetchOrganisations();
+        onNotification({
+          type: 'success',
+          message: `${orgName} activated successfully!`
+        });
+      } else {
+        const error = await response.json();
+        onNotification({
+          type: 'error',
+          message: error.error || 'Failed to activate organisation'
+        });
+      }
+    } catch (error) {
+      onNotification({
+        type: 'error',
+        message: 'Error activating organisation'
+      });
+    } finally {
+      setActionLoadingState(orgId, 'activate', false);
+    }
+  };
+
+  const handleExtendTrial = async (e: React.MouseEvent, orgId: number, orgName: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const days = prompt(`Extend trial for "${orgName}" by how many days?`, '30');
+    if (!days || isNaN(Number(days)) || Number(days) <= 0) return;
+
+    setActionLoadingState(orgId, 'extend', true);
+    try {
+      const response = await fetch(`/clubs/api/super-admin/organisations/${orgId}/extend-trial`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: parseInt(days) })
+      });
+
+      if (response.ok) {
+        await fetchOrganisations();
+        onNotification({
+          type: 'success',
+          message: `Trial extended by ${days} days!`
+        });
+      } else {
+        const error = await response.json();
+        onNotification({
+          type: 'error',
+          message: error.error || 'Failed to extend trial'
+        });
+      }
+    } catch (error) {
+      onNotification({
+        type: 'error',
+        message: 'Error extending trial'
+      });
+    } finally {
+      setActionLoadingState(orgId, 'extend', false);
+    }
+  };
+
+  const handleSuspend = async (e: React.MouseEvent, orgId: number, orgName: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const reason = prompt(`Suspend "${orgName}"? Enter reason:`, 'Administrative action');
+    if (!reason) return;
+
+    setActionLoadingState(orgId, 'suspend', true);
+    try {
+      const response = await fetch(`/clubs/api/super-admin/organisations/${orgId}/suspend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason })
+      });
+
+      if (response.ok) {
+        await fetchOrganisations();
+        onNotification({
+          type: 'success',
+          message: `${orgName} suspended!`
+        });
+      } else {
+        const error = await response.json();
+        onNotification({
+          type: 'error',
+          message: error.error || 'Failed to suspend organisation'
+        });
+      }
+    } catch (error) {
+      onNotification({
+        type: 'error',
+        message: 'Error suspending organisation'
+      });
+    } finally {
+      setActionLoadingState(orgId, 'suspend', false);
+    }
+  };
+
+  const handleReactivate = async (e: React.MouseEvent, orgId: number, orgName: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const reactivateAs = confirm(`Reactivate "${orgName}" as ACTIVE subscription?\n\nOK = Active subscription\nCancel = 30-day trial`) ? 'active' : 'trial';
+
+    setActionLoadingState(orgId, 'reactivate', true);
+    try {
+      const response = await fetch(`/clubs/api/super-admin/organisations/${orgId}/reactivate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          reactivate_as: reactivateAs,
+          trial_days: reactivateAs === 'trial' ? 30 : undefined,
+          notes: `Reactivated as ${reactivateAs} by super admin`
+        })
+      });
+
+      if (response.ok) {
+        await fetchOrganisations();
+        onNotification({
+          type: 'success',
+          message: `${orgName} reactivated as ${reactivateAs}!`
+        });
+      } else {
+        const error = await response.json();
+        onNotification({
+          type: 'error',
+          message: error.error || 'Failed to reactivate organisation'
+        });
+      }
+    } catch (error) {
+      onNotification({
+        type: 'error',
+        message: 'Error reactivating organisation'
+      });
+    } finally {
+      setActionLoadingState(orgId, 'reactivate', false);
+    }
+  };
+
+  // Handle form submission for creating/editing orgs
+  const handleSubmit = async () => {
     
     if (!formData.name.trim() || !formData.slug.trim()) {
       onNotification({
@@ -184,7 +411,10 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
   };
 
   // Send verification email
-  const handleSendVerification = async (orgId: number) => {
+  const handleSendVerification = async (e: React.MouseEvent, orgId: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
     setIsVerifying(prev => ({ ...prev, [orgId]: true }));
     
     try {
@@ -232,7 +462,10 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
   };
 
   // Start editing
-  const startEditing = (org: Organisation) => {
+  const startEditing = (e: React.MouseEvent, org: Organisation) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
     setEditingOrg(org);
     setFormData({
       name: org.name,
@@ -253,6 +486,49 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
         .replace(/-+/g, '-')
         .replace(/^-|-$/g, '')
     }));
+  };
+
+  // Get subscription status badge
+  const getSubscriptionStatusBadge = (org: Organisation) => {
+    const statusConfig = {
+      TRIAL: { 
+        bg: 'bg-blue-100', 
+        text: 'text-blue-800', 
+        icon: Clock,
+        label: 'Trial'
+      },
+      ACTIVE: { 
+        bg: 'bg-green-100', 
+        text: 'text-green-800', 
+        icon: CheckCircle,
+        label: 'Active'
+      },
+      EXPIRED: { 
+        bg: 'bg-red-100', 
+        text: 'text-red-800', 
+        icon: XCircle,
+        label: 'Expired'
+      },
+      SUSPENDED: { 
+        bg: 'bg-gray-100', 
+        text: 'text-gray-800', 
+        icon: Pause,
+        label: 'Suspended'
+      }
+    };
+
+    const config = statusConfig[org.subscription_status] || statusConfig.EXPIRED;
+    const IconComponent = config.icon;
+
+    return (
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
+        <IconComponent className="w-3 h-3 mr-1" />
+        {config.label}
+        {org.subscription_status === 'TRIAL' && org.days_remaining > 0 && (
+          <span className="ml-1">({org.days_remaining}d)</span>
+        )}
+      </span>
+    );
   };
 
   // Get email status badge
@@ -301,6 +577,98 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
     );
   };
 
+  // Get subscription action buttons
+  const getSubscriptionActionButtons = (org: Organisation) => {
+    const buttons = [];
+    const isLoading = (action: string) => actionLoading[`${org.id}-${action}`];
+
+    if (org.subscription_status === 'TRIAL') {
+      buttons.push(
+        <button
+          key="activate"
+          type="button"
+          onClick={(e) => handleActivate(e, org.id, org.name)}
+          disabled={isLoading('activate')}
+          className="inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isLoading('activate') ? (
+            <>⏳</>
+          ) : (
+            <>
+              <Crown className="w-3 h-3 mr-1" />
+              Activate
+            </>
+          )}
+        </button>
+      );
+
+      buttons.push(
+        <button
+          key="extend"
+          type="button"
+          onClick={(e) => handleExtendTrial(e, org.id, org.name)}
+          disabled={isLoading('extend')}
+          className="inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isLoading('extend') ? (
+            <>⏳</>
+          ) : (
+            <>
+              <Calendar className="w-3 h-3 mr-1" />
+              Extend
+            </>
+          )}
+        </button>
+      );
+    } else if (org.subscription_status === 'ACTIVE') {
+      // Active org actions - just suspend
+    } else {
+      // Expired/Suspended org actions
+      buttons.push(
+        <button
+          key="reactivate"
+          type="button"
+          onClick={(e) => handleReactivate(e, org.id, org.name)}
+          disabled={isLoading('reactivate')}
+          className="inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isLoading('reactivate') ? (
+            <>⏳</>
+          ) : (
+            <>
+              <RotateCcw className="w-3 h-3 mr-1" />
+              Reactivate
+            </>
+          )}
+        </button>
+      );
+    }
+
+    // Always show suspend for trial/active
+    if (org.subscription_status === 'TRIAL' || org.subscription_status === 'ACTIVE') {
+      buttons.push(
+        <button
+          key="suspend"
+          type="button"
+          onClick={(e) => handleSuspend(e, org.id, org.name)}
+          disabled={isLoading('suspend')}
+          className="inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isLoading('suspend') ? (
+            <>⏳</>
+          ) : (
+            <>
+              <Pause className="w-3 h-3 mr-1" />
+              Suspend
+            </>
+          )}
+        </button>
+      );
+    }
+
+    return buttons;
+  };
+
   useEffect(() => {
     fetchOrganisations();
   }, []);
@@ -315,20 +683,75 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
 
   return (
     <div className="space-y-4 lg:space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 p-4 lg:p-6 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg">
-        <h2 className="text-lg lg:text-xl font-semibold flex items-center">
-          <Building className="h-5 w-5 lg:h-6 lg:w-6 mr-2 lg:mr-3 text-indigo-600 flex-shrink-0" />
-          Organisation Management
-        </h2>
-        <button
-          type="button"
-          onClick={() => setShowCreateForm(true)}
-          className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium flex items-center justify-center touch-manipulation transition-colors"
-        >
-          <Plus className="h-4 w-4 mr-1" />
-          Create Organisation
-        </button>
+      {/* Header with Subscription Stats */}
+      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-4 lg:p-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+          <h2 className="text-lg lg:text-xl font-semibold flex items-center">
+            <Building className="h-5 w-5 lg:h-6 lg:w-6 mr-2 lg:mr-3 text-indigo-600 flex-shrink-0" />
+            Organisation & Subscription Management
+          </h2>
+          <button
+            type="button"
+            onClick={() => setShowCreateForm(true)}
+            className="w-full sm:w-auto px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium flex items-center justify-center touch-manipulation transition-colors"
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Create Organisation
+          </button>
+        </div>
+
+        {/* Subscription Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center">
+              <Building className="h-6 w-6 text-gray-400" />
+              <div className="ml-3">
+                <p className="text-xs font-medium text-gray-500">Total</p>
+                <p className="text-lg font-semibold text-gray-900">{subscriptionStats.total}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center">
+              <Clock className="h-6 w-6 text-blue-400" />
+              <div className="ml-3">
+                <p className="text-xs font-medium text-gray-500">Trial</p>
+                <p className="text-lg font-semibold text-blue-600">{subscriptionStats.trial}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center">
+              <CheckCircle className="h-6 w-6 text-green-400" />
+              <div className="ml-3">
+                <p className="text-xs font-medium text-gray-500">Active</p>
+                <p className="text-lg font-semibold text-green-600">{subscriptionStats.active}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center">
+              <XCircle className="h-6 w-6 text-red-400" />
+              <div className="ml-3">
+                <p className="text-xs font-medium text-gray-500">Expired</p>
+                <p className="text-lg font-semibold text-red-600">{subscriptionStats.expired}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center">
+              <Pause className="h-6 w-6 text-gray-400" />
+              <div className="ml-3">
+                <p className="text-xs font-medium text-gray-500">Suspended</p>
+                <p className="text-lg font-semibold text-gray-600">{subscriptionStats.suspended}</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Create/Edit Form */}
@@ -339,6 +762,7 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
               {editingOrg ? 'Edit Organisation' : 'Create New Organisation'}
             </h3>
             <button
+              type="button"
               onClick={resetForm}
               className="p-2 text-gray-400 hover:text-gray-600 lg:hidden"
             >
@@ -346,8 +770,7 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
             </button>
           </div>
           
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Form fields stack on mobile */}
+          <div className="space-y-4">
             <div className="space-y-4 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -357,9 +780,9 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
                   type="text"
                   value={formData.name}
                   onChange={(e) => handleNameChange(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
                   className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-base"
                   placeholder="e.g., Ace Tennis Academy"
-                  required
                 />
               </div>
               <div>
@@ -370,9 +793,9 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
                   type="text"
                   value={formData.slug}
                   onChange={(e) => setFormData(prev => ({ ...prev, slug: e.target.value }))}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
                   className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-base"
                   placeholder="e.g., ace-tennis-academy"
-                  required
                 />
               </div>
             </div>
@@ -385,15 +808,12 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
                 type="email"
                 value={formData.sender_email}
                 onChange={(e) => setFormData(prev => ({ ...prev, sender_email: e.target.value }))}
+                onKeyPress={(e) => e.key === 'Enter' && handleSubmit()}
                 className="w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-base"
                 placeholder="e.g., reports@acetennisacademy.com"
               />
-              <p className="text-xs text-gray-500 mt-2">
-                Optional: Custom email address for sending report emails. If not set, default system email will be used.
-              </p>
             </div>
             
-            {/* Action buttons */}
             <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
               <button
                 type="button"
@@ -403,7 +823,8 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
                 Cancel
               </button>
               <button
-                type="submit"
+                type="button"
+                onClick={handleSubmit}
                 disabled={isActionLoading}
                 className="w-full sm:w-auto px-4 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400 flex items-center justify-center font-medium touch-manipulation transition-colors"
               >
@@ -411,7 +832,7 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
                 {isActionLoading ? 'Saving...' : (editingOrg ? 'Update' : 'Create')}
               </button>
             </div>
-          </form>
+          </div>
         </div>
       )}
 
@@ -433,25 +854,37 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
                     <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
                       <h3 className="font-medium text-lg text-gray-900 truncate">{org.name}</h3>
                       <span className="text-sm text-gray-500 flex-shrink-0">({org.slug})</span>
+                      {getSubscriptionStatusBadge(org)}
+                    </div>
+                    
+                    {/* Subscription Status Message */}
+                    <div className="mb-3">
+                      <p className="text-sm text-gray-600">{org.status_message}</p>
+                      {org.trial_end_date && org.subscription_status === 'TRIAL' && (
+                        <p className="text-xs text-gray-400">Trial ends: {org.trial_end_date}</p>
+                      )}
+                      {org.manually_activated_at && (
+                        <p className="text-xs text-green-600">Activated: {org.manually_activated_at}</p>
+                      )}
                     </div>
                     
                     {/* Stats - Mobile optimized */}
-                    <div className="grid grid-cols-3 gap-4 sm:flex sm:items-center sm:space-x-6 mb-4 text-sm text-gray-600">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-4 text-sm text-gray-600">
                       <div className="text-center sm:text-left">
-                        <div className="font-medium text-gray-900">{org.club_count}</div>
+                        <div className="font-medium text-gray-900">{org.club_count || 0}</div>
                         <div className="text-xs">Clubs</div>
                       </div>
                       <div className="text-center sm:text-left">
-                        <div className="font-medium text-gray-900">{org.admin_count}</div>
-                        <div className="text-xs">Admins</div>
+                        <div className="font-medium text-gray-900">{org.user_count || 0}</div>
+                        <div className="text-xs">Users</div>
                       </div>
                       <div className="text-center sm:text-left">
-                        <div className="font-medium text-gray-900">{org.template_count}</div>
-                        <div className="text-xs">Templates</div>
+                        <div className="font-medium text-gray-900">{org.admin_count || 0}</div>
+                        <div className="text-xs">Admins</div>
                       </div>
                     </div>
                     
-                    {/* Email Status - Mobile optimized */}
+                    {/* Email Status */}
                     <div className="space-y-3">
                       <div className="flex flex-col sm:flex-row sm:items-center gap-2">
                         <span className="text-sm font-medium text-gray-700">Email:</span>
@@ -467,7 +900,8 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
                         
                         {org.sender_email && !emailStatuses[org.id]?.is_verified && (
                           <button
-                            onClick={() => handleSendVerification(org.id)}
+                            type="button"
+                            onClick={(e) => handleSendVerification(e, org.id)}
                             disabled={isVerifying[org.id]}
                             className="text-sm text-indigo-600 hover:text-indigo-800 flex items-center touch-manipulation"
                           >
@@ -484,29 +918,39 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
                   </div>
                   
                   {/* Action buttons */}
-                  <div className="flex flex-row sm:flex-col lg:flex-row gap-2 lg:gap-2">
-                    <button
-                      onClick={() => setExpandedOrg(expandedOrg === org.id ? null : org.id)}
-                      className="flex-1 sm:flex-none px-3 py-2 text-sm text-gray-600 hover:text-gray-800 bg-gray-50 hover:bg-gray-100 rounded-lg flex items-center justify-center touch-manipulation transition-colors"
-                    >
-                      {expandedOrg === org.id ? (
-                        <>
-                          <ChevronUp className="h-4 w-4 mr-1" />
-                          Hide
-                        </>
-                      ) : (
-                        <>
-                          <ChevronDown className="h-4 w-4 mr-1" />
-                          Details
-                        </>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => startEditing(org)}
-                      className="flex-1 sm:flex-none p-2 text-gray-400 hover:text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-lg touch-manipulation transition-colors"
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </button>
+                  <div className="flex flex-col gap-2">
+                    {/* Subscription Actions */}
+                    <div className="flex flex-wrap gap-1">
+                      {getSubscriptionActionButtons(org)}
+                    </div>
+                    
+                    {/* General Actions */}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => toggleExpandedOrg(e, org.id)}
+                        className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 bg-gray-50 hover:bg-gray-100 rounded-lg flex items-center touch-manipulation transition-colors"
+                      >
+                        {expandedOrg === org.id ? (
+                          <>
+                            <ChevronUp className="h-4 w-4 mr-1" />
+                            Hide
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="h-4 w-4 mr-1" />
+                            Details
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => startEditing(e, org)}
+                        className="p-2 text-gray-400 hover:text-gray-600 bg-gray-50 hover:bg-gray-100 rounded-lg touch-manipulation transition-colors"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -517,10 +961,10 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
                   <div className="space-y-6 lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0">
                     {/* Clubs */}
                     <div>
-                      <h4 className="font-medium text-gray-900 mb-3">Clubs ({org.clubs.length})</h4>
-                      {org.clubs.length > 0 ? (
+                      <h4 className="font-medium text-gray-900 mb-3">Clubs ({org.club_count || 0})</h4>
+                      {expandedOrgDetails[org.id]?.clubs ? (
                         <div className="space-y-2">
-                          {org.clubs.map(club => (
+                          {expandedOrgDetails[org.id].clubs.map((club: TennisClub) => (
                             <div key={club.id} className="p-3 bg-white rounded-lg border">
                               <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
                                 <div className="min-w-0 flex-1">
@@ -528,54 +972,33 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
                                   <div className="text-xs text-gray-500 break-all">{club.subdomain}</div>
                                 </div>
                                 <div className="text-xs text-gray-500 flex-shrink-0">
-                                  {club.user_count} users
+                                  {club.user_count || 0} users
                                 </div>
                               </div>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-gray-500 italic">No clubs assigned</p>
+                        <div className="p-3 bg-white rounded-lg border">
+                          <p className="text-sm text-gray-500 italic">
+                            {org.club_count > 0 ? 'Loading clubs...' : 'No clubs assigned'}
+                          </p>
+                        </div>
                       )}
                     </div>
                     
-                    {/* Email Configuration Details */}
+                    {/* Admin Notes */}
                     <div>
-                      <h4 className="font-medium text-gray-900 mb-3">Email Configuration</h4>
-                      {org.sender_email ? (
-                        <div className="space-y-2">
-                          <div className="p-3 bg-white rounded-lg border">
-                            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
-                              <span className="text-sm font-medium">Sender Email:</span>
-                              <span className="text-sm break-all">{org.sender_email}</span>
-                            </div>
-                          </div>
-                          
-                          {emailStatuses[org.id] && (
-                            <div className="space-y-2">
-                              <div className="p-3 bg-white rounded-lg border">
-                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
-                                  <span className="text-sm font-medium">Status:</span>
-                                  <span className="text-sm">{emailStatuses[org.id].status}</span>
-                                </div>
-                              </div>
-                              
-                              <div className="p-3 bg-white rounded-lg border">
-                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
-                                  <span className="text-sm font-medium">Verified:</span>
-                                  <span className="text-sm">
-                                    {emailStatuses[org.id].is_verified ? 'Yes' : 'No'}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          )}
+                      <h4 className="font-medium text-gray-900 mb-3">Admin Notes</h4>
+                      {org.admin_notes ? (
+                        <div className="p-3 bg-white rounded-lg border">
+                          <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
+                            {org.admin_notes}
+                          </pre>
                         </div>
                       ) : (
                         <div className="p-3 bg-white rounded-lg border">
-                          <p className="text-sm text-gray-500 italic">
-                            No custom email configured. Reports will be sent from the default system email.
-                          </p>
+                          <p className="text-sm text-gray-500 italic">No admin notes</p>
                         </div>
                       )}
                     </div>
@@ -585,6 +1008,19 @@ const OrganisationManagement: React.FC<OrganisationManagementProps> = ({ onNotif
             </div>
           ))
         )}
+      </div>
+
+      {/* Refresh Button */}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={fetchOrganisations}
+          disabled={isLoading}
+          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 flex items-center touch-manipulation transition-colors"
+        >
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Refresh
+        </button>
       </div>
     </div>
   );

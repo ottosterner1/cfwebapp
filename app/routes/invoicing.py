@@ -10,6 +10,7 @@ from app.services.email_service import EmailService
 import calendar
 import uuid
 import math
+from app.clubs.middleware import verify_club_access
 
 invoice_routes = Blueprint('invoices', __name__, url_prefix='/api/invoices')
 
@@ -23,6 +24,7 @@ def generate_invoice_number(coach, month, year):
 
 @invoice_routes.route('/rates', methods=['GET', 'POST'])
 @login_required
+@verify_club_access()
 def manage_rates():
     """Get or set coach rates"""
     if request.method == 'GET':
@@ -98,6 +100,7 @@ def manage_rates():
 
 @invoice_routes.route('/generate/<int:year>/<int:month>', methods=['POST'])
 @login_required
+@verify_club_access()
 def generate_invoice(year, month):
     """Generate or retrieve an invoice for specified month"""
     existing_invoice = Invoice.query.filter_by(
@@ -399,6 +402,7 @@ def _process_assistant_coach_register(register, invoice, coach_id):
 
 @invoice_routes.route('/<int:invoice_id>', methods=['GET', 'PUT'])
 @login_required
+@verify_club_access()
 def manage_invoice(invoice_id):
     """Get or update invoice details"""
     invoice = Invoice.query.get_or_404(invoice_id)
@@ -506,6 +510,7 @@ def manage_invoice(invoice_id):
 
 @invoice_routes.route('/<int:invoice_id>/submit', methods=['POST'])
 @login_required
+@verify_club_access()
 def submit_invoice(invoice_id):
     """Submit invoice for approval"""
     invoice = Invoice.query.get_or_404(invoice_id)
@@ -560,6 +565,7 @@ def submit_invoice(invoice_id):
 @invoice_routes.route('/<int:invoice_id>/approve', methods=['POST'])
 @login_required
 @admin_required
+@verify_club_access()
 def approve_invoice(invoice_id):
     """Approve submitted invoice"""
     invoice = Invoice.query.get_or_404(invoice_id)
@@ -607,6 +613,7 @@ def approve_invoice(invoice_id):
 @invoice_routes.route('/<int:invoice_id>/reject', methods=['POST'])
 @login_required
 @admin_required
+@verify_club_access()
 def reject_invoice(invoice_id):
     """Reject submitted invoice"""
     invoice = Invoice.query.get_or_404(invoice_id)
@@ -653,6 +660,7 @@ def reject_invoice(invoice_id):
 @invoice_routes.route('/<int:invoice_id>/mark_paid', methods=['POST'])
 @login_required
 @admin_required
+@verify_club_access()
 def mark_invoice_paid(invoice_id):
     """Mark an approved invoice as paid"""
     invoice = Invoice.query.get_or_404(invoice_id)
@@ -702,6 +710,7 @@ def mark_invoice_paid(invoice_id):
 
 @invoice_routes.route('/list', methods=['GET'])
 @login_required
+@verify_club_access()
 def list_invoices():
     """List invoices for the current user"""
     # Default to current year if not specified
@@ -742,6 +751,7 @@ def list_invoices():
 
 @invoice_routes.route('/export/<int:invoice_id>', methods=['GET'])
 @login_required
+@verify_club_access()
 def export_invoice(invoice_id):
     """Export invoice as JSON for frontend to generate PDF/Excel"""
     invoice = Invoice.query.get_or_404(invoice_id)
@@ -799,6 +809,7 @@ def export_invoice(invoice_id):
 
 @invoice_routes.route('/month-summaries', methods=['GET'])
 @login_required
+@verify_club_access()
 def get_month_summaries():
     """Get summaries for each month of a year, showing if invoice exists and lead/assist session counts"""
     year = request.args.get('year', datetime.now().year, type=int)
@@ -879,6 +890,7 @@ def get_month_summaries():
 
 @invoice_routes.route('/years-with-invoices', methods=['GET'])
 @login_required
+@verify_club_access()
 def get_years_with_invoices():
     """Get a list of years where the user has invoices plus the current year"""
     # Query unique years where invoices exist
@@ -903,6 +915,7 @@ def get_years_with_invoices():
 
 @invoice_routes.route('/<int:invoice_id>/delete', methods=['DELETE'])
 @login_required
+@verify_club_access()
 def delete_invoice(invoice_id):
     """Delete an invoice based on user permissions and invoice status"""
     invoice = Invoice.query.get_or_404(invoice_id)
@@ -943,6 +956,7 @@ def delete_invoice(invoice_id):
 @invoice_routes.route('/rates/<int:coach_id>', methods=['GET', 'POST'])
 @login_required
 @admin_required
+@verify_club_access()
 def manage_coach_rates(coach_id):
     """Get or set rates for a specific coach (admin only)"""
     # Verify the coach belongs to the same club
@@ -1029,6 +1043,7 @@ def manage_coach_rates(coach_id):
 
 @invoice_routes.route('/rates/<int:rate_id>', methods=['DELETE'])
 @login_required
+@verify_club_access()
 def delete_rate(rate_id):
     """Delete a specific rate"""
     rate = CoachingRate.query.get_or_404(rate_id)
