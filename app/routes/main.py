@@ -27,6 +27,12 @@ def utility_processor():
 def index():
     return render_template('pages/index.html')
 
+@main.route('/subscription-required')
+@login_required
+def subscription_required():
+    """Page shown when subscription access is required"""
+    return render_template('pages/subscription_required.html')
+
 @main.route('/dashboard')
 @login_required
 @verify_club_access()
