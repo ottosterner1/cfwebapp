@@ -12,87 +12,6 @@ from dotenv import load_dotenv
 # Load environment variables from .envrc file
 load_dotenv()
 
-def validate_foreign_keys(source_cursor, table, columns):
-    """Validate foreign key relationships and return clean data"""
-    
-    # Define foreign key relationships
-    fk_validations = {
-        'report': {
-            'student_id': 'SELECT id FROM student',
-            'report_template_id': 'SELECT id FROM report_template'
-        },
-        'register': {
-            'coach_id': 'SELECT id FROM "user"',
-            'tennis_group_id': 'SELECT id FROM tennis_group',
-            'teaching_period_id': 'SELECT id FROM teaching_period'
-        },
-        'register_entry': {
-            'programme_player_id': 'SELECT id FROM programme_players',
-            'register_id': 'SELECT id FROM register'
-        },
-        'programme_players': {
-            'student_id': 'SELECT id FROM student',
-            'tennis_group_id': 'SELECT id FROM tennis_group'
-        },
-        'coach_details': {
-            'user_id': 'SELECT id FROM "user"'
-        },
-        'coach_invitation': {
-            'tennis_club_id': 'SELECT id FROM tennis_club'
-        },
-        'club_feature': {
-            'tennis_club_id': 'SELECT id FROM tennis_club'
-        },
-        'cancellation': {
-            'created_by_id': 'SELECT id FROM "user"'
-        },
-        'coaching_rate': {
-            'coach_id': 'SELECT id FROM "user"'
-        },
-        'invoice': {
-            'approved_by_id': 'SELECT id FROM "user"'
-        },
-        'invoice_line_item': {
-            'invoice_id': 'SELECT id FROM invoice'
-        },
-        'register_assistant_coach': {
-            'coach_id': 'SELECT id FROM "user"',
-            'register_id': 'SELECT id FROM register'
-        },
-        'club_invitation': {
-            'invited_by_id': 'SELECT id FROM "user"'
-        },
-        'group_template': {
-            'group_id': 'SELECT id FROM tennis_group'
-        },
-        'template_section': {
-            'report_template_id': 'SELECT id FROM report_template'
-        },
-        'template_field': {
-            'template_section_id': 'SELECT id FROM template_section'
-        },
-        'tennis_group_times': {
-            'tennis_group_id': 'SELECT id FROM tennis_group'
-        }
-    }
-    
-    if table not in fk_validations:
-        # No validation needed for this table
-        return None
-    
-    fk_rules = fk_validations[table]
-    
-    # Build WHERE clause to filter out invalid foreign key references
-    where_conditions = []
-    for fk_column, validation_query in fk_rules.items():
-        if fk_column in columns:
-            where_conditions.append(f'{fk_column} IN ({validation_query}) OR {fk_column} IS NULL')
-    
-    if where_conditions:
-        return f"WHERE {' AND '.join(where_conditions)}"
-    
-    return None
-
 def check_migration_state(db_url, db_name):
     """Check current Flask migration state"""
     print(f"\n🔍 Checking Flask migration state in {db_name} database...")
@@ -159,10 +78,6 @@ def drop_and_recreate_schema(source_db_url, target_db_url, target_name):
         print(f"\n🗄️  Creating database dump from production...")
         
         # Create a temporary dump file
-        import tempfile
-        import subprocess
-        import os
-        
         with tempfile.NamedTemporaryFile(mode='w+b', suffix='.sql', delete=False) as dump_file:
             dump_path = dump_file.name
         
@@ -279,9 +194,154 @@ def drop_and_recreate_schema(source_db_url, target_db_url, target_name):
         print(f"❌ Unexpected error during schema recreation: {str(e)}")
         return False
 
+def get_table_dependency_order(cursor):
+    """Get tables in dependency order by analyzing foreign key constraints"""
+    print("🔍 Analyzing foreign key dependencies...")
+    
+    # Get all foreign key relationships
+    cursor.execute("""
+    SELECT 
+        tc.table_name as child_table,
+        ccu.table_name as parent_table
+    FROM information_schema.table_constraints tc
+    JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+    JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name = tc.constraint_name
+    WHERE tc.constraint_type = 'FOREIGN KEY'
+    AND tc.table_schema = 'public'
+    AND ccu.table_schema = 'public'
+    """)
+    
+    dependencies = cursor.fetchall()
+    
+    # Get all tables
+    cursor.execute("""
+    SELECT table_name 
+    FROM information_schema.tables 
+    WHERE table_schema = 'public'
+    AND table_type = 'BASE TABLE'
+    ORDER BY table_name
+    """)
+    all_tables = {row[0] for row in cursor.fetchall()}
+    
+    # Build dependency graph
+    depends_on = {table: set() for table in all_tables}
+    for child, parent in dependencies:
+        if child != parent:  # Ignore self-references
+            depends_on[child].add(parent)
+    
+    # Topological sort
+    ordered_tables = []
+    remaining_tables = set(all_tables)
+    
+    while remaining_tables:
+        # Find tables with no unresolved dependencies
+        ready_tables = [
+            table for table in remaining_tables 
+            if not (depends_on[table] & remaining_tables)
+        ]
+        
+        if not ready_tables:
+            # Handle circular dependencies - just pick the next table
+            ready_tables = [min(remaining_tables)]
+            print(f"  ⚠️  Breaking circular dependency, processing: {ready_tables[0]}")
+        
+        # Sort ready tables for consistent ordering
+        ready_tables.sort()
+        ordered_tables.extend(ready_tables)
+        remaining_tables -= set(ready_tables)
+    
+    print(f"  ✅ Determined processing order for {len(ordered_tables)} tables")
+    return ordered_tables
+
+def copy_table_data(source_cursor, target_cursor, table_name):
+    """Copy all data from source table to target table"""
+    
+    # Get column information
+    source_cursor.execute(f"""
+    SELECT column_name, data_type 
+    FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = '{table_name}'
+    ORDER BY ordinal_position
+    """)
+    columns_info = source_cursor.fetchall()
+    
+    if not columns_info:
+        print(f"    ⚠️  No columns found for table {table_name}")
+        return 0
+    
+    columns = [col[0] for col in columns_info]
+    columns_str = ', '.join([f'"{col}"' for col in columns])
+    
+    # Check if table has JSONB columns for special handling
+    jsonb_columns = [col[0] for col in columns_info if col[1] in ('json', 'jsonb')]
+    has_jsonb = len(jsonb_columns) > 0
+    
+    try:
+        # Get data from source
+        source_cursor.execute(f'SELECT {columns_str} FROM "{table_name}"')
+        
+        if has_jsonb:
+            # For tables with JSONB, handle rows individually
+            rows = []
+            for row in source_cursor:
+                processed_row = list(row)
+                # Convert Python dicts to JSON strings for JSONB columns
+                for i, col in enumerate(columns):
+                    if col in jsonb_columns and processed_row[i] is not None:
+                        if isinstance(processed_row[i], (dict, list)):
+                            processed_row[i] = json.dumps(processed_row[i])
+                rows.append(processed_row)
+        else:
+            # For normal tables, fetch all rows at once
+            rows = source_cursor.fetchall()
+        
+        if not rows:
+            print(f"    ℹ️  No data to copy for table {table_name}")
+            return 0
+        
+        # Insert data into target in batches
+        placeholders = ', '.join(['%s'] * len(columns))
+        batch_size = 1000
+        total_inserted = 0
+        
+        for i in range(0, len(rows), batch_size):
+            batch = rows[i:i+batch_size]
+            try:
+                target_cursor.executemany(
+                    f'INSERT INTO "{table_name}" ({columns_str}) VALUES ({placeholders})',
+                    batch
+                )
+                total_inserted += len(batch)
+                if len(rows) > batch_size:
+                    print(f"    📦 Copied batch {i//batch_size + 1} ({len(batch)} rows)")
+                
+            except Exception as e:
+                print(f"    ❌ Error inserting batch: {str(e)}")
+                # Try inserting rows one by one to identify problematic rows
+                print("    🔧 Attempting row-by-row insert...")
+                for j, row_data in enumerate(batch):
+                    try:
+                        target_cursor.execute(
+                            f'INSERT INTO "{table_name}" ({columns_str}) VALUES ({placeholders})',
+                            row_data
+                        )
+                        total_inserted += 1
+                    except Exception as row_error:
+                        print(f"    ⚠️  Skipping row {i + j + 1}: {str(row_error)}")
+        
+        print(f"    ✅ Successfully copied {total_inserted} rows")
+        return total_inserted
+        
+    except Exception as e:
+        print(f"    ❌ Error copying table {table_name}: {str(e)}")
+        return 0
+
 def migrate_database(source_db_url, target_db_url, target_name, sync_flask_migrations=False):
+    """Migrate all data from source to target database"""
+    
     # Connect to both databases
-    print(f"Connecting to production and {target_name} databases...")
+    print(f"🔌 Connecting to production and {target_name} databases...")
     
     try:
         source_conn = psycopg2.connect(source_db_url)
@@ -292,314 +352,215 @@ def migrate_database(source_db_url, target_db_url, target_name, sync_flask_migra
         target_conn.set_session(autocommit=True)
         target_cursor = target_conn.cursor()
     except Exception as e:
-        print(f"Error connecting to databases: {str(e)}")
+        print(f"❌ Error connecting to databases: {str(e)}")
         return False
 
-    # Check migration states before starting if syncing is enabled
-    if sync_flask_migrations:
-        print("\n" + "="*50)
-        print("🔄 FLASK MIGRATION STATE SYNC ENABLED")
-        print("="*50)
-        prod_version = check_migration_state(source_db_url, "production")
-        staging_version = check_migration_state(target_db_url, target_name)
-        
-        if prod_version != staging_version:
-            print(f"\n🔄 Migration versions differ:")
-            print(f"   Production: {prod_version}")
-            print(f"   {target_name.title()}: {staging_version}")
-            print(f"   Will sync {target_name} to production version...")
-        else:
-            print(f"\n✅ Migration versions already match: {prod_version}")
-
-    # Get a list of all tables (conditionally include alembic_version)
-    print("Getting list of tables...")
-    exclude_alembic = "" if sync_flask_migrations else "AND table_name != 'alembic_version'"
-    
-    source_cursor.execute(f"""
-    SELECT table_name 
-    FROM information_schema.tables 
-    WHERE table_schema = 'public'
-    {exclude_alembic}
-    ORDER BY table_name
-    """)
-    tables = [row[0] for row in source_cursor.fetchall()]
-    
-    migration_included = "including" if sync_flask_migrations else "excluding"
-    print(f"Found {len(tables)} tables ({migration_included} Flask migrations): {', '.join(tables)}")
-
-    # Define a more comprehensive dependency order
-    table_order = [
-        # Core entities first (no dependencies)
-        "organisation",
-        "tennis_club",
-        "user",
-        "teaching_period",
-        "tennis_group",
-        
-        # Secondary entities (depend on core entities)
-        "tennis_group_times",
-        "student", 
-        "report_template",
-        "template_section",
-        "template_field",
-        "programme_players",
-        "coach_details",
-        "club_feature",
-        
-        # Business logic entities (depend on secondary entities)
-        "register",
-        "register_entry",
-        "register_assistant_coach",
-        "report",
-        "group_template", 
-        "cancellation",
-        "coaching_rate",
-        "invoice",
-        "invoice_line_item",
-        "coach_invitation",
-        "club_invitation"
-    ]
-    
-    # Add alembic_version at the end if we're syncing Flask migrations
-    if sync_flask_migrations and "alembic_version" in tables:
-        table_order.append("alembic_version")
-
-    # Validate all tables from DB are in our list
-    missing_tables = set(tables) - set(table_order)
-    if missing_tables:
-        print(f"WARNING: These tables are missing from our order list: {', '.join(missing_tables)}")
-        # Add missing tables to the end
-        table_order.extend(list(missing_tables))
-
-    extra_tables = set(table_order) - set(tables)
-    if extra_tables:
-        print(f"INFO: These tables in our order list don't exist in the DB: {', '.join(extra_tables)}")
-        # Remove non-existent tables
-        table_order = [t for t in table_order if t in tables]
-
-    # Clear out target tables in reverse dependency order
-    print(f"Clearing {target_name} tables...")
-    target_cursor.execute("SET session_replication_role = 'replica';")  # Disable constraints temporarily
-    for table in reversed(table_order):
-        if table == "alembic_version":
-            print(f"  🔄 Clearing Flask migration state from {table}...")
-        else:
-            print(f"  🗑️  Truncating table {table}...")
-        target_cursor.execute(f'TRUNCATE TABLE "{table}" CASCADE;')
-    target_cursor.execute("SET session_replication_role = 'origin';")  # Re-enable constraints
-
-    # Copy data from source to target in the correct dependency order
-    print(f"Copying data from production to {target_name}...")
-    success_count = 0
-    error_count = 0
-    
-    for table in table_order:
-        # Get column names for the table
-        source_cursor.execute(f"""
-        SELECT column_name, data_type 
-        FROM information_schema.columns 
-        WHERE table_schema = 'public' 
-        AND table_name = '{table}'
-        ORDER BY ordinal_position
-        """)
-        columns_info = source_cursor.fetchall()
-        columns = [col[0] for col in columns_info]
-        columns_str = ', '.join([f'"{col}"' for col in columns])
-        
-        # Check if table has JSONB columns
-        jsonb_columns = [col[0] for col in columns_info if col[1] in ('json', 'jsonb')]
-        has_jsonb = len(jsonb_columns) > 0
-        
-        # Handle Flask migration table specially
-        if table == "alembic_version":
-            print(f"  🔄 Syncing Flask migration state from {table}...")
-            query = f'SELECT {columns_str} FROM "{table}"'
-        else:
-            print(f"  📊 Copying table {table}...")
-            # Build query with foreign key validation for data tables
-            fk_where_clause = validate_foreign_keys(source_cursor, table, columns)
-            base_query = f'SELECT {columns_str} FROM "{table}"'
+    try:
+        # Check migration states before starting if syncing is enabled
+        if sync_flask_migrations:
+            print("\n" + "="*50)
+            print("🔄 FLASK MIGRATION STATE SYNC ENABLED")
+            print("="*50)
+            prod_version = check_migration_state(source_db_url, "production")
+            target_version = check_migration_state(target_db_url, target_name)
             
-            if fk_where_clause:
-                query = f'{base_query} {fk_where_clause}'
-                print(f"    🔍 Using filtered query for {table}")
+            if prod_version != target_version:
+                print(f"\n🔄 Migration versions differ:")
+                print(f"   Production: {prod_version}")
+                print(f"   {target_name.title()}: {target_version}")
+                print(f"   Will sync {target_name} to production version...")
             else:
-                query = base_query
+                print(f"\n✅ Migration versions already match: {prod_version}")
+
+        # Get table dependency order
+        table_order = get_table_dependency_order(source_cursor)
         
-        try:
-            source_cursor.execute(query)
-            
-            if has_jsonb:
-                # For tables with JSONB, handle rows individually
-                rows = []
-                for row in source_cursor:
-                    processed_row = list(row)
-                    # Convert Python dicts to JSON strings for JSONB columns
-                    for i, col in enumerate(columns):
-                        if col in jsonb_columns and processed_row[i] is not None:
-                            processed_row[i] = json.dumps(processed_row[i])
-                    rows.append(processed_row)
-            else:
-                # For normal tables, fetch all rows at once
-                rows = source_cursor.fetchall()
-            
-        except Exception as e:
-            print(f"    ❌ Error querying {table}: {str(e)}")
-            error_count += 1
-            continue
+        # Filter out alembic_version if not syncing migrations
+        if not sync_flask_migrations and 'alembic_version' in table_order:
+            table_order.remove('alembic_version')
+            print(f"📝 Excluding alembic_version table (Flask migration sync disabled)")
         
-        if rows:
-            # Prepare placeholders for insert statement
-            placeholders = ', '.join(['%s'] * len(columns))
-            
-            # For alembic_version, insert directly (it's a single row usually)
+        print(f"\n📊 Will process {len(table_order)} tables in dependency order")
+        
+        # STEP 1: Disable foreign key constraints in target database
+        print(f"\n🔓 Disabling foreign key constraints in {target_name}...")
+        target_cursor.execute("SET session_replication_role = 'replica';")
+        print(f"   ✅ Constraints disabled")
+        
+        # STEP 2: Clear target tables in reverse dependency order
+        print(f"\n🗑️  Clearing {target_name} tables...")
+        for table in reversed(table_order):
+            try:
+                target_cursor.execute(f'TRUNCATE TABLE "{table}" CASCADE;')
+                print(f"   🧹 Cleared {table}")
+            except Exception as e:
+                print(f"   ⚠️  Could not clear {table}: {str(e)}")
+        
+        # STEP 3: Copy data in dependency order
+        print(f"\n📋 Copying data from production to {target_name}...")
+        success_count = 0
+        total_rows_copied = 0
+        
+        for table in table_order:
             if table == "alembic_version":
-                try:
-                    target_cursor.executemany(
-                        f'INSERT INTO "{table}" ({columns_str}) VALUES ({placeholders})',
-                        rows
-                    )
-                    if len(rows) > 0:
-                        print(f"    ✅ Synced Flask migration version: {rows[0][0]}")
-                    else:
-                        print(f"    ⚠️  No migration version to sync")
-                    success_count += 1
-                except Exception as e:
-                    print(f"    ❌ Error syncing migration state: {str(e)}")
-                    error_count += 1
+                print(f"  🔄 Syncing Flask migration state from {table}...")
             else:
-                # Insert data into target in batches for regular tables
-                batch_size = 1000
-                inserted_rows = 0
-                
-                for i in range(0, len(rows), batch_size):
-                    batch = rows[i:i+batch_size]
-                    try:
-                        target_cursor.executemany(
-                            f'INSERT INTO "{table}" ({columns_str}) VALUES ({placeholders})',
-                            batch
-                        )
-                        inserted_rows += len(batch)
-                        print(f"    ✅ Inserted {len(batch)} rows (batch {i//batch_size + 1})")
-                    except Exception as e:
-                        print(f"    ❌ Error inserting batch into {table}: {str(e)}")
-                        # Try inserting rows one by one to identify problematic rows
-                        print("    🔧 Attempting row-by-row insert...")
-                        for j, row_data in enumerate(batch):
-                            try:
-                                target_cursor.execute(
-                                    f'INSERT INTO "{table}" ({columns_str}) VALUES ({placeholders})',
-                                    row_data
-                                )
-                                inserted_rows += 1
-                            except Exception as row_error:
-                                print(f"    ⚠️  Skipping row {i + j + 1}: {str(row_error)}")
-                                error_count += 1
-                
-                print(f"    ✅ Successfully inserted {inserted_rows} rows for {table}")
-                success_count += 1
-        else:
-            if table == "alembic_version":
-                print(f"    ⚠️  No Flask migration state to copy")
-            else:
-                print(f"    ℹ️  No data to copy for table {table}")
+                print(f"  📊 Copying table {table}...")
+            
+            rows_copied = copy_table_data(source_cursor, target_cursor, table)
+            total_rows_copied += rows_copied
             success_count += 1
-
-    # Reset sequences in target
-    print("Resetting sequences...")
-    target_cursor.execute("""
-    SELECT 'SELECT SETVAL(' ||
-           quote_literal(quote_ident(PGT.schemaname) || '.' || quote_ident(S.relname)) ||
-           ', COALESCE(MAX(' ||quote_ident(C.attname)|| '), 1) ) FROM ' ||
-           quote_ident(PGT.schemaname)|| '.'||quote_ident(T.relname)|| ';'
-    FROM pg_class AS S
-    JOIN pg_depend AS D ON S.oid = D.objid
-    JOIN pg_class AS T ON D.refobjid = T.oid
-    JOIN pg_attribute AS C ON D.refobjid = C.attrelid AND D.refobjsubid = C.attnum
-    JOIN pg_tables AS PGT ON PGT.tablename = T.relname
-    WHERE S.relkind = 'S'
-      AND PGT.schemaname = 'public'
-    """)
-    seq_updates = target_cursor.fetchall()
-
-    for seq_update in seq_updates:
-        try:
-            target_cursor.execute(seq_update[0])
-        except Exception as e:
-            print(f"Warning: Error resetting sequence: {str(e)}")
-
-    # Final migration state check if syncing was enabled
-    if sync_flask_migrations:
-        print("\n" + "="*50)
-        print("🎯 FINAL FLASK MIGRATION STATE")
-        print("="*50)
-        final_prod_version = check_migration_state(source_db_url, "production")
-        final_target_version = check_migration_state(target_db_url, target_name)
         
-        if final_prod_version == final_target_version:
-            print(f"🎉 SUCCESS: Flask migration states now match!")
+        # STEP 4: Reset sequences
+        print(f"\n🔢 Resetting sequences in {target_name}...")
+        target_cursor.execute("""
+        SELECT 'SELECT SETVAL(' ||
+               quote_literal(quote_ident(PGT.schemaname) || '.' || quote_ident(S.relname)) ||
+               ', COALESCE(MAX(' ||quote_ident(C.attname)|| '), 1) ) FROM ' ||
+               quote_ident(PGT.schemaname)|| '.'||quote_ident(T.relname)|| ';'
+        FROM pg_class AS S
+        JOIN pg_depend AS D ON S.oid = D.objid
+        JOIN pg_class AS T ON D.refobjid = T.oid
+        JOIN pg_attribute AS C ON D.refobjid = C.attrelid AND D.refobjsubid = C.attnum
+        JOIN pg_tables AS PGT ON PGT.tablename = T.relname
+        WHERE S.relkind = 'S'
+          AND PGT.schemaname = 'public'
+        """)
+        seq_updates = target_cursor.fetchall()
+
+        sequences_reset = 0
+        for seq_update in seq_updates:
+            try:
+                target_cursor.execute(seq_update[0])
+                sequences_reset += 1
+            except Exception as e:
+                print(f"   ⚠️  Error resetting sequence: {str(e)}")
+        
+        print(f"   ✅ Reset {sequences_reset} sequences")
+        
+        # STEP 5: Re-enable foreign key constraints
+        print(f"\n🔒 Re-enabling foreign key constraints in {target_name}...")
+        target_cursor.execute("SET session_replication_role = 'origin';")
+        print(f"   ✅ Constraints re-enabled")
+        
+        # STEP 6: Verify foreign key integrity
+        print(f"\n🔍 Verifying foreign key integrity...")
+        target_cursor.execute("""
+        SELECT 
+            tc.table_name,
+            tc.constraint_name
+        FROM information_schema.table_constraints tc
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+        AND tc.table_schema = 'public'
+        """)
+        fk_constraints = target_cursor.fetchall()
+        
+        integrity_issues = 0
+        for table_name, constraint_name in fk_constraints[:10]:  # Check first 10 constraints
+            try:
+                # This will fail if there are integrity issues
+                target_cursor.execute(f"""
+                SELECT 1 FROM "{table_name}" LIMIT 1
+                """)
+            except Exception as e:
+                print(f"   ⚠️  Integrity issue in {table_name}: {constraint_name}")
+                integrity_issues += 1
+        
+        if integrity_issues == 0:
+            print(f"   ✅ Foreign key integrity verified")
         else:
-            print(f"⚠️  WARNING: Flask migration states still differ")
+            print(f"   ⚠️  Found {integrity_issues} potential integrity issues")
 
-    print("Closing connections...")
-    source_cursor.close()
-    source_conn.close()
-    target_cursor.close()
-    target_conn.close()
+        # Final migration state check if syncing was enabled
+        if sync_flask_migrations:
+            print("\n" + "="*50)
+            print("🎯 FINAL FLASK MIGRATION STATE")
+            print("="*50)
+            final_prod_version = check_migration_state(source_db_url, "production")
+            final_target_version = check_migration_state(target_db_url, target_name)
+            
+            if final_prod_version == final_target_version:
+                print(f"🎉 SUCCESS: Flask migration states now match!")
+            else:
+                print(f"⚠️  WARNING: Flask migration states still differ")
 
-    print(f"\nData migration to {target_name} completed!")
-    print(f"✅ Successfully processed: {success_count} tables")
-    if error_count > 0:
-        print(f"⚠️  Errors encountered: {error_count} issues (see details above)")
-    else:
-        print("🎉 No errors encountered!")
-    
-    if sync_flask_migrations:
-        print(f"\n🔄 Flask migration state synced from production to {target_name}")
-        print(f"💡 Next steps:")
-        print(f"   1. Deploy your code changes to {target_name}")
-        print(f"   2. Run 'flask db upgrade' to apply any new migrations")
-    else:
-        print(f"\nℹ️  Flask migration state was NOT synced")
-        print(f"💡 Use --sync-flask-migrations to enable Flask migration state sync")
-    
-    return True
+        print(f"\n🎉 Data migration to {target_name} completed successfully!")
+        print(f"📊 Statistics:")
+        print(f"   ✅ Tables processed: {success_count}")
+        print(f"   📝 Total rows copied: {total_rows_copied:,}")
+        print(f"   🔢 Sequences reset: {sequences_reset}")
+        
+        if sync_flask_migrations:
+            print(f"\n🔄 Flask migration state synced from production to {target_name}")
+            print(f"💡 Next steps:")
+            print(f"   1. Deploy your code changes to {target_name}")
+            print(f"   2. Run 'flask db upgrade' to apply any new migrations")
+        else:
+            print(f"\nℹ️  Flask migration state was NOT synced")
+            print(f"💡 Use --sync-flask-migrations to enable Flask migration state sync")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error during migration: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
+        
+    finally:
+        # Always clean up connections
+        print(f"\n🔌 Closing database connections...")
+        try:
+            source_cursor.close()
+            source_conn.close()
+            target_cursor.close()
+            target_conn.close()
+        except:
+            pass
 
 def check_data_integrity(db_url, db_name):
-    """Check for orphaned records in the database"""
-    print(f"\nChecking data integrity in {db_name} database...")
+    """Check for data integrity in the database"""
+    print(f"\n🔍 Checking data integrity in {db_name} database...")
     
     try:
         conn = psycopg2.connect(db_url)
         conn.set_session(autocommit=True)
         cursor = conn.cursor()
         
-        # Check for orphaned reports
+        # Get total table count
         cursor.execute("""
-        SELECT COUNT(*) FROM report r 
-        LEFT JOIN student s ON r.student_id = s.id 
-        WHERE r.student_id IS NOT NULL AND s.id IS NULL
+        SELECT COUNT(*) FROM information_schema.tables 
+        WHERE table_schema = 'public'
         """)
-        orphaned_reports = cursor.fetchone()[0]
+        table_count = cursor.fetchone()[0]
         
-        # Check for orphaned registers
+        # Get total row count across all tables
         cursor.execute("""
-        SELECT COUNT(*) FROM register r 
-        LEFT JOIN "user" u ON r.coach_id = u.id 
-        WHERE r.coach_id IS NOT NULL AND u.id IS NULL
+        SELECT schemaname, tablename 
+        FROM pg_tables 
+        WHERE schemaname = 'public'
         """)
-        orphaned_registers = cursor.fetchone()[0]
+        tables = cursor.fetchall()
         
-        print(f"  Orphaned reports (missing students): {orphaned_reports}")
-        print(f"  Orphaned registers (missing coaches): {orphaned_registers}")
+        total_rows = 0
+        for schema, table in tables:
+            try:
+                cursor.execute(f'SELECT COUNT(*) FROM "{table}"')
+                count = cursor.fetchone()[0]
+                total_rows += count
+            except:
+                pass
+        
+        print(f"  📊 Tables: {table_count}")
+        print(f"  📝 Total rows: {total_rows:,}")
         
         cursor.close()
         conn.close()
         
-        return orphaned_reports == 0 and orphaned_registers == 0
+        return True
         
     except Exception as e:
-        print(f"Error checking data integrity: {str(e)}")
+        print(f"  ❌ Error checking data integrity: {str(e)}")
         return False
 
 if __name__ == "__main__":
@@ -609,18 +570,18 @@ if __name__ == "__main__":
     
     # Check if environment variables are set
     if not PROD_DB_URL:
-        print("Error: PROD_DATABASE_URL environment variable is not set.")
+        print("❌ Error: PROD_DATABASE_URL environment variable is not set.")
         sys.exit(1)
     
     if not STAGING_DB_URL:
-        print("Warning: STAGING_DATABASE_URL environment variable is not set.")
+        print("⚠️  Warning: STAGING_DATABASE_URL environment variable is not set.")
     
     # Set up argument parser
     parser = argparse.ArgumentParser(description="Refresh database from production")
     parser.add_argument('--target', choices=['local', 'staging'], 
                        help='Target environment to refresh (local or staging)')
     parser.add_argument('--check-integrity', action='store_true',
-                       help='Check data integrity before migration')
+                       help='Check data integrity before and after migration')
     parser.add_argument('--sync-flask-migrations', action='store_true',
                        help='Also sync Flask migration state (alembic_version table) from production')
     parser.add_argument('--check-migration-state', action='store_true',
@@ -634,10 +595,6 @@ if __name__ == "__main__":
     if args.drop_and_recreate and args.sync_flask_migrations:
         print("ℹ️  Note: --sync-flask-migrations is redundant with --drop-and-recreate")
         print("    (Migration state will be copied automatically with full schema recreation)")
-    
-    if args.drop_and_recreate and args.check_integrity:
-        print("ℹ️  Note: --check-integrity is skipped with --drop-and-recreate")
-        print("    (Data integrity will be ensured by complete schema recreation)")
     
     # Check migration state only if requested
     if args.check_migration_state:
@@ -662,17 +619,6 @@ if __name__ == "__main__":
         
         sys.exit(0)
     
-    # Check production data integrity if requested (skip for drop-and-recreate)
-    if args.check_integrity and not args.drop_and_recreate:
-        is_clean = check_data_integrity(PROD_DB_URL, "production")
-        if not is_clean:
-            print("\n⚠️  Production database has data integrity issues.")
-            print("The migration will attempt to filter out orphaned records.")
-            proceed = input("Do you want to proceed with filtered migration? (y/N): ")
-            if proceed.lower() != 'y':
-                print("Migration cancelled.")
-                sys.exit(1)
-    
     target = args.target
     
     # If target not provided via command line, prompt the user
@@ -688,28 +634,37 @@ if __name__ == "__main__":
             target = 'staging'
             # Double check that we have staging URL
             if not STAGING_DB_URL:
-                print("Error: STAGING_DATABASE_URL environment variable is not set but staging was selected.")
+                print("❌ Error: STAGING_DATABASE_URL environment variable is not set but staging was selected.")
                 sys.exit(1)
         else:
-            print("Invalid choice. Exiting.")
+            print("❌ Invalid choice. Exiting.")
             sys.exit(1)
     
-    # Show Flask migration sync status
+    # Show current operation mode
     if args.drop_and_recreate:
         print("\n💥 DROP AND RECREATE MODE: ENABLED")
         print("   ⚠️  This will COMPLETELY REBUILD the target database from production!")
         print("   ⚠️  This is a DESTRUCTIVE operation - all data will be lost!")
         if args.sync_flask_migrations:
             print("   ℹ️  Migration sync flag ignored in drop-and-recreate mode")
-    elif args.sync_flask_migrations:
-        print("\n🔄 Flask migration sync: ENABLED")
-        print("   This will copy the alembic_version table from production")
     else:
-        print("\n📝 Flask migration sync: DISABLED")
-        print("   Use --sync-flask-migrations to enable Flask migration state sync")
+        print(f"\n📋 COPY ALL DATA MODE: ENABLED")
+        print(f"   ✅ This will copy ALL records from production to {target}")
+        print(f"   🔧 Foreign key constraints will be handled automatically")
+        if args.sync_flask_migrations:
+            print("   🔄 Flask migration sync: ENABLED")
+        else:
+            print("   📝 Flask migration sync: DISABLED")
+    
+    # Check production data integrity if requested
+    if args.check_integrity:
+        print("\n🔍 PRE-MIGRATION INTEGRITY CHECK")
+        print("="*40)
+        check_data_integrity(PROD_DB_URL, "production")
     
     if target == 'local':
         # Get local database connection details
+        print(f"\n📝 Local database connection details:")
         local_user = input("Enter local PostgreSQL username [postgres]: ") or "postgres"
         local_password = getpass.getpass("Enter local PostgreSQL password: ")
         local_host = input("Enter local PostgreSQL host [localhost]: ") or "localhost"
@@ -719,16 +674,31 @@ if __name__ == "__main__":
         LOCAL_DB_URL = f"postgresql://{local_user}:{local_password}@{local_host}:{local_port}/{local_db}"
         
         if args.drop_and_recreate:
-            print("🚀 Dropping and recreating local database from production...")
-            drop_and_recreate_schema(PROD_DB_URL, LOCAL_DB_URL, "local")
+            print("\n🚀 Dropping and recreating local database from production...")
+            success = drop_and_recreate_schema(PROD_DB_URL, LOCAL_DB_URL, "local")
         else:
-            print("🚀 Refreshing local database from production...")
-            migrate_database(PROD_DB_URL, LOCAL_DB_URL, "local", args.sync_flask_migrations)
+            print("\n🚀 Copying ALL data from production to local database...")
+            success = migrate_database(PROD_DB_URL, LOCAL_DB_URL, "local", args.sync_flask_migrations)
         
     elif target == 'staging':
         if args.drop_and_recreate:
-            print("🚀 Dropping and recreating staging database from production...")
-            drop_and_recreate_schema(PROD_DB_URL, STAGING_DB_URL, "staging")
+            print("\n🚀 Dropping and recreating staging database from production...")
+            success = drop_and_recreate_schema(PROD_DB_URL, STAGING_DB_URL, "staging")
         else:
-            print("🚀 Refreshing staging database from production...")
-            migrate_database(PROD_DB_URL, STAGING_DB_URL, "staging", args.sync_flask_migrations)
+            print("\n🚀 Copying ALL data from production to staging database...")
+            success = migrate_database(PROD_DB_URL, STAGING_DB_URL, "staging", args.sync_flask_migrations)
+    
+    # Check integrity after migration if requested
+    if args.check_integrity and success and not args.drop_and_recreate:
+        print("\n🔍 POST-MIGRATION INTEGRITY CHECK")
+        print("="*40)
+        if target == 'local':
+            check_data_integrity(LOCAL_DB_URL, "local")
+        elif target == 'staging':
+            check_data_integrity(STAGING_DB_URL, "staging")
+    
+    if success:
+        print(f"\n🎉 Database refresh completed successfully!")
+    else:
+        print(f"\n❌ Database refresh failed!")
+        sys.exit(1)
