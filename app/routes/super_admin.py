@@ -11,6 +11,11 @@ from datetime import datetime
 from app.models.club_feature import ClubFeature
 from app.models.core import User
 from app.utils.feature_types import FeatureType
+from app.models.organisation import SubscriptionStatus
+from app.utils.subscription import get_organisation_access_info
+from datetime import timedelta, timezone
+from app.models import Organisation, User, TennisClub
+from sqlalchemy import func, case
 
 super_admin_routes = Blueprint('super_admin', __name__, url_prefix='/clubs/api/super-admin')
 
@@ -464,4 +469,291 @@ def assign_club_to_organisation(club_id):
         db.session.rollback()
         current_app.logger.error(f"Error assigning club to organisation: {str(e)}")
         current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500
+    
+@super_admin_routes.route('/subscriptions', methods=['GET'])
+@login_required
+def subscription_management():
+    """Subscription management dashboard for super admin"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    try:
+        # Get all organisations with statistics using separate queries to avoid cartesian product
+        orgs_query = db.session.query(Organisation).order_by(
+            case(
+                (Organisation.subscription_status == SubscriptionStatus.EXPIRED, 1),
+                (Organisation.subscription_status == SubscriptionStatus.TRIAL, 2),
+                (Organisation.subscription_status == SubscriptionStatus.ACTIVE, 3),
+                (Organisation.subscription_status == SubscriptionStatus.SUSPENDED, 4),
+                else_=5
+            ),
+            Organisation.created_at.desc()
+        )
+        
+        orgs_data = []
+        for org in orgs_query.all():
+            # Get club count for this organisation
+            club_count = TennisClub.query.filter_by(organisation_id=org.id).count()
+            
+            # Get user count for this organisation
+            user_count = (db.session.query(User)
+                         .join(TennisClub)
+                         .filter(TennisClub.organisation_id == org.id)
+                         .count())
+            
+            # Get email verification status if sender email is configured
+            email_verified = False
+            if org.sender_email:
+                try:
+                    from app.services.email_service import EmailService
+                    email_service = EmailService()
+                    email_status = email_service.get_verification_status(org.sender_email)
+                    email_verified = email_status.get('is_verified', False) if email_status else False
+                except Exception as e:
+                    current_app.logger.error(f"Error checking email verification for org {org.id}: {str(e)}")
+                    email_verified = False
+            
+            orgs_data.append({
+                'id': org.id,
+                'name': org.name,
+                'slug': org.slug,
+                'sender_email': org.sender_email,  # Added this field
+                'email_verified': email_verified,  # Added this field
+                'subscription_status': org.subscription_status.value if hasattr(org.subscription_status, 'value') else org.subscription_status,
+                'access_level': org.access_level,
+                'created_at': org.created_at.strftime('%Y-%m-%d') if org.created_at else None,
+                'trial_end_date': org.trial_end_date.strftime('%Y-%m-%d') if org.trial_end_date else None,
+                'days_remaining': org.days_until_expiry,
+                'club_count': club_count,
+                'user_count': user_count,
+                'admin_count': 0,  # You might want to calculate this properly
+                'template_count': 0,  # You might want to calculate this properly
+                'status_message': org.get_status_message(),
+                'manually_activated_at': org.manually_activated_at.strftime('%Y-%m-%d') if org.manually_activated_at else None,
+                'has_access': org.has_access,
+                'admin_notes': org.admin_notes
+            })
+        
+        # Get summary statistics
+        stats = db.session.query(
+            func.count(Organisation.id).label('total'),
+            func.sum(case(
+                (Organisation.subscription_status == SubscriptionStatus.TRIAL, 1),
+                else_=0
+            )).label('trial'),
+            func.sum(case(
+                (Organisation.subscription_status == SubscriptionStatus.ACTIVE, 1),
+                else_=0
+            )).label('active'),
+            func.sum(case(
+                (Organisation.subscription_status == SubscriptionStatus.EXPIRED, 1),
+                else_=0
+            )).label('expired'),
+            func.sum(case(
+                (Organisation.subscription_status == SubscriptionStatus.SUSPENDED, 1),
+                else_=0
+            )).label('suspended')
+        ).first()
+        
+        return jsonify({
+            'organisations': orgs_data,
+            'stats': {
+                'total': stats.total or 0,
+                'trial': stats.trial or 0,
+                'active': stats.active or 0,
+                'expired': stats.expired or 0,
+                'suspended': stats.suspended or 0
+            }
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching subscription management data: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@super_admin_routes.route('/organisations/<int:org_id>/activate', methods=['POST'])
+@login_required
+def manually_activate_organisation(org_id):
+    """Manually activate an organisation's subscription"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    try:
+        from app.models import Organisation
+        organisation = Organisation.query.get_or_404(org_id)
+        data = request.get_json() or {}
+        
+        # Get admin notes
+        notes = data.get('notes', 'Manually activated by super admin')
+        
+        # Activate the organisation
+        organisation.manually_activate(current_user.id, notes)
+        
+        db.session.commit()
+        
+        current_app.logger.info(f"Super admin {current_user.name} manually activated organisation {organisation.name}")
+        
+        return jsonify({
+            'message': f'Organisation "{organisation.name}" activated successfully',
+            'organisation': {
+                'id': organisation.id,
+                'name': organisation.name,
+                'subscription_status': organisation.subscription_status.value if hasattr(organisation.subscription_status, 'value') else organisation.subscription_status,
+                'status_message': organisation.get_status_message()
+            }
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error activating organisation: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@super_admin_routes.route('/organisations/<int:org_id>/extend-trial', methods=['POST'])
+@login_required
+def manually_extend_trial(org_id):
+    """Manually extend an organisation's trial"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    try:
+        from app.models import Organisation
+        organisation = Organisation.query.get_or_404(org_id)
+        data = request.get_json() or {}
+        
+        days = int(data.get('days', 30))
+        
+        if days <= 0 or days > 365:
+            return jsonify({'error': 'Days must be between 1 and 365'}), 400
+        
+        if organisation.extend_trial(days, current_user.id):
+            db.session.commit()
+            
+            current_app.logger.info(f"Super admin {current_user.name} extended trial for {organisation.name} by {days} days")
+            
+            return jsonify({
+                'message': f'Trial extended by {days} days',
+                'new_trial_end_date': organisation.trial_end_date.strftime('%Y-%m-%d'),
+                'days_remaining': organisation.days_until_expiry
+            })
+        else:
+            return jsonify({'error': 'Cannot extend trial for non-trial organisations'}), 400
+            
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error extending trial: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@super_admin_routes.route('/organisations/<int:org_id>/suspend', methods=['POST'])
+@login_required
+def manually_suspend_organisation(org_id):
+    """Manually suspend an organisation"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    try:
+        from app.models import Organisation
+        organisation = Organisation.query.get_or_404(org_id)
+        data = request.get_json() or {}
+        
+        reason = data.get('reason', 'Suspended by super admin')
+        
+        organisation.suspend_access(reason, current_user.id)
+        db.session.commit()
+        
+        current_app.logger.info(f"Super admin {current_user.name} suspended organisation {organisation.name}: {reason}")
+        
+        return jsonify({
+            'message': f'Organisation "{organisation.name}" suspended',
+            'reason': reason
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error suspending organisation: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@super_admin_routes.route('/organisations/<int:org_id>/reactivate', methods=['POST'])
+@login_required
+def reactivate_organisation(org_id):
+    """Reactivate a suspended or expired organisation"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    try:
+        from app.models import Organisation
+        organisation = Organisation.query.get_or_404(org_id)
+        data = request.get_json() or {}
+        
+        reactivate_as = data.get('reactivate_as', 'trial')  # 'trial' or 'active'
+        notes = data.get('notes', 'Reactivated by super admin')
+        
+        if reactivate_as == 'active':
+            organisation.manually_activate(current_user.id, notes)
+        else:
+            # Reactivate as trial
+            organisation.subscription_status = SubscriptionStatus.TRIAL
+            
+            # Extend trial if needed
+            days = int(data.get('trial_days', 30))
+            if days > 0:
+                organisation.trial_end_date = datetime.now(timezone.utc) + timedelta(days=days)
+            
+            # Add note
+            if organisation.admin_notes:
+                organisation.admin_notes += f"\n{datetime.now().strftime('%Y-%m-%d')}: {notes}"
+            else:
+                organisation.admin_notes = f"{datetime.now().strftime('%Y-%m-%d')}: {notes}"
+        
+        db.session.commit()
+        
+        current_app.logger.info(f"Super admin {current_user.name} reactivated organisation {organisation.name} as {reactivate_as}")
+        
+        return jsonify({
+            'message': f'Organisation "{organisation.name}" reactivated as {reactivate_as}',
+            'status': organisation.subscription_status.value if hasattr(organisation.subscription_status, 'value') else organisation.subscription_status,
+            'status_message': organisation.get_status_message()
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error reactivating organisation: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@super_admin_routes.route('/organisations/<int:org_id>/notes', methods=['POST'])
+@login_required
+def update_organisation_notes(org_id):
+    """Update admin notes for an organisation"""
+    if not current_user.is_super_admin:
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    try:
+        from app.models import Organisation
+        organisation = Organisation.query.get_or_404(org_id)
+        data = request.get_json()
+        
+        if not data or 'notes' not in data:
+            return jsonify({'error': 'Notes are required'}), 400
+        
+        new_note = data['notes'].strip()
+        if not new_note:
+            return jsonify({'error': 'Notes cannot be empty'}), 400
+        
+        # Add timestamped note
+        timestamped_note = f"{datetime.now().strftime('%Y-%m-%d %H:%M')}: {new_note} (by {current_user.name})"
+        
+        if organisation.admin_notes:
+            organisation.admin_notes += f"\n{timestamped_note}"
+        else:
+            organisation.admin_notes = timestamped_note
+        
+        db.session.commit()
+        
+        return jsonify({
+            'message': 'Notes updated successfully',
+            'admin_notes': organisation.admin_notes
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error updating notes: {str(e)}")
         return jsonify({'error': str(e)}), 500

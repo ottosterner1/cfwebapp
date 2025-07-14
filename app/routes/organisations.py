@@ -143,7 +143,7 @@ def get_organisation(org_id):
                 'subdomain': club.subdomain,
                 'created_at': club.created_at.isoformat() if club.created_at else None,
                 'user_count': club.users.count(),
-                'group_count': club.groups.count()
+                'group_count': len(club.groups)
             } for club in organisation.clubs],
             'templates': [{
                 'id': template.id,

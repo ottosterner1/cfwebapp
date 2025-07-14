@@ -7,6 +7,7 @@ from app.services.document_service import DocumentService
 from app.utils.auth import admin_required
 import traceback
 from datetime import datetime
+from app.clubs.middleware import verify_club_access
 
 bp = Blueprint('communication', __name__, url_prefix='/communication')
 
@@ -15,12 +16,14 @@ document_service = DocumentService()
 
 @bp.route('/')
 @login_required
+@verify_club_access()
 def hub():
     """Communication hub - handles all sub-views in React"""
     return render_template('communication/hub.html')
 
 @bp.route('/api/test', methods=['GET'])
 @login_required
+@verify_club_access()
 def test_endpoint():
     """Test endpoint to verify routes are working"""
     try:
@@ -38,6 +41,7 @@ def test_endpoint():
 
 @bp.route('/api/documents', methods=['GET'])
 @login_required
+@verify_club_access()
 def get_documents():
     """Get documents for a specific coach"""
     try:
@@ -70,6 +74,7 @@ def get_documents():
 
 @bp.route('/api/documents', methods=['POST'])
 @login_required
+@verify_club_access()
 def upload_document():
     """Upload document(s) to selected coaches"""
     try:
@@ -178,6 +183,7 @@ def upload_document():
 
 @bp.route('/api/documents/<int:document_id>/acknowledge', methods=['POST'])
 @login_required
+@verify_club_access()
 def acknowledge_document(document_id):
     """Mark a document as read/acknowledged by current user"""
     try:
@@ -251,6 +257,7 @@ def acknowledge_document(document_id):
 
 @bp.route('/api/documents/<int:document_id>/acknowledgments', methods=['GET'])
 @login_required
+@verify_club_access()
 def get_document_acknowledgments(document_id):
     """Get all acknowledgments for a document (admin only)"""
     try:
@@ -281,6 +288,7 @@ def get_document_acknowledgments(document_id):
 
 @bp.route('/api/documents/<int:document_id>/preview', methods=['GET'])
 @login_required
+@verify_club_access()
 def preview_document(document_id):
     """Generate preview content or URL for a document"""
     try:
@@ -387,6 +395,7 @@ def preview_document(document_id):
 
 @bp.route('/api/documents/<int:document_id>/download', methods=['GET'])
 @login_required
+@verify_club_access()
 def download_document(document_id):
     """Generate download URL for a document"""
     try:
@@ -428,6 +437,7 @@ def download_document(document_id):
 
 @bp.route('/api/documents/<int:document_id>', methods=['DELETE'])
 @login_required
+@verify_club_access()
 def delete_document(document_id):
     """Delete a document"""
     try:
@@ -466,6 +476,7 @@ def delete_document(document_id):
 
 @bp.route('/api/documents/categories', methods=['GET'])
 @login_required
+@verify_club_access()
 def get_document_categories():
     """Get available document categories"""
     try:
@@ -477,6 +488,7 @@ def get_document_categories():
 
 @bp.route('/api/organisation/coaches', methods=['GET'])
 @login_required
+@verify_club_access()
 def get_organisation_coaches():
     """Get all coaches in the organisation"""
     try:
