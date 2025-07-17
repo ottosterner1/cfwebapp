@@ -17,6 +17,7 @@ def register_routes(app):
     from app.routes.cancellations import cancellation_routes
     from app.routes.organisations import organisation_routes, admin_org_routes
     from app.routes import communication
+    from app.routes.session_planning import session_planning_routes, session_planning_views
     
     # Register blueprints
     app.register_blueprint(main)
@@ -36,5 +37,7 @@ def register_routes(app):
     app.register_blueprint(organisation_routes)
     app.register_blueprint(communication.bp)
     app.register_blueprint(admin_org_routes)
+    app.register_blueprint(session_planning_routes)
+    app.register_blueprint(session_planning_views)
 
     return app

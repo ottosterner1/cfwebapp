@@ -42,3 +42,7 @@ from app.models.organisation import (
 from app.models.communication import (
     Document, DocumentPermission, DocumentDownloadLog, DocumentAcknowledgment
 )
+
+from app.models.session_planning import(
+    SessionPlan, SessionPlanEntry, TrialPlayer
+)

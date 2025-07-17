@@ -1,5 +1,48 @@
 import React, { useState, useEffect } from 'react';
-import { RegisterDetail, RegisterEntry, AttendanceStatus } from '../../types/register';
+import { AttendanceStatus } from '../../types/register';
+
+interface RegisterEntry {
+  id: number | string;
+  student_id: number | null;
+  student_name: string;
+  attendance_status: AttendanceStatus;
+  notes: string | null;
+  predicted_attendance: boolean;
+  is_makeup?: boolean;
+  is_trial?: boolean;
+  group_name?: string;
+  trial_player_id?: number;
+  trial_entry_id?: number;
+  contact_email?: string;
+  contact_number?: string;
+  date_of_birth?: string;
+}
+
+interface RegisterDetail {
+  id: number;
+  date: string;
+  group: {
+    id: number;
+    name: string;
+  };
+  time_slot: {
+    id: number;
+    day: string;
+    start_time: string;
+    end_time: string;
+  };
+  coach: {
+    id: number;
+    name: string;
+  };
+  assistant_coaches?: Coach[];
+  notes: string | null;
+  entries: RegisterEntry[];
+  teaching_period: {
+    id: number;
+    name: string;
+  };
+}
 
 interface Coach {
   id: number;
@@ -23,7 +66,7 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [notes, setNotes] = useState('');
-  const [date, setDate] = useState(''); // New state for date
+  const [date, setDate] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   
@@ -130,7 +173,7 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
     });
   };
 
-  const updateAttendanceStatus = (entryId: number, status: AttendanceStatus) => {
+  const updateAttendanceStatus = (entryId: number | string, status: AttendanceStatus) => {
     if (!register) return;
     
     const updatedEntries = register.entries.map((entry: RegisterEntry) => {
@@ -143,7 +186,7 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
     setRegister({ ...register, entries: updatedEntries });
   };
 
-  const updateNotes = (entryId: number, notes: string) => {
+  const updateNotes = (entryId: number | string, notes: string) => {
     if (!register) return;
     
     const updatedEntries = register.entries.map((entry: RegisterEntry) => {
@@ -163,16 +206,21 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
       setIsSaving(true);
       setSaveMessage(null);
       
-      // First update the entries
+      // First update the entries - now including trial players
       const entriesResponse = await fetch(`/api/registers/${registerId}/entries`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           entries: register.entries.map(entry => ({
-            id: entry.id,
+            id: typeof entry.id === 'string' ? undefined : entry.id,
+            player_id: typeof entry.id === 'number' ? entry.id : undefined,
+            trial_player_id: entry.trial_player_id,
+            trial_entry_id: entry.trial_entry_id,
+            is_trial: entry.is_trial || false,
             attendance_status: entry.attendance_status,
             notes: entry.notes,
-            predicted_attendance: entry.predicted_attendance 
+            predicted_attendance: entry.predicted_attendance,
+            is_makeup: entry.is_makeup || false
           }))
         })
       });
@@ -202,7 +250,7 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           notes: notes,
-          date: date // Add date to the update payload
+          date: date
         })
       });
       
@@ -308,6 +356,89 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
     return normalizedEntryStatus === normalizedButtonStatus;
   };
 
+  // Separate entries by type
+  const separateEntries = (entries: RegisterEntry[] = []) => {
+    const regular = entries.filter(entry => !entry.is_trial && !entry.is_makeup);
+    const makeup = entries.filter(entry => entry.is_makeup && !entry.is_trial);
+    const trial = entries.filter(entry => entry.is_trial);
+    
+    return { regular, makeup, trial };
+  };
+
+  // Render player card for different types
+  const renderPlayerCard = (entry: RegisterEntry, playerType: 'regular' | 'makeup' | 'trial' = 'regular') => (
+    <div key={entry.id} className="border rounded-md p-3">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="font-medium text-gray-900">{entry.student_name}</div>
+        {playerType === 'makeup' && (
+          <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
+            Makeup ({entry.group_name})
+          </span>
+        )}
+        {playerType === 'trial' && (
+          <span className="px-2 py-1 text-xs rounded-full bg-purple-100 text-purple-800">
+            Trial Player
+          </span>
+        )}
+      </div>
+      
+      <div className="grid grid-cols-2 gap-1 mb-2">
+        <button
+          type="button"
+          className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+            isStatusSelected(entry.attendance_status, 'present')
+              ? 'bg-green-100 border-green-500 text-green-800' 
+              : 'bg-gray-100 border-gray-300 text-gray-800'
+          }`}
+          onClick={() => updateAttendanceStatus(entry.id, 'present')}
+        >
+          Present
+        </button>
+        <button
+          type="button"
+          className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+            isStatusSelected(entry.attendance_status, 'absent')
+              ? 'bg-red-100 border-red-500 text-red-800' 
+              : 'bg-gray-100 border-gray-300 text-gray-800'
+          }`}
+          onClick={() => updateAttendanceStatus(entry.id, 'absent')}
+        >
+          Absent
+        </button>
+        <button
+          type="button"
+          className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+            isStatusSelected(entry.attendance_status, 'away_with_notice')
+              ? 'bg-yellow-100 border-yellow-500 text-yellow-800' 
+              : 'bg-gray-100 border-gray-300 text-gray-800'
+          }`}
+          onClick={() => updateAttendanceStatus(entry.id, 'away_with_notice')}
+        >
+          Away With Notice
+        </button>
+        <button
+          type="button"
+          className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
+            isStatusSelected(entry.attendance_status, 'sick')
+              ? 'bg-blue-100 border-blue-500 text-blue-800' 
+              : 'bg-gray-100 border-gray-300 text-gray-800'
+          }`}
+          onClick={() => updateAttendanceStatus(entry.id, 'sick')}
+        >
+          Sick
+        </button>
+      </div>
+      
+      <input
+        type="text"
+        value={entry.notes || ''}
+        onChange={(e) => updateNotes(entry.id, e.target.value)}
+        className="block w-full text-sm border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+        placeholder="Notes"
+      />
+    </div>
+  );
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -331,6 +462,8 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
       </div>
     );
   }
+
+  const { regular, makeup, trial } = separateEntries(register.entries);
 
   return (
     <div className="space-y-6">
@@ -387,7 +520,6 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
             </div>
             <div>
               <h3 className="text-sm font-medium text-gray-500">Date</h3>
-              {/* Editable date input */}
               <input
                 type="date"
                 value={date}
@@ -479,68 +611,43 @@ const RegisterEdit: React.FC<RegisterEditProps> = ({
             </div>
           </div>
           
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {register.entries.map((entry: RegisterEntry) => (
-              <div 
-                key={entry.id} 
-                className="border rounded-md p-3"
-              >
-                <div className="font-medium text-gray-900 mb-2">{entry.student_name}</div>
-                <div className="grid grid-cols-2 gap-1 mb-2">
-                  <button
-                    type="button"
-                    className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
-                      isStatusSelected(entry.attendance_status, 'present')
-                        ? 'bg-green-100 border-green-500 text-green-800' 
-                        : 'bg-gray-100 border-gray-300 text-gray-800'
-                    }`}
-                    onClick={() => updateAttendanceStatus(entry.id, 'present')}
-                  >
-                    Present
-                  </button>
-                  <button
-                    type="button"
-                    className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
-                      isStatusSelected(entry.attendance_status, 'absent')
-                        ? 'bg-red-100 border-red-500 text-red-800' 
-                        : 'bg-gray-100 border-gray-300 text-gray-800'
-                    }`}
-                    onClick={() => updateAttendanceStatus(entry.id, 'absent')}
-                  >
-                    Absent
-                  </button>
-                  <button
-                    type="button"
-                    className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
-                      isStatusSelected(entry.attendance_status, 'away_with_notice')
-                        ? 'bg-yellow-100 border-yellow-500 text-yellow-800' 
-                        : 'bg-gray-100 border-gray-300 text-gray-800'
-                    }`}
-                    onClick={() => updateAttendanceStatus(entry.id, 'away_with_notice')}
-                  >
-                    Away With Notice
-                  </button>
-                  <button
-                    type="button"
-                    className={`border rounded-md py-1.5 px-1 text-xs font-medium ${
-                      isStatusSelected(entry.attendance_status, 'sick')
-                        ? 'bg-blue-100 border-blue-500 text-blue-800' 
-                        : 'bg-gray-100 border-gray-300 text-gray-800'
-                    }`}
-                    onClick={() => updateAttendanceStatus(entry.id, 'sick')}
-                  >
-                    Sick
-                  </button>
+          {/* Player count summary */}
+          <div className="mb-4 text-sm text-gray-600">
+            {regular.length} regular players
+            {makeup.length > 0 && `, ${makeup.length} makeup players`}
+            {trial.length > 0 && `, ${trial.length} trial players`}
+          </div>
+          
+          <div className="space-y-6">
+            {/* Regular Players */}
+            {regular.length > 0 && (
+              <div>
+                <h3 className="text-md font-medium text-gray-900 mb-3">Regular Players</h3>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {regular.map(entry => renderPlayerCard(entry, 'regular'))}
                 </div>
-                <input
-                  type="text"
-                  value={entry.notes || ''}
-                  onChange={(e) => updateNotes(entry.id, e.target.value)}
-                  className="block w-full text-sm border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Notes"
-                />
               </div>
-            ))}
+            )}
+            
+            {/* Makeup Players */}
+            {makeup.length > 0 && (
+              <div>
+                <h3 className="text-md font-medium text-gray-900 mb-3">Makeup Players</h3>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {makeup.map(entry => renderPlayerCard(entry, 'makeup'))}
+                </div>
+              </div>
+            )}
+            
+            {/* Trial Players */}
+            {trial.length > 0 && (
+              <div>
+                <h3 className="text-md font-medium text-gray-900 mb-3">Trial Players</h3>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {trial.map(entry => renderPlayerCard(entry, 'trial'))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

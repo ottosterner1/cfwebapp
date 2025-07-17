@@ -62,6 +62,7 @@ export default defineConfig({
         edit_register: path.resolve(__dirname, 'src/entry/edit_register.tsx'),
         view_register: path.resolve(__dirname, 'src/entry/view_register.tsx'),
         invoices: path.resolve(__dirname, 'src/entry/invoices.tsx'),
+        session_plan: path.resolve(__dirname, 'src/entry/session_plan.tsx'),
         communication_hub: path.resolve(__dirname, 'src/entry/communication_hub.tsx'), 
       },
       output: {

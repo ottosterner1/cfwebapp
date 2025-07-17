@@ -23,8 +23,8 @@ interface Coach {
 }
 
 interface Player {
-  id: number;
-  student_id: number;
+  id: number | string;
+  student_id: number | null;
   student_name: string;
   contact_number: string | null;
   contact_email: string | null;
@@ -37,6 +37,9 @@ interface Player {
   date_of_birth: string | null;
   group_name?: string;
   is_makeup?: boolean;
+  is_trial?: boolean;
+  player_type?: 'regular' | 'makeup' | 'trial';
+  trial_player_id?: number;
 }
 
 // Interface for data passed from calendar
@@ -100,6 +103,8 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
   
   // Session data
   const [players, setPlayers] = useState<Player[]>([]);
+  const [trialPlayers, setTrialPlayers] = useState<Player[]>([]);
+  const [sessionPlanInfo, setSessionPlanInfo] = useState<any>(null);
   const [notes, setNotes] = useState<string>('');
   
   // Makeup players state
@@ -121,7 +126,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
   });
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [expandedPlayerInfo, setExpandedPlayerInfo] = useState<{[key: number]: boolean}>({});
+  const [expandedPlayerInfo, setExpandedPlayerInfo] = useState<{[key: string]: boolean}>({});
   const [showAllPlayerInfo, setShowAllPlayerInfo] = useState<boolean>(true);
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
 
@@ -293,6 +298,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
           setSelectedTimeSlotId('');
           setSelectedDate('');
           setPlayers([]);
+          setTrialPlayers([]);
           setMakeupPlayers([]);
         }
       } catch (err) {
@@ -345,6 +351,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
           setSelectedTimeSlotId('');
           setSelectedDate('');
           setPlayers([]);
+          setTrialPlayers([]);
           setMakeupPlayers([]);
         }
       } catch (err) {
@@ -403,6 +410,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
           setSelectedTimeSlotId('');
           setSelectedDate('');
           setPlayers([]);
+          setTrialPlayers([]);
           setMakeupPlayers([]);
         }
       } catch (err) {
@@ -473,13 +481,24 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
   useEffect(() => {
     if (!selectedTimeSlotId || !selectedPeriodId) {
       setPlayers([]);
+      setTrialPlayers([]);
+      setSessionPlanInfo(null);
       return;
     }
-    
+
     const fetchPlayers = async () => {
       try {
         setLoading(prev => ({ ...prev, players: true }));
-        const response = await fetch(`/api/group-time-players?group_time_id=${selectedTimeSlotId}&teaching_period_id=${selectedPeriodId}`);
+        
+        // Build the API URL with date parameter if a date is selected
+        let apiUrl = `/api/group-time-players?group_time_id=${selectedTimeSlotId}&teaching_period_id=${selectedPeriodId}`;
+        
+        // Add date parameter if a date is selected - this is crucial for session plan loading
+        if (selectedDate) {
+          apiUrl += `&date=${selectedDate}`;
+        }
+        
+        const response = await fetch(apiUrl);
         
         if (!response.ok) {
           throw new Error(`Error fetching players: ${response.statusText}`);
@@ -487,18 +506,50 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
         
         const data = await response.json();
         
-        if (Array.isArray(data)) {
-          const validatedPlayers = data.filter(player => 
+        // Handle regular players (includes makeup players from session plans)
+        const playersData = data.players || [];
+        if (Array.isArray(playersData)) {
+          const validatedPlayers = playersData.filter(player => 
             player && typeof player === 'object' && player.id && player.student_name
           ) as Player[];
           
           setPlayers(validatedPlayers);
           
-          const expandedState: {[key: number]: boolean} = {};
+          // Set up expanded state for regular players
+          const expandedState: {[key: string]: boolean} = {};
           validatedPlayers.forEach(player => {
             expandedState[player.id] = showAllPlayerInfo;
           });
           setExpandedPlayerInfo(expandedState);
+        }
+        
+        // Handle trial players from session plan
+        const trialPlayersData = data.trial_players || [];
+        if (Array.isArray(trialPlayersData)) {
+          const validatedTrialPlayers = trialPlayersData.filter(player => 
+            player && typeof player === 'object' && player.student_name
+          ) as Player[];
+          
+          setTrialPlayers(validatedTrialPlayers);
+          
+          // Add trial players to expanded state
+          validatedTrialPlayers.forEach(player => {
+            setExpandedPlayerInfo(prev => ({
+              ...prev,
+              [player.id]: showAllPlayerInfo
+            }));
+          });
+        }
+        
+        // Store session plan info
+        setSessionPlanInfo(data.session_plan);
+        
+        // Log session plan info for debugging
+        if (data.session_plan) {
+          console.log('Session plan loaded:', data.session_plan);
+          console.log('Trial players loaded:', trialPlayersData.length);
+        } else {
+          console.log('No session plan found for this date');
         }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'An error occurred';
@@ -510,7 +561,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
     };
     
     fetchPlayers();
-  }, [selectedTimeSlotId, selectedPeriodId, showAllPlayerInfo]);
+  }, [selectedTimeSlotId, selectedPeriodId, selectedDate, showAllPlayerInfo]);
 
   // Fetch available makeup players
   useEffect(() => {
@@ -570,8 +621,8 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
     const newShowAllValue = !showAllPlayerInfo;
     setShowAllPlayerInfo(newShowAllValue);
     
-    const updatedExpandedState: {[key: number]: boolean} = {};
-    [...players, ...makeupPlayers].forEach(player => {
+    const updatedExpandedState: {[key: string]: boolean} = {};
+    [...players, ...makeupPlayers, ...trialPlayers].forEach(player => {
       updatedExpandedState[player.id] = newShowAllValue;
     });
     setExpandedPlayerInfo(updatedExpandedState);
@@ -615,15 +666,21 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
   };
 
   // Player management handlers
-  const updatePlayerAttendance = (playerId: number, status: 'present' | 'absent' | 'sick' | 'away_with_notice', isRegular: boolean = true) => {
-    if (isRegular) {
+  const updatePlayerAttendance = (playerId: number | string, status: 'present' | 'absent' | 'sick' | 'away_with_notice', playerType: 'regular' | 'makeup' | 'trial' = 'regular') => {
+    if (playerType === 'regular') {
       setPlayers(prevPlayers => 
         prevPlayers.map(player => 
           player.id === playerId ? { ...player, attendance_status: status } : player
         )
       );
-    } else {
+    } else if (playerType === 'makeup') {
       setMakeupPlayers(prevPlayers => 
+        prevPlayers.map(player => 
+          player.id === playerId ? { ...player, attendance_status: status } : player
+        )
+      );
+    } else if (playerType === 'trial') {
+      setTrialPlayers(prevPlayers => 
         prevPlayers.map(player => 
           player.id === playerId ? { ...player, attendance_status: status } : player
         )
@@ -631,15 +688,21 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
     }
   };
 
-  const updatePlayerNotes = (playerId: number, notes: string, isRegular: boolean = true) => {
-    if (isRegular) {
+  const updatePlayerNotes = (playerId: number | string, notes: string, playerType: 'regular' | 'makeup' | 'trial' = 'regular') => {
+    if (playerType === 'regular') {
       setPlayers(prevPlayers => 
         prevPlayers.map(player => 
           player.id === playerId ? { ...player, notes } : player
         )
       );
-    } else {
+    } else if (playerType === 'makeup') {
       setMakeupPlayers(prevPlayers => 
+        prevPlayers.map(player => 
+          player.id === playerId ? { ...player, notes } : player
+        )
+      );
+    } else if (playerType === 'trial') {
+      setTrialPlayers(prevPlayers => 
         prevPlayers.map(player => 
           player.id === playerId ? { ...player, notes } : player
         )
@@ -647,7 +710,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
     }
   };
 
-  const togglePlayerInfo = (playerId: number) => {
+  const togglePlayerInfo = (playerId: number | string) => {
     setExpandedPlayerInfo(prev => ({
       ...prev,
       [playerId]: !prev[playerId]
@@ -661,6 +724,9 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
     setMakeupPlayers(prevPlayers => 
       prevPlayers.map(player => ({ ...player, attendance_status: 'present' }))
     );
+    setTrialPlayers(prevPlayers => 
+      prevPlayers.map(player => ({ ...player, attendance_status: 'present' }))
+    );
   };
 
   const handleMarkAllAbsent = () => {
@@ -668,6 +734,9 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
       prevPlayers.map(player => ({ ...player, attendance_status: 'absent' }))
     );
     setMakeupPlayers(prevPlayers => 
+      prevPlayers.map(player => ({ ...player, attendance_status: 'absent' }))
+    );
+    setTrialPlayers(prevPlayers => 
       prevPlayers.map(player => ({ ...player, attendance_status: 'absent' }))
     );
   };
@@ -678,7 +747,8 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
       ...player,
       attendance_status: 'present' as const,
       notes: '',
-      is_makeup: true
+      is_makeup: true,
+      player_type: 'makeup' as const
     };
     
     setMakeupPlayers(prev => [...prev, makeupPlayer]);
@@ -689,7 +759,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
     }));
   };
 
-  const removeMakeupPlayer = (playerId: number) => {
+  const removeMakeupPlayer = (playerId: number | string) => {
     setMakeupPlayers(prev => prev.filter(player => player.id !== playerId));
     
     setExpandedPlayerInfo(prev => {
@@ -699,9 +769,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
   };
 
   // Form submission
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  const handleSubmit = async () => {
     if (!selectedPeriodId || !selectedTimeSlotId || !selectedDate) {
       setError('Please select all required fields');
       return;
@@ -711,7 +779,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
       setLoading(prev => ({ ...prev, creating: true }));
       setError(null);
       
-      const allPlayers = [...players, ...makeupPlayers];
+      const allPlayers = [...players, ...makeupPlayers, ...trialPlayers];
       
       const createResponse = await fetch('/api/registers', {
         method: 'POST',
@@ -725,6 +793,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
           notes: notes,
           assistant_coach_ids: selectedAssistantCoachIds,
           makeup_player_ids: makeupPlayers.map(p => p.id)
+          // Note: Trial players are already handled by the session plan on the backend
         }),
       });
       
@@ -780,13 +849,20 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
 
   // Update register entries with attendance data
   const updateRegisterEntries = async (registerId: number, allPlayers: Player[]) => {
-    const entries = allPlayers.map(player => ({
-      player_id: player.id,
+    // Separate regular/makeup players from trial players
+    const regularAndMakeupPlayers = allPlayers.filter(player => !player.is_trial);
+    const trialPlayers = allPlayers.filter(player => player.is_trial);
+    
+    // Create entries for regular and makeup players (these have register entries)
+    const entries = regularAndMakeupPlayers.map(player => ({
+      player_id: typeof player.id === 'number' ? player.id : undefined,
       attendance_status: player.attendance_status,
       notes: player.notes,
       predicted_attendance: player.predicted_attendance,
       is_makeup: player.is_makeup || false
     }));
+    
+    console.log(`Updating ${entries.length} register entries (${regularAndMakeupPlayers.length} regular/makeup players, ${trialPlayers.length} trial players excluded)`);
     
     const response = await fetch(`/api/registers/${registerId}/entries`, {
       method: 'PUT',
@@ -801,18 +877,29 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
       throw new Error(errorData.error || 'Failed to update attendance');
     }
     
+    // If there are trial players, we could update their info in the session plan
+    // For now, we'll just log that they exist but don't need register entries
+    if (trialPlayers.length > 0) {
+      console.log(`Trial players displayed but not saved to register: ${trialPlayers.map(p => p.student_name).join(', ')}`);
+    }
+    
     return response.json();
   };
 
   // Render player card component
-  const renderPlayerCard = (player: Player, isRegular: boolean = true) => (
-    <div key={`${isRegular ? 'regular' : 'makeup'}-${player.id}`} className="border rounded-md p-3">
+  const renderPlayerCard = (player: Player, playerType: 'regular' | 'makeup' | 'trial' = 'regular') => (
+    <div key={`${playerType}-${player.id}`} className="border rounded-md p-3">
       <div className="flex justify-between items-start">
         <div className="flex items-center gap-2">
           <div className="font-medium">{player.student_name}</div>
-          {!isRegular && (
+          {playerType === 'makeup' && (
             <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
               Makeup ({player.group_name})
+            </span>
+          )}
+          {playerType === 'trial' && (
+            <span className="px-2 py-1 text-xs rounded-full bg-purple-100 text-purple-800">
+              Trial Player
             </span>
           )}
         </div>
@@ -824,7 +911,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
           >
             {expandedPlayerInfo[player.id] ? 'Hide Info' : 'Show Info'}
           </button>
-          {!isRegular && (
+          {playerType === 'makeup' && (
             <button
               type="button"
               onClick={() => removeMakeupPlayer(player.id)}
@@ -892,7 +979,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
               ? 'bg-green-100 border-green-500 text-green-800' 
               : 'bg-gray-100 border-gray-300 text-gray-800'
           }`}
-          onClick={() => updatePlayerAttendance(player.id, 'present', isRegular)}
+          onClick={() => updatePlayerAttendance(player.id, 'present', playerType)}
         >
           Present
         </button>
@@ -903,7 +990,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
               ? 'bg-red-100 border-red-500 text-red-800' 
               : 'bg-gray-100 border-gray-300 text-gray-800'
           }`}
-          onClick={() => updatePlayerAttendance(player.id, 'absent', isRegular)}
+          onClick={() => updatePlayerAttendance(player.id, 'absent', playerType)}
         >
           Absent
         </button>
@@ -914,7 +1001,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
               ? 'bg-yellow-100 border-yellow-500 text-yellow-800' 
               : 'bg-gray-100 border-gray-300 text-gray-800'
           }`}
-          onClick={() => updatePlayerAttendance(player.id, 'away_with_notice', isRegular)}
+          onClick={() => updatePlayerAttendance(player.id, 'away_with_notice', playerType)}
         >
           Away With Notice
         </button>
@@ -925,7 +1012,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
               ? 'bg-blue-100 border-blue-500 text-blue-800' 
               : 'bg-gray-100 border-gray-300 text-gray-800'
           }`}
-          onClick={() => updatePlayerAttendance(player.id, 'sick', isRegular)}
+          onClick={() => updatePlayerAttendance(player.id, 'sick', playerType)}
         >
           Sick
         </button>
@@ -935,7 +1022,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
         <input
           type="text"
           value={player.notes || ''}
-          onChange={(e) => updatePlayerNotes(player.id, e.target.value, isRegular)}
+          onChange={(e) => updatePlayerNotes(player.id, e.target.value, playerType)}
           className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
           placeholder="Notes"
         />
@@ -948,6 +1035,11 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
       <div className="flex justify-between items-center flex-wrap">
         <h1 className="text-2xl font-bold">
           Create New Register
+          {sessionPlanInfo && (
+            <span className="ml-2 px-2 py-1 text-sm bg-green-100 text-green-800 rounded-md">
+              Session Plan Found
+            </span>
+          )}
         </h1>
         <button
           onClick={() => onNavigate('/registers')}
@@ -969,8 +1061,37 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
         </div>
       )}
 
+      {sessionPlanInfo && (
+        <div className="bg-blue-50 p-4 rounded-md">
+          <h3 className="font-medium text-blue-900 mb-2">Session Plan Applied</h3>
+          <div className="text-blue-800 text-sm">
+            {sessionPlanInfo.summary ? (
+              <div className="space-y-1">
+                <p>
+                  {sessionPlanInfo.summary.total_plan_entries} players planned
+                  {sessionPlanInfo.summary.planned_absent > 0 && ` (${sessionPlanInfo.summary.planned_absent} marked absent)`}
+                </p>
+                {sessionPlanInfo.summary.makeup_players > 0 && (
+                  <p>{sessionPlanInfo.summary.makeup_players} makeup players included</p>
+                )}
+                {sessionPlanInfo.summary.total_trial_players > 0 && (
+                  <p>{sessionPlanInfo.summary.total_trial_players} trial players scheduled</p>
+                )}
+              </div>
+            ) : (
+              <p>This session has been pre-planned with attendance and trial players.</p>
+            )}
+          </div>
+          {sessionPlanInfo.notes && (
+            <p className="text-blue-700 text-sm mt-2">
+              <strong>Notes:</strong> {sessionPlanInfo.notes}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <form onSubmit={handleSubmit} className="p-6">
+        <div className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-medium">Select Session</h2>
             
@@ -1349,7 +1470,7 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
           )}
           
           {/* Player Attendance Section */}
-          {(players.length > 0 || makeupPlayers.length > 0) && (
+          {(players.length > 0 || makeupPlayers.length > 0 || trialPlayers.length > 0) && (
             <div className="mt-8">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-medium">Attendance</h3>
@@ -1389,14 +1510,18 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
                   <p className="text-sm text-gray-700">
                     {players.length} regular players
                     {makeupPlayers.length > 0 && `, ${makeupPlayers.length} makeup players`}
+                    {trialPlayers.length > 0 && `, ${trialPlayers.length} trial players`}
                   </p>
                   
                   <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                     {/* Regular Players */}
-                    {players.map((player) => renderPlayerCard(player, true))}
+                    {players.map((player) => renderPlayerCard(player, 'regular'))}
                     
                     {/* Makeup Players */}
-                    {makeupPlayers.map((player) => renderPlayerCard(player, false))}
+                    {makeupPlayers.map((player) => renderPlayerCard(player, 'makeup'))}
+                    
+                    {/* Trial Players */}
+                    {trialPlayers.map((player) => renderPlayerCard(player, 'trial'))}
                   </div>
                 </div>
               )}
@@ -1405,7 +1530,8 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
           
           <div className="flex justify-end mt-6">
             <button
-              type="submit"
+              type="button"
+              onClick={handleSubmit}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 shadow"
               disabled={loading.creating}
             >
@@ -1415,12 +1541,12 @@ const CreateRegister: React.FC<CreateRegisterProps> = ({
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
-                  {(players.length > 0 || makeupPlayers.length > 0) ? 'Save Attendance' : 'Create Register'}
+                  {(players.length > 0 || makeupPlayers.length > 0 || trialPlayers.length > 0) ? 'Save Attendance' : 'Create Register'}
                 </span>
-              ) : ((players.length > 0 || makeupPlayers.length > 0) ? 'Save Attendance' : 'Create Register')}
+              ) : ((players.length > 0 || makeupPlayers.length > 0 || trialPlayers.length > 0) ? 'Save Attendance' : 'Create Register')}
             </button>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );
