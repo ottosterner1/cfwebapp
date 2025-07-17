@@ -3,7 +3,7 @@ from flask_login import login_required, current_user
 from app.models import (
     Register, RegisterEntry, TeachingPeriod, TennisGroupTimes, 
     ProgrammePlayers, AttendanceStatus, TennisGroup, Student, User, RegisterAssistantCoach, DayOfWeek,
-    Cancellation, CancellationType
+    Cancellation, CancellationType, SessionPlan
 )
 from app import db
 from app.models.base import UserRole
@@ -50,6 +50,93 @@ def serialize_attendance_status(status):
     
     # Last resort fallback
     return str(status).lower().replace(' ', '_')
+def apply_session_plan_to_register(register, group_time_id, register_date, teaching_period_id):
+    """
+    Apply session plan entries to a register if a plan exists.
+    This is completely optional - if no session plan exists, the register will use default logic.
+    
+    Args:
+        register: The Register object to populate
+        group_time_id: Group time ID
+        register_date: Date of the register
+        teaching_period_id: Teaching period ID
+        
+    Returns:
+        tuple: (plan_found, entries_added, trial_players_info)
+    """
+    from app.models.session_planning import SessionPlan, SessionPlanEntry, TrialPlayer, PlannedAttendanceStatus, PlayerType
+    
+    # Check if a session plan exists for this session (OPTIONAL)
+    session_plan = SessionPlan.query.filter_by(
+        group_time_id=group_time_id,
+        date=register_date,
+        teaching_period_id=teaching_period_id,
+        tennis_club_id=current_user.tennis_club_id,
+        is_active=True
+    ).first()
+    
+    if not session_plan:
+        current_app.logger.info(f"No session plan found for group_time_id={group_time_id}, date={register_date} - using default register creation")
+        return False, 0, []
+    
+    current_app.logger.info(f"Found session plan {session_plan.id} for register creation - applying planned attendance")
+    
+    # Map planned status to attendance status
+    status_mapping = {
+        PlannedAttendanceStatus.PLANNED_PRESENT: AttendanceStatus.PRESENT,
+        PlannedAttendanceStatus.PLANNED_ABSENT: AttendanceStatus.AWAY_WITH_NOTICE,
+        PlannedAttendanceStatus.TRIAL_PLAYER: AttendanceStatus.PRESENT,
+        PlannedAttendanceStatus.MAKEUP_PLAYER: AttendanceStatus.PRESENT
+    }
+    
+    entries_added = 0
+    
+    # Process planned entries
+    for plan_entry in session_plan.plan_entries:
+        # Map planned status to attendance status
+        attendance_status = status_mapping.get(
+            plan_entry.planned_status, 
+            AttendanceStatus.ABSENT
+        )
+        
+        # Create register entry
+        register_entry = RegisterEntry(
+            register_id=register.id,
+            programme_player_id=plan_entry.programme_player_id,
+            attendance_status=attendance_status,
+            notes=plan_entry.notes or '',
+            predicted_attendance=False
+        )
+        
+        db.session.add(register_entry)
+        entries_added += 1
+        
+        # Log makeup players
+        if plan_entry.player_type == PlayerType.MAKEUP:
+            student_name = plan_entry.programme_player.student.name if plan_entry.programme_player else "Unknown"
+            current_app.logger.info(f"Added planned makeup player: {student_name}")
+    
+    # Get trial players information (they can't be added as RegisterEntry since they're not ProgrammePlayers)
+    trial_players_info = []
+    for trial_player in session_plan.trial_players:
+        trial_players_info.append({
+            'id': trial_player.id,
+            'name': trial_player.name,
+            'contact_email': trial_player.contact_email,
+            'contact_number': trial_player.contact_number,
+            'notes': trial_player.notes,
+            'date_of_birth': trial_player.date_of_birth.isoformat() if trial_player.date_of_birth else None
+        })
+    
+    # Add session plan notes to register notes if they exist
+    if session_plan.notes and not register.notes:
+        register.notes = f"From session plan: {session_plan.notes}"
+    elif session_plan.notes and register.notes:
+        register.notes = f"{register.notes}\n\nFrom session plan: {session_plan.notes}"
+    
+    current_app.logger.info(f"Applied session plan: {entries_added} entries, {len(trial_players_info)} trial players")
+    
+    return True, entries_added, trial_players_info
 
 # =========================================================
 # VIEW ROUTES - For rendering HTML templates
@@ -225,24 +312,21 @@ def get_register(register_id):
         group_time = register.group_time
         group = group_time.tennis_group if group_time else None
         
-        # Format entries with student information and makeup flag
+        # Format regular player entries
         entries = []
         for entry in register.entries:
             player = entry.programme_player
             student = player.student if player else None
             
             if student:
-                # Determine if this is a makeup player and get group info
+                # Determine if this is a makeup player
                 is_makeup = False
                 group_name = None
                 
-                # Check if this is a makeup player (not from the main group/time slot)
                 if player.group_time_id != register.group_time_id:
                     is_makeup = True
                     group_name = player.tennis_group.name
-                    current_app.logger.debug(f"Player {student.name} identified as makeup from group {group_name}")
                 
-                # Use the serializer function for consistent formatting
                 entries.append({
                     'id': entry.id,
                     'student_id': student.id,
@@ -252,9 +336,45 @@ def get_register(register_id):
                     'player_id': player.id,
                     'predicted_attendance': entry.predicted_attendance,
                     'is_makeup': is_makeup,
-                    'group_name': group_name  # Will be None for regular players, group name for makeup players
+                    'is_trial': False,
+                    'group_name': group_name,
+                    'contact_email': student.contact_email,
+                    'contact_number': student.contact_number,
+                    'emergency_contact_number': student.emergency_contact_number,
+                    'date_of_birth': student.date_of_birth.isoformat() if student.date_of_birth else None
                 })
-                
+        
+        # Get trial players from session plan (if one exists for this register)
+        from app.models.session_planning import SessionPlan
+        session_plan = SessionPlan.query.filter_by(
+            group_time_id=register.group_time_id,
+            date=register.date,
+            teaching_period_id=register.teaching_period_id,
+            tennis_club_id=current_user.tennis_club_id,
+            is_active=True
+        ).first()
+        
+        if session_plan:
+            # Add trial players from the session plan
+            for trial_player in session_plan.trial_players:
+                entries.append({
+                    'id': f"trial_{trial_player.id}",
+                    'student_id': None,
+                    'student_name': trial_player.name,
+                    'attendance_status': 'present',  # Default trial players to present
+                    'notes': trial_player.notes or '',
+                    'player_id': None,
+                    'trial_player_id': trial_player.id,
+                    'predicted_attendance': False,
+                    'is_makeup': False,
+                    'is_trial': True,
+                    'group_name': None,
+                    'contact_email': trial_player.contact_email,
+                    'contact_number': trial_player.contact_number,
+                    'emergency_contact_number': None,
+                    'date_of_birth': trial_player.date_of_birth.isoformat() if trial_player.date_of_birth else None
+                })
+        
         # Get assistant coaches
         assistant_coaches = []
         for assistant in register.assistant_coaches:
@@ -283,7 +403,7 @@ def get_register(register_id):
             },
             'assistant_coaches': assistant_coaches,
             'notes': register.notes, 
-            'entries': entries,
+            'entries': entries,  # Now includes trial players
             'teaching_period': {
                 'id': register.teaching_period_id,
                 'name': register.teaching_period.name
@@ -291,9 +411,10 @@ def get_register(register_id):
         }
         
         # Log summary for debugging
-        regular_count = len([e for e in entries if not e['is_makeup']])
-        makeup_count = len([e for e in entries if e['is_makeup']])
-        current_app.logger.info(f"Register {register_id}: {regular_count} regular players, {makeup_count} makeup players")
+        regular_count = len([e for e in entries if not e.get('is_trial', False) and not e.get('is_makeup', False)])
+        makeup_count = len([e for e in entries if e.get('is_makeup', False)])
+        trial_count = len([e for e in entries if e.get('is_trial', False)])
+        current_app.logger.info(f"Register {register_id}: {regular_count} regular, {makeup_count} makeup, {trial_count} trial players")
         
         return jsonify(response)
         
@@ -360,58 +481,148 @@ def create_register():
                 )
                 db.session.add(assistant)
 
-        # Pre-populate entries for all students in this group time (regular players)
-        players = ProgrammePlayers.query.filter_by(
+        # Get ALL regular players for this group time and teaching period
+        all_regular_players = ProgrammePlayers.query.filter_by(
             group_time_id=data['group_time_id'],
             teaching_period_id=data['teaching_period_id'],
             tennis_club_id=current_user.tennis_club_id
         ).all()
-        
-        for player in players:
+
+        # Check if there's a session plan for this session
+        from app.models.session_planning import SessionPlan, PlannedAttendanceStatus, PlayerType
+        session_plan = SessionPlan.query.filter_by(
+            group_time_id=data['group_time_id'],
+            date=register_date,
+            teaching_period_id=data['teaching_period_id'],
+            tennis_club_id=current_user.tennis_club_id,
+            is_active=True
+        ).first()
+
+        # Create mapping of planned statuses if session plan exists
+        planned_statuses = {}
+        if session_plan:
+            for plan_entry in session_plan.plan_entries:
+                planned_statuses[plan_entry.programme_player_id] = plan_entry
+
+        # Create register entries for ALL regular players
+        regular_entries_added = 0
+        for player in all_regular_players:
+            plan_entry = planned_statuses.get(player.id)
+            
+            # Determine attendance status based on session plan or default
+            if plan_entry:
+                if plan_entry.planned_status == PlannedAttendanceStatus.PLANNED_PRESENT:
+                    attendance_status = AttendanceStatus.PRESENT
+                elif plan_entry.planned_status == PlannedAttendanceStatus.PLANNED_ABSENT:
+                    attendance_status = AttendanceStatus.AWAY_WITH_NOTICE
+                else:
+                    attendance_status = AttendanceStatus.PRESENT
+                notes = plan_entry.notes or ''
+            else:
+                # Player not in session plan - use default
+                attendance_status = AttendanceStatus.PRESENT
+                notes = ''
+            
             entry = RegisterEntry(
                 register_id=register.id,
                 programme_player_id=player.id,
-                attendance_status=AttendanceStatus.ABSENT,  # Default to absent
-                predicted_attendance=data.get('predicted_attendance', False)
+                attendance_status=attendance_status,
+                notes=notes,
+                predicted_attendance=True
             )
             db.session.add(entry)
+            regular_entries_added += 1
 
-        # Add makeup players if provided
-        makeup_player_ids = data.get('makeup_player_ids', [])
-        if makeup_player_ids:
-            current_app.logger.info(f"Adding {len(makeup_player_ids)} makeup players to register")
+        # Add makeup players from session plan (if any)
+        makeup_entries_added = 0
+        if session_plan:
+            for plan_entry in session_plan.plan_entries:
+                if (plan_entry.player_type == PlayerType.MAKEUP and 
+                    plan_entry.programme_player.group_time_id != data['group_time_id']):
+                    
+                    # Check if this makeup player is already added
+                    existing_entry = RegisterEntry.query.filter_by(
+                        register_id=register.id,
+                        programme_player_id=plan_entry.programme_player_id
+                    ).first()
+                    
+                    if not existing_entry:
+                        entry = RegisterEntry(
+                            register_id=register.id,
+                            programme_player_id=plan_entry.programme_player_id,
+                            attendance_status=AttendanceStatus.PRESENT,
+                            notes=plan_entry.notes or '',
+                            predicted_attendance=False
+                        )
+                        db.session.add(entry)
+                        makeup_entries_added += 1
+
+        # Add any additional makeup players from the request
+        additional_makeup_ids = data.get('makeup_player_ids', [])
+        additional_makeup_added = 0
+        if additional_makeup_ids:
+            # Get existing player IDs to avoid duplicates
+            existing_player_ids = {entry.programme_player_id for entry in 
+                                 RegisterEntry.query.filter_by(register_id=register.id).all()}
             
-            # Validate and add makeup players
-            makeup_players = ProgrammePlayers.query.filter(
-                ProgrammePlayers.id.in_(makeup_player_ids),
-                ProgrammePlayers.teaching_period_id == data['teaching_period_id'],
-                ProgrammePlayers.tennis_club_id == current_user.tennis_club_id
-            ).all()
+            # Filter out players already added
+            new_makeup_ids = [pid for pid in additional_makeup_ids if pid not in existing_player_ids]
             
-            # Verify all requested makeup players were found
-            found_ids = [p.id for p in makeup_players]
-            missing_ids = [pid for pid in makeup_player_ids if pid not in found_ids]
-            if missing_ids:
-                current_app.logger.warning(f"Some makeup players not found: {missing_ids}")
-            
-            for makeup_player in makeup_players:
-                # Create entry for makeup player
-                entry = RegisterEntry(
-                    register_id=register.id,
-                    programme_player_id=makeup_player.id,
-                    attendance_status=AttendanceStatus.PRESENT,  # Default makeup players to present
-                    predicted_attendance=False
-                )
-                db.session.add(entry)
-                current_app.logger.info(f"Added makeup player: {makeup_player.student.name} from group {makeup_player.tennis_group.name}")
-            
+            if new_makeup_ids:
+                makeup_players = ProgrammePlayers.query.filter(
+                    ProgrammePlayers.id.in_(new_makeup_ids),
+                    ProgrammePlayers.teaching_period_id==data['teaching_period_id'],
+                    ProgrammePlayers.tennis_club_id==current_user.tennis_club_id
+                ).all()
+                
+                for makeup_player in makeup_players:
+                    entry = RegisterEntry(
+                        register_id=register.id,
+                        programme_player_id=makeup_player.id,
+                        attendance_status=AttendanceStatus.PRESENT,
+                        notes='',
+                        predicted_attendance=False
+                    )
+                    db.session.add(entry)
+                    additional_makeup_added += 1
+
+        # Get trial players info if session plan exists
+        trial_players_info = []
+        if session_plan:
+            for trial_player in session_plan.trial_players:
+                trial_players_info.append({
+                    'id': trial_player.id,
+                    'name': trial_player.name,
+                    'contact_email': trial_player.contact_email,
+                    'contact_number': trial_player.contact_number,
+                    'notes': trial_player.notes,
+                    'date_of_birth': trial_player.date_of_birth.isoformat() if trial_player.date_of_birth else None
+                })
+
+        # Update register notes with session plan notes if they exist
+        if session_plan and session_plan.notes:
+            if register.notes:
+                register.notes = f"{register.notes}\n\nFrom session plan: {session_plan.notes}"
+            else:
+                register.notes = f"From session plan: {session_plan.notes}"
+
         # Commit all changes to database
         db.session.commit()
-        
-        return jsonify({
+
+        response_data = {
             'message': 'Register created successfully',
-            'register_id': register.id
-        }), 201
+            'register_id': register.id,
+            'used_session_plan': session_plan is not None,
+            'regular_entries_added': regular_entries_added,
+            'makeup_entries_added': makeup_entries_added,
+            'additional_makeup_added': additional_makeup_added,
+            'trial_players_info': trial_players_info,
+            'total_entries': regular_entries_added + makeup_entries_added + additional_makeup_added
+        }
+
+        current_app.logger.info(f"Register {register.id} created with {response_data['total_entries']} total entries")
+        
+        return jsonify(response_data), 201
         
     except Exception as e:
         db.session.rollback()
@@ -495,7 +706,7 @@ def update_register_entries(register_id):
         if not entries:
             return jsonify({'error': 'No entries provided'}), 400
             
-        # Define a direct mapping for attendance status
+        # Define status mapping
         status_map = {
             'present': AttendanceStatus.PRESENT,
             'absent': AttendanceStatus.ABSENT,
@@ -507,44 +718,46 @@ def update_register_entries(register_id):
         updated_count = 0
         errors = []
         
+        current_app.logger.info(f"Updating {len(entries)} register entries for register {register_id}")
+        
         # Use no_autoflush to prevent premature flushes
         with db.session.no_autoflush:
             for entry_data in entries:
-                entry_id = entry_data.get('id')
                 player_id = entry_data.get('player_id')
                 
-                # Find entry by ID or player ID
-                entry = None
-                if entry_id:
-                    entry = RegisterEntry.query.get(entry_id)
-                elif player_id:
-                    entry = RegisterEntry.query.filter_by(
-                        register_id=register_id,
-                        programme_player_id=player_id
-                    ).first()
-                    
-                if not entry:
-                    errors.append(f"Entry not found for ID: {entry_id or 'None'}, Player ID: {player_id or 'None'}")
+                if not player_id:
+                    errors.append(f"Missing player_id in entry data: {entry_data}")
                     continue
-                    
-                # Update attendance status using direct mapping with serializer
+                
+                # Find the register entry for this player
+                entry = RegisterEntry.query.filter_by(
+                    register_id=register_id,
+                    programme_player_id=player_id
+                ).first()
+                
+                if not entry:
+                    errors.append(f"Register entry not found for player_id: {player_id}")
+                    continue
+                
+                # Update attendance status
                 if 'attendance_status' in entry_data:
-                    # Normalize the input status
                     status_value = serialize_attendance_status(entry_data['attendance_status'])
                     if status_value in status_map:
                         entry.attendance_status = status_map[status_value]
+                        current_app.logger.debug(f"Updated player {player_id} attendance to {status_value}")
                     else:
-                        errors.append(f"Invalid attendance status for entry {entry.id}: {status_value}")
+                        errors.append(f"Invalid attendance status for player {player_id}: {status_value}")
                         continue
-                    
+                
                 # Update notes
                 if 'notes' in entry_data:
                     entry.notes = entry_data['notes']
-                    
+                    current_app.logger.debug(f"Updated player {player_id} notes")
+                
                 # Update predicted attendance
                 if 'predicted_attendance' in entry_data:
                     entry.predicted_attendance = bool(entry_data['predicted_attendance'])
-                    
+                
                 updated_count += 1
         
         # Commit the changes to the database
@@ -552,6 +765,8 @@ def update_register_entries(register_id):
         
         # Check for consecutive absences and send notification emails
         process_absence_notifications(register_id)
+        
+        current_app.logger.info(f"Successfully updated {updated_count} register entries")
         
         return jsonify({
             'message': f'Updated {updated_count} entries successfully',
@@ -883,15 +1098,36 @@ def get_attendance_stats():
 @login_required
 @verify_club_access()
 def get_group_time_players():
-    """Get players for a specific group time and teaching period"""
+    """Get players for a specific group time and teaching period with session plan information"""
     try:
         group_time_id = request.args.get('group_time_id', type=int)
         teaching_period_id = request.args.get('teaching_period_id', type=int)
+        date_str = request.args.get('date')  # Optional date for session plan lookup
         
         if not group_time_id or not teaching_period_id:
             return jsonify({'error': 'Group time ID and teaching period ID are required'}), 400
-            
-        # Get players for this group time and teaching period
+        
+        # Parse date if provided
+        session_date = None
+        if date_str:
+            try:
+                session_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+        
+        # Check for session plan if date is provided
+        session_plan = None
+        if session_date:
+            from app.models.session_planning import SessionPlan
+            session_plan = SessionPlan.query.filter_by(
+                group_time_id=group_time_id,
+                date=session_date,
+                teaching_period_id=teaching_period_id,
+                tennis_club_id=current_user.tennis_club_id,
+                is_active=True
+            ).first()
+        
+        # Get regular players for this group time and teaching period
         players = ProgrammePlayers.query.filter_by(
             group_time_id=group_time_id,
             teaching_period_id=teaching_period_id,
@@ -900,11 +1136,46 @@ def get_group_time_players():
             Student, ProgrammePlayers.student_id == Student.id
         ).all()
         
-        # Format as JSON
+        # Create a mapping of player IDs to their plan entries
+        plan_entries_map = {}
+        makeup_players_from_plan = []
+        
+        if session_plan:
+            from app.models.session_planning import PlayerType, PlannedAttendanceStatus
+            
+            # Map plan entries by player ID
+            for plan_entry in session_plan.plan_entries:
+                plan_entries_map[plan_entry.programme_player_id] = plan_entry
+                
+                # If this is a makeup player, add to makeup list
+                if plan_entry.player_type == PlayerType.MAKEUP:
+                    makeup_players_from_plan.append(plan_entry.programme_player_id)
+        
+        # Format regular players as JSON
         results = []
         for player in players:
             # Format date of birth if available, otherwise None
             dob = player.student.date_of_birth.isoformat() if player.student.date_of_birth else None
+            
+            # Get planned information if available
+            plan_entry = plan_entries_map.get(player.id)
+            planned_status = None
+            planned_notes = ''
+            is_makeup_from_plan = player.id in makeup_players_from_plan
+            
+            if plan_entry:
+                planned_status = plan_entry.planned_status.value
+                planned_notes = plan_entry.notes or ''
+            
+            # Determine default attendance status based on plan
+            default_attendance = 'present'  # Changed default to present
+            if plan_entry:
+                if plan_entry.planned_status == PlannedAttendanceStatus.PLANNED_PRESENT:
+                    default_attendance = 'present'
+                elif plan_entry.planned_status == PlannedAttendanceStatus.PLANNED_ABSENT:
+                    default_attendance = 'away_with_notice'  # Changed from absent to away_with_notice
+                elif plan_entry.planned_status in [PlannedAttendanceStatus.MAKEUP_PLAYER, PlannedAttendanceStatus.TRIAL_PLAYER]:
+                    default_attendance = 'present'
             
             results.append({
                 'id': player.id,
@@ -914,14 +1185,91 @@ def get_group_time_players():
                 'emergency_contact_number': player.student.emergency_contact_number,
                 'medical_information': player.student.medical_information,
                 'walk_home': player.walk_home,
-                'attendance_status': serialize_attendance_status('present'),  # Use serializer for consistency
-                'notes': '',
-                'predicted_attendance': False,
+                'attendance_status': serialize_attendance_status(default_attendance),
+                'notes': planned_notes,
+                'predicted_attendance': True,
                 'date_of_birth': dob,
-                'contact_email': player.student.contact_email
+                'contact_email': player.student.contact_email,
+                # Session plan information
+                'has_plan': plan_entry is not None,
+                'planned_status': planned_status,
+                'is_makeup_from_plan': is_makeup_from_plan,
+                'original_group_name': player.tennis_group.name if is_makeup_from_plan else None,
+                'is_trial': False,
+                'player_type': 'regular'
             })
         
-        return jsonify(results)
+        # Add makeup players from other groups if they're in the plan
+        if session_plan:
+            for plan_entry in session_plan.plan_entries:
+                if (plan_entry.player_type == PlayerType.MAKEUP and 
+                    plan_entry.programme_player_id not in [p.id for p in players]):
+                    
+                    makeup_player = plan_entry.programme_player
+                    if makeup_player and makeup_player.student:
+                        dob = makeup_player.student.date_of_birth.isoformat() if makeup_player.student.date_of_birth else None
+                        
+                        results.append({
+                            'id': makeup_player.id,
+                            'student_id': makeup_player.student_id,
+                            'student_name': makeup_player.student.name,
+                            'contact_number': makeup_player.student.contact_number,
+                            'emergency_contact_number': makeup_player.student.emergency_contact_number,
+                            'medical_information': makeup_player.student.medical_information,
+                            'walk_home': makeup_player.walk_home,
+                            'attendance_status': serialize_attendance_status('present'),
+                            'notes': plan_entry.notes or '',
+                            'predicted_attendance': False,
+                            'date_of_birth': dob,
+                            'contact_email': makeup_player.student.contact_email,
+                            # Session plan information
+                            'has_plan': True,
+                            'planned_status': plan_entry.planned_status.value,
+                            'is_makeup_from_plan': True,
+                            'original_group_name': makeup_player.tennis_group.name,
+                            'is_trial': False,
+                            'player_type': 'makeup'
+                        })
+        
+        # Add trial players from session plan
+        trial_players = []
+        if session_plan:
+            for trial_player in session_plan.trial_players:
+                trial_players.append({
+                    'id': f"trial_{trial_player.id}",  # Use special ID format to avoid conflicts
+                    'trial_player_id': trial_player.id,
+                    'student_id': None,
+                    'student_name': trial_player.name,
+                    'contact_number': trial_player.contact_number,
+                    'emergency_contact_number': None,
+                    'medical_information': None,
+                    'walk_home': None,
+                    'attendance_status': 'present',  # Default trial players to present
+                    'notes': trial_player.notes or '',
+                    'predicted_attendance': False,
+                    'date_of_birth': trial_player.date_of_birth.isoformat() if trial_player.date_of_birth else None,
+                    'contact_email': trial_player.contact_email,
+                    'is_trial': True,
+                    'player_type': 'trial'
+                })
+        
+        # Include session plan summary information
+        response = {
+            'players': results,
+            'trial_players': trial_players,
+            'session_plan': None
+        }
+        
+        if session_plan:
+            response['session_plan'] = {
+                'id': session_plan.id,
+                'notes': session_plan.notes,
+                'planned_by': session_plan.planned_by.name if session_plan.planned_by else 'Unknown',
+                'trial_players_count': len(trial_players),
+                'summary': session_plan.get_plan_summary()
+            }
+        
+        return jsonify(response)
         
     except Exception as e:
         current_app.logger.error(f"Error fetching group time players: {str(e)}")
@@ -979,9 +1327,6 @@ def get_coach_sessions():
         # Get all group times
         group_times = query.all()
         
-        # Log found group times
-        current_app.logger.info(f"Found {len(group_times)} group times for day {day_of_week}")
-        
         # Format as JSON
         results = []
         for group_time in group_times:
@@ -1015,7 +1360,6 @@ def get_coach_sessions():
                     'teaching_period_id': teaching_period_id
                 })
         
-        current_app.logger.info(f"Returning {len(results)} sessions")
         return jsonify(results)
         
     except Exception as e:
@@ -1496,10 +1840,13 @@ def search_makeup_players():
             return jsonify({'error': 'Missing required parameters'}), 400
         
         # Base query for players in the same teaching period but different group times
+        # JOIN with TennisGroupTimes to get day and time information
         players_query = ProgrammePlayers.query.join(
             Student, ProgrammePlayers.student_id == Student.id
         ).join(
             TennisGroup, ProgrammePlayers.group_id == TennisGroup.id
+        ).join(
+            TennisGroupTimes, ProgrammePlayers.group_time_id == TennisGroupTimes.id
         ).filter(
             ProgrammePlayers.teaching_period_id == teaching_period_id,
             ProgrammePlayers.tennis_club_id == current_user.tennis_club_id,
@@ -1520,6 +1867,8 @@ def search_makeup_players():
         for player in players:
             student = player.student
             group = player.tennis_group
+            # Get the group time information
+            group_time = player.group_time
             
             results.append({
                 'id': player.id,
@@ -1534,7 +1883,11 @@ def search_makeup_players():
                 'date_of_birth': student.date_of_birth.isoformat() if student.date_of_birth else None,
                 'attendance_status': 'present',
                 'notes': '',
-                'predicted_attendance': False
+                'predicted_attendance': False,
+                # ADD THE TIME INFORMATION HERE
+                'day_of_week': group_time.day_of_week.value if group_time and group_time.day_of_week else None,
+                'start_time': group_time.start_time.strftime('%H:%M:%S') if group_time and group_time.start_time else None,
+                'end_time': group_time.end_time.strftime('%H:%M:%S') if group_time and group_time.end_time else None
             })
         
         return jsonify(results)
@@ -2075,33 +2428,185 @@ def quick_create_register():
         db.session.add(register)
         db.session.flush()
         
-        # Pre-populate with students from this group/time
-        players = ProgrammePlayers.query.filter_by(
-            group_time_id=data['group_time_id'],
-            teaching_period_id=data['teaching_period_id'],
-            tennis_club_id=current_user.tennis_club_id
-        ).all()
+        # OPTIONAL: Try to apply session plan first (if admin has created one)
+        # If no session plan exists, we'll use the original logic below
+        plan_found, plan_entries_added, trial_players_info = apply_session_plan_to_register(
+            register, 
+            data['group_time_id'], 
+            register_date, 
+            data['teaching_period_id']
+        )
         
-        for player in players:
-            entry = RegisterEntry(
-                register_id=register.id,
-                programme_player_id=player.id,
-                attendance_status=AttendanceStatus.ABSENT,  # Default to absent
-                predicted_attendance=False
-            )
-            db.session.add(entry)
+        response_data = {
+            'message': 'Register created successfully',
+            'register_id': register.id,
+            'used_session_plan': plan_found,
+            'plan_entries_added': plan_entries_added,
+            'trial_players_info': trial_players_info
+        }
+        
+        if plan_found:
+            # SESSION PLAN FOUND - Use planned attendance
+            current_app.logger.info(f"Quick register {register.id} created using session plan with {plan_entries_added} planned entries")
+            response_data['student_count'] = plan_entries_added
+        else:
+            # NO SESSION PLAN - Use original default behavior
+            current_app.logger.info(f"No session plan found for quick register {register.id}, using standard player population")
+            
+            # Pre-populate with students from this group/time
+            players = ProgrammePlayers.query.filter_by(
+                group_time_id=data['group_time_id'],
+                teaching_period_id=data['teaching_period_id'],
+                tennis_club_id=current_user.tennis_club_id
+            ).all()
+            
+            for player in players:
+                entry = RegisterEntry(
+                    register_id=register.id,
+                    programme_player_id=player.id,
+                    attendance_status=AttendanceStatus.ABSENT,  # Default to absent
+                    predicted_attendance=False
+                )
+                db.session.add(entry)
+            
+            response_data['student_count'] = len(players)
         
         db.session.commit()
         
-        return jsonify({
-            'message': 'Register created successfully',
-            'register_id': register.id,
-            'student_count': len(players)
-        }), 201
+        return jsonify(response_data), 201
         
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error quick creating register: {str(e)}")
         current_app.logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
- 
+    
+@register_routes.route('/session-plans/overview')
+@login_required
+@verify_club_access()
+def get_session_plans_overview():
+    """Get an overview of upcoming sessions with their planning status"""
+    try:
+        # Parse query parameters
+        teaching_period_id = request.args.get('period_id', type=int)
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        # Get default teaching period if not specified
+        if not teaching_period_id:
+            current_period = TeachingPeriod.query.filter(
+                TeachingPeriod.tennis_club_id == current_user.tennis_club_id,
+                TeachingPeriod.start_date <= func.current_date(),
+                TeachingPeriod.end_date >= func.current_date()
+            ).order_by(TeachingPeriod.start_date.desc()).first()
+            
+            if current_period:
+                teaching_period_id = current_period.id
+            else:
+                return jsonify([])
+        
+        # Default to next 2 weeks if no date range specified
+        if not start_date:
+            today = date.today()
+            start_date = today.strftime('%Y-%m-%d')
+            
+        if not end_date:
+            start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+            end_date_obj = start_date_obj + timedelta(days=14)
+            end_date = end_date_obj.strftime('%Y-%m-%d')
+        
+        # Parse date strings
+        start_date_obj = datetime.strptime(start_date, '%Y-%m-%d').date()
+        end_date_obj = datetime.strptime(end_date, '%Y-%m-%d').date()
+        
+        # Get all group times for this club
+        group_times = TennisGroupTimes.query.filter_by(
+            tennis_club_id=current_user.tennis_club_id
+        ).all()
+        
+        # Generate session overview
+        sessions_overview = []
+        current_date = start_date_obj
+        
+        # Map day names to Python weekday numbers
+        day_mapping = {
+            DayOfWeek.MONDAY: 0,
+            DayOfWeek.TUESDAY: 1,
+            DayOfWeek.WEDNESDAY: 2,
+            DayOfWeek.THURSDAY: 3,
+            DayOfWeek.FRIDAY: 4,
+            DayOfWeek.SATURDAY: 5,
+            DayOfWeek.SUNDAY: 6
+        }
+        
+        while current_date <= end_date_obj:
+            current_weekday = current_date.weekday()
+            
+            # Find group times that match this day
+            for group_time in group_times:
+                if day_mapping.get(group_time.day_of_week) == current_weekday:
+                    # Check for session plan
+                    session_plan = SessionPlan.query.filter_by(
+                        group_time_id=group_time.id,
+                        date=current_date,
+                        teaching_period_id=teaching_period_id,
+                        tennis_club_id=current_user.tennis_club_id,
+                        is_active=True
+                    ).first()
+                    
+                    # Check for register
+                    register = Register.query.filter_by(
+                        group_time_id=group_time.id,
+                        date=current_date,
+                        teaching_period_id=teaching_period_id,
+                        tennis_club_id=current_user.tennis_club_id
+                    ).first()
+                    
+                    # Get group info
+                    group = group_time.tennis_group
+                    
+                    # Get player count
+                    player_count = ProgrammePlayers.query.filter_by(
+                        group_time_id=group_time.id,
+                        teaching_period_id=teaching_period_id,
+                        tennis_club_id=current_user.tennis_club_id
+                    ).count()
+                    
+                    # Skip if no players
+                    if player_count == 0:
+                        continue
+                    
+                    # Determine session status
+                    status = 'scheduled'
+                    if session_plan and register:
+                        status = 'planned_and_registered'
+                    elif session_plan:
+                        status = 'planned'
+                    elif register:
+                        status = 'registered'
+                    
+                    sessions_overview.append({
+                        'date': current_date.strftime('%Y-%m-%d'),
+                        'group_time_id': group_time.id,
+                        'group_name': group.name,
+                        'day_of_week': group_time.day_of_week.value,
+                        'start_time': group_time.start_time.strftime('%H:%M'),
+                        'end_time': group_time.end_time.strftime('%H:%M'),
+                        'player_count': player_count,
+                        'status': status,
+                        'has_plan': session_plan is not None,
+                        'has_register': register is not None,
+                        'plan_id': session_plan.id if session_plan else None,
+                        'register_id': register.id if register else None,
+                        'plan_summary': session_plan.get_plan_summary() if session_plan else None,
+                        'teaching_period_id': teaching_period_id
+                    })
+            
+            current_date += timedelta(days=1)
+        
+        return jsonify(sessions_overview)
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching session plans overview: {str(e)}")
+        current_app.logger.error(traceback.format_exc())
+        return jsonify({'error': str(e)}), 500

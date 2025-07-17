@@ -106,12 +106,13 @@
 
 <!-- Main Content -->
 <div class="max-w-7xl mx-auto px-4 -mt-8">
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <!-- Updated grid: 4 columns on large screens (lg:grid-cols-4) and reduced padding (p-6) -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <!-- Check permissions for each feature -->
         
         {% if current_user.tennis_club.has_feature('coaching_reports') %}
         <a href="{{ url_for('main.dashboard') }}" 
-           class="block p-8 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+           class="block p-6 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
             <div class="text-center">
                 <div class="text-4xl mb-4 text-sky-500">📊</div>
                 <h2 class="text-xl font-bold mb-3 text-gray-800">Coaching Reports</h2>
@@ -123,7 +124,7 @@
         <!-- Communication Hub Card -->
         {% if current_user.tennis_club.has_feature('communication_hub') %}
         <a href="{{ url_for('communication.hub') }}" 
-           class="block p-8 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative">
+           class="block p-6 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 relative">
             <div class="text-center">
                 <div class="text-4xl mb-4 text-sky-500">💬</div>
                 <h2 class="text-xl font-bold mb-3 text-gray-800">Communication Hub</h2>
@@ -135,7 +136,7 @@
         {% if current_user.is_admin or current_user.is_super_admin %}
             {% if current_user.tennis_club_id and current_user.tennis_club.has_feature('manage_programme') %}
             <a href="{{ url_for('club_management.manage_players', club_id=current_user.tennis_club_id) }}" 
-               class="block p-8 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+               class="block p-6 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
                 <div class="text-center">
                     <div class="text-4xl mb-4 text-sky-500">👥</div>
                     <h2 class="text-xl font-bold mb-3 text-gray-800">Manage Programme</h2>
@@ -147,7 +148,7 @@
 
         {% if current_user.tennis_club_id and current_user.tennis_club.has_feature('lta_accreditation') %}
         <a href="{{ url_for('main.lta_accreditation') }}" 
-           class="block p-8 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+           class="block p-6 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
             <div class="text-center">
                 <div class="text-4xl mb-4 text-sky-500">📋</div>
                 <h2 class="text-xl font-bold mb-3 text-gray-800">LTA Accreditation</h2>
@@ -158,7 +159,7 @@
 
         {% if current_user.tennis_club.has_feature('registers') %}
         <a href="{{ url_for('register_views.register_list') }}" 
-            class="block p-8 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+            class="block p-6 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
             <div class="text-center">
                 <div class="text-4xl mb-4 text-sky-500">📋</div>
                 <h2 class="text-xl font-bold mb-3 text-gray-800">Registers</h2>
@@ -170,11 +171,23 @@
         <!-- Add this to the grid after the registers section -->
         {% if current_user.tennis_club.has_feature('invoices') %}
         <a href="{{ url_for('invoice_views.invoice_list') }}" 
-        class="block p-8 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+        class="block p-6 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
             <div class="text-center">
                 <div class="text-4xl mb-4 text-sky-500">💼</div>
                 <h2 class="text-xl font-bold mb-3 text-gray-800">Invoices</h2>
                 <p class="text-gray-600">Generate and manage coaching invoices</p>
+            </div>
+        </a>
+        {% endif %}
+
+        <!-- Session Planning Card (Admin Only) -->
+        {% if (current_user.is_admin or current_user.is_super_admin) and current_user.tennis_club.has_feature('session_planning') %}
+        <a href="{{ url_for('session_planning_views.session_plans_list') }}" 
+            class="block p-6 bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1">
+            <div class="text-center">
+                <div class="text-4xl mb-4 text-sky-500">📅</div>
+                <h2 class="text-xl font-bold mb-3 text-gray-800">Session Planning</h2>
+                <p class="text-gray-600">Plan session attendance in advance</p>
             </div>
         </a>
         {% endif %}
