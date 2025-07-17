@@ -8,12 +8,19 @@ interface RegisterDetailProps {
 }
 
 interface RegisterEntry {
-  id: number;
-  student_id: number;
+  id: number | string;
+  student_id: number | null;
   student_name: string;
   attendance_status: AttendanceStatus;
   notes: string | null;
   predicted_attendance: boolean;
+  is_makeup?: boolean;
+  is_trial?: boolean;
+  group_name?: string;
+  trial_player_id?: number;
+  contact_email?: string;
+  contact_number?: string;
+  date_of_birth?: string;
 }
 
 interface Coach {
@@ -38,7 +45,7 @@ interface RegisterData {
     id: number;
     name: string;
   };
-  assistant_coaches?: Coach[]; // Added assistant coaches
+  assistant_coaches?: Coach[];
   notes: string | null;
   entries: RegisterEntry[];
   teaching_period: {
@@ -206,6 +213,15 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
     return rate;
   };
 
+  // Separate entries by type
+  const separateEntries = (entries: RegisterEntry[] = []) => {
+    const regular = entries.filter(entry => !entry.is_trial && !entry.is_makeup);
+    const makeup = entries.filter(entry => entry.is_makeup && !entry.is_trial);
+    const trial = entries.filter(entry => entry.is_trial);
+    
+    return { regular, makeup, trial };
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -247,6 +263,7 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
   // Calculate stats if they don't exist yet
   const attendanceCounts = register.stats || calculateAttendanceCounts(register.entries);
   const attendanceRate = register.stats?.attendance_rate ?? calculateAttendanceRate(register.entries);
+  const { regular, makeup, trial } = separateEntries(register.entries);
 
   return (
     <div className="space-y-6">
@@ -334,6 +351,28 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
             <p className="text-2xl font-bold text-blue-700">{attendanceCounts.sick || 0}</p>
           </div>
         </div>
+
+        {/* Player type breakdown */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="p-3 bg-gray-50 rounded-lg">
+            <p className="text-sm text-gray-600">Regular Players</p>
+            <p className="text-xl font-bold text-gray-700">{regular.length}</p>
+          </div>
+          
+          {makeup.length > 0 && (
+            <div className="p-3 bg-blue-50 rounded-lg">
+              <p className="text-sm text-blue-600">Makeup Players</p>
+              <p className="text-xl font-bold text-blue-700">{makeup.length}</p>
+            </div>
+          )}
+          
+          {trial.length > 0 && (
+            <div className="p-3 bg-purple-50 rounded-lg">
+              <p className="text-sm text-purple-600">Trial Players</p>
+              <p className="text-xl font-bold text-purple-700">{trial.length}</p>
+            </div>
+          )}
+        </div>
         
         <div className="mb-2">
           <div className="flex justify-between mb-1">
@@ -382,10 +421,26 @@ const RegisterDetailView: React.FC<RegisterDetailProps> = ({ registerId, onNavig
                   return (
                     <tr key={entry.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{entry.student_name}</div>
-                        {entry.predicted_attendance && (
-                          <div className="text-xs text-gray-500">Predicted attendance</div>
-                        )}
+                        <div className="flex items-center gap-2">
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">{entry.student_name}</div>
+                            <div className="flex items-center gap-1 mt-1">
+                              {entry.predicted_attendance && (
+                                <span className="text-xs text-gray-500">Predicted attendance</span>
+                              )}
+                              {entry.is_makeup && (
+                                <span className="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
+                                  Makeup ({entry.group_name})
+                                </span>
+                              )}
+                              {entry.is_trial && (
+                                <span className="px-2 py-1 text-xs rounded-full bg-purple-100 text-purple-800">
+                                  Trial Player
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${className}`}>
