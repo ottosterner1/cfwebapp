@@ -24,11 +24,6 @@ interface UserInfo {
   name: string;
 }
 
-interface DayOfWeek {
-  value: string;
-  label: string;
-}
-
 interface TrialPlayer {
   id: number;
   name: string;

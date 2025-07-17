@@ -87,7 +87,6 @@ const SessionPlanCreate: React.FC<SessionPlanCreateProps> = ({
   onSuccess,
   selectedPeriodId,
   teachingPeriods,
-  userRole,
   initialData
 }) => {
   const [loading, setLoading] = useState(false);

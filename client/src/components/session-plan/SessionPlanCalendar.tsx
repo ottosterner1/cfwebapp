@@ -112,7 +112,7 @@ const SessionPlanCalendar: React.FC<SessionPlanCalendarProps> = ({
   const [sessionPlans, setSessionPlans] = useState<SessionPlan[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+  const [,setUserInfo] = useState<UserInfo | null>(null);
   const [currentDayIndex, setCurrentDayIndex] = useState<number>(getCurrentDayIndex());
 
   // Modal states
